@@ -16,7 +16,6 @@ set(IMGUI_SOURCE_FILES
     ${IMGUI_DIRECTORY}/imstb_truetype.h
     ${IMGUI_DIRECTORY}/imgui_demo.cpp
     
-    ${IMGUI_DIRECTORY}/backends/imgui_impl_opengl3_loader.h
     ${IMGUI_DIRECTORY}/backends/imgui_impl_opengl3.cpp
     ${IMGUI_DIRECTORY}/backends/imgui_impl_opengl3.h
 

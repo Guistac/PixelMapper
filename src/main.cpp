@@ -41,7 +41,9 @@ int main(){
     glfwMakeContextCurrent(mainWindow);
     glfwSwapInterval(1);
 
-    if(!gladLoadGL()) return 0;
+    if(!gladLoadGL()) {
+        return 0;
+    }
 
     //initialize gui contexts
     IMGUI_CHECKVERSION();
@@ -64,19 +66,21 @@ int main(){
 
         // Rendering
         ImGui::Render();
+
+        int display_w, display_h;
+        glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0,0,0,255);
+        glClear(GL_COLOR_BUFFER_BIT);
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-       int display_w, display_h;
-       glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
-       glViewport(0, 0, display_w, display_h);
-       glClearColor(0,0,0,255);
-       glClear(GL_COLOR_BUFFER_BIT);
-
         glfwSwapBuffers(mainWindow);
     }
 
-
-
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 	glfwTerminate();
+
     return 1;
 }

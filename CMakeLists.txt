@@ -31,7 +31,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/glm.cmake)
 
 # I/O
 set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/IO)
-#include(${CMAKE_CURRENT_LIST_DIR}/cmake/spdlog.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/tinyxml2.cmake)
 
 set(PixelMapperDeps
