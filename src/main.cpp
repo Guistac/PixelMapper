@@ -1,10 +1,14 @@
 #include <iostream>
 
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#define IMGUI_IMPL_OPENGL_LOADER_CUSTOM
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <glad/glad.h>
 
+#define GL_SILENCE_DEPRECATION
 
 void glfw_error_callback(int error, const char* description){
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -36,8 +40,8 @@ int main(){
     //activate the opengl context & activate vsync
     glfwMakeContextCurrent(mainWindow);
     glfwSwapInterval(1);
-    
-    //load gl functions?
+
+    if(!gladLoadGL()) return 0;
 
     //initialize gui contexts
     IMGUI_CHECKVERSION();
@@ -45,9 +49,7 @@ int main(){
     
     //initialize glfw & opengl backends
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
-    ImGui_ImplOpenGL3_Init("#version 310 core");
-
-
+    ImGui_ImplOpenGL3_Init(glsl_version);
 
 
     while(!glfwWindowShouldClose(mainWindow)){
@@ -58,16 +60,17 @@ int main(){
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        /*
+        ImGui::ShowDemoWindow();
+
         // Rendering
         ImGui::Render();
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-        glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        */
+
+       int display_w, display_h;
+       glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
+       glViewport(0, 0, display_w, display_h);
+       glClearColor(0,0,0,255);
+       glClear(GL_COLOR_BUFFER_BIT);
 
         glfwSwapBuffers(mainWindow);
     }

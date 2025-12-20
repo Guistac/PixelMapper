@@ -23,9 +23,11 @@ set(GuiDepsFolder ${DEPENDENCIES_DIRECTORY}/Gui)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/glfw.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/dearimgui.cmake)
 
-# Utilities
-set(utilitiyDepsFolder ${DEPENDENCIES_DIRECTORY}/Utilities)
+# Graphics
+set(graphicsDepsFolder ${DEPENDENCIES_DIRECTORY}/Graphics)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/glad.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/glm.cmake)
+
 
 # I/O
 set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/IO)
@@ -36,6 +38,7 @@ set(PixelMapperDeps
 	glfw
     dearimgui
     glm
+	glad
     tinyxml2
 )
 
