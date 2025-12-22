@@ -49,6 +49,8 @@ set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/main.cpp
+	${PROJECT_SRC_DIR}/PixelMapper.h
+	${PROJECT_SRC_DIR}/PixelMapper.cpp
 )
 
 # utility to match source file hierarchy in IDE
