@@ -1,6 +1,10 @@
+#pragma once
+
 #include <stdint.h>
 #include <cstdio>
 #include <glm/glm.hpp>
+
+namespace PixelMapper{
 
 struct Pixel{
     uint8_t r,g,b,w,a;
@@ -32,3 +36,10 @@ public:
 
     void buildPixels();
 };
+
+extern Patch currentPatch;
+
+void init();
+void gui();
+
+}

@@ -25,13 +25,20 @@ set(IMGUI_SOURCE_FILES
 
 source_group(TREE ${IMGUI_DIRECTORY} FILES ${IMGUI_SOURCE_FILES})
 
+
 add_library(dearimgui ${IMGUI_SOURCE_FILES})
 
 target_include_directories(dearimgui PUBLIC
     ${IMGUI_DIRECTORY}
     ${IMGUI_DIRECTORY}/backends
+
+    ${IMGUI_DIRECTORY}/../../src/utils
 )
+
+target_compile_definitions(dearimgui PUBLIC IMGUI_USER_CONFIG="imguiconfig.h")
+# Make sure the directory containing your config file is in the include path
 
 target_link_libraries(dearimgui PUBLIC
     glfw
+    glm
 )

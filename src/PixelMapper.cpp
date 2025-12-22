@@ -1,5 +1,16 @@
 #include "PixelMapper.h"
 
+
+namespace PixelMapper{
+
+Patch currentPatch;
+
+void init(){
+    currentPatch.fixtures.push_back(
+        Fixture{.startPos = glm::vec2(0.0, 0.0), .endPos = glm::vec2(100.0, 150.0)}
+    );
+}
+
 //called on any fixture addition, removal or size change
 void Patch::buildPixels(){
     //count the new pixel amount
@@ -32,4 +43,6 @@ void Fixture::calcPixelPositions(){
         float range = float(i) / float(pixelCount - 1);
         startPixel[i].pos = startPos + range * size;
     }
+}
+
 }

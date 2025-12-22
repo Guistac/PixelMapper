@@ -8,6 +8,8 @@
 #include <backends/imgui_impl_opengl3.h>
 #include <glad/glad.h>
 
+#include "PixelMapper.h"
+
 #define GL_SILENCE_DEPRECATION
 
 void glfw_error_callback(int error, const char* description){
@@ -53,6 +55,8 @@ int main(){
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    PixelMapper::init();
+
 
     while(!glfwWindowShouldClose(mainWindow)){
         glfwPollEvents();
@@ -63,6 +67,8 @@ int main(){
         ImGui::NewFrame();
 
         ImGui::ShowDemoWindow();
+
+        PixelMapper::gui();
 
         // Rendering
         ImGui::Render();
