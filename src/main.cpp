@@ -50,6 +50,11 @@ int main(){
     //initialize gui contexts
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+
+    //enable docking & viewports
+    ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     
     //initialize glfw & opengl backends
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
@@ -59,6 +64,10 @@ int main(){
 
 
     while(!glfwWindowShouldClose(mainWindow)){
+
+        //with multiple viewports the context of the main window needs to be set on each frame
+		glfwMakeContextCurrent(mainWindow);
+
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -66,7 +75,19 @@ int main(){
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow();
+        if(ImGui::BeginMainMenuBar()){
+            if(ImGui::BeginMenu("PixelMapper")){
+                ImGui::EndMenu();
+            }
+            if(ImGui::BeginMenu("Edit")){
+                ImGui::EndMenu();
+            }
+            if(ImGui::BeginMenu("View")){
+                ImGui::EndMenu();
+            }
+            ImGui::EndMainMenuBar();
+        }
+        ImGui::DockSpaceOverViewport();
 
         PixelMapper::gui();
 
@@ -81,6 +102,12 @@ int main(){
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(mainWindow);
+
+        //Update and Render additional Viewports
+		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+			ImGui::UpdatePlatformWindows();
+			ImGui::RenderPlatformWindowsDefault();
+		}
     }
 
     ImGui_ImplOpenGL3_Shutdown();
