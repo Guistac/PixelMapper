@@ -32,14 +32,14 @@ target_include_directories(dearimgui PUBLIC
     ${IMGUI_DIRECTORY}
     ${IMGUI_DIRECTORY}/backends
 
+    #config file, used for casting between glm::vec2 and ImVec2
     ${IMGUI_DIRECTORY}/../../src/utils
 )
 
-target_compile_definitions(dearimgui PUBLIC IMGUI_USER_CONFIG="imguiconfig.h")
 # Make sure the directory containing your config file is in the include path
+target_compile_definitions(dearimgui PUBLIC IMGUI_USER_CONFIG="imguiconfig.h")
 
 target_link_libraries(dearimgui PUBLIC
     glfw
     glm
-    X11
 )
