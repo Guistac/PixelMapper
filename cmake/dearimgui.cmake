@@ -41,4 +41,5 @@ target_compile_definitions(dearimgui PUBLIC IMGUI_USER_CONFIG="imguiconfig.h")
 target_link_libraries(dearimgui PUBLIC
     glfw
     glm
+    X11
 )
