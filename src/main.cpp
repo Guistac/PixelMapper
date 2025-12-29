@@ -64,6 +64,8 @@ int main(){
 
     while(!glfwWindowShouldClose(mainWindow)){
 
+		PixelMapper::world.progress(); //call this on each frame for flecs::rest to work
+		
         //with multiple viewports the context of the main window needs to be set on each frame
 		glfwMakeContextCurrent(mainWindow);
 

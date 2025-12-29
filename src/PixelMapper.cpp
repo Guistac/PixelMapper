@@ -6,6 +6,9 @@ flecs::world world;
 
 void init(){
 
+    world.import<flecs::stats>();
+    world.set<flecs::Rest>({});
+
     //register an observer with callback for FixtureLine Set or Modify
     world.observer<FixtureLine>()
         .event(flecs::OnSet) // Triggered when .set<FixtureSegment> is called
@@ -33,7 +36,6 @@ void init(){
 
 // Helper to spawn a new fixture
 flecs::entity CreateFixture(glm::vec2 start, glm::vec2 end, int numPixels) {
-    auto f = world.entity().add<IsFixture>();
 
     //Create Pixels as children
     for(int i = 0; i < numPixels; i++) {
