@@ -29,16 +29,17 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/glad.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/glm.cmake)
 
 
-# I/O
-set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/IO)
+# System
+set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/System)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/flecs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/tinyxml2.cmake)
 
 set(PixelMapperDeps
-	glfw
     dearimgui
     glm
 	glad
     tinyxml2
+	flecs
 )
 
 

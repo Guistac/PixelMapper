@@ -1,17 +1,19 @@
-#include "PixelMapper.h"
-
 #include <imgui.h>
-
+#include "PixelMapper.h"
 
 class ImGuiCanvas{
 public:
 
-    //screenspace
+    //screen space
     glm::vec2 offset = glm::vec2(0.0, 0.0);
-    float scaling = 1.0;
-    //screenspace
     glm::vec2 frameMin, frameMax, frameSize;
+
+    float scaling = 1.0;
+
+    //canvas space
     glm::vec2 canvasMin, canvasMax, canvasSize;
+
+    ImDrawList* drawing;
 
     glm::vec2 canvasToScreen(glm::vec2 in){
         return in * scaling - offset + frameMin;
@@ -21,11 +23,11 @@ public:
         return (in - frameMin + offset) / scaling;
     }
 
-    ImDrawList* draw(const char* id, ImVec2 size){
+    ImDrawList* begin(const char* id, ImVec2 size){
         if(size.x <= 0.0 || size.y <= 0.0) return nullptr;
 
         //Main Interaction Widget
-        ImGui::InvisibleButton("Canvas", ImGui::GetContentRegionAvail());
+        ImGui::InvisibleButton(id, size);
         frameMin = ImGui::GetItemRectMin();
         frameMax = ImGui::GetItemRectMax();
         frameSize = ImGui::GetItemRectSize();
@@ -51,62 +53,81 @@ public:
         canvasMax = screenToCanvas(frameMax);
         canvasSize = frameSize / scaling;
 
-        return ImGui::GetWindowDrawList();
+        ImGui::PushClipRect(frameMin, frameMax, true);
+
+        drawing = ImGui::GetWindowDrawList();
+        return drawing;
+    }
+
+    void end(){
+        ImGui::PopClipRect();
+    }
+
+    void drawGrid(float lineSpacing){
+        uint32_t markerColor = 0xFF000000;
+        float markerWidth = 1.0;
+        for(float xMarker = std::floor(canvasMin.x / lineSpacing) * lineSpacing;
+            xMarker < canvasMax.x;
+            xMarker += lineSpacing){
+                glm::vec2 markerMin = canvasToScreen(glm::vec2(xMarker, canvasMin.y));
+                glm::vec2 markerMax = canvasToScreen(glm::vec2(xMarker, canvasMax.y));
+                drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
+        }
+        for(float yMarker = std::floor(canvasMin.y / lineSpacing) * lineSpacing;
+            yMarker < canvasMax.y;
+            yMarker += lineSpacing){
+                glm::vec2 markerMin = canvasToScreen(glm::vec2(canvasMin.x, yMarker));
+                glm::vec2 markerMax = canvasToScreen(glm::vec2(canvasMax.x, yMarker));
+                drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
+        }
+    }
+
+    bool isDoubleClicked(glm::vec2& canvasClickPos){
+        if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)){
+            canvasClickPos = screenToCanvas(ImGui::GetMousePos());
+            return true;
+        }
+        return false;
     }
 };
 
 
-
 namespace PixelMapper{
 
-    
+
 ImGuiCanvas canvas;
 
+void gui() {
+    if (ImGui::Begin("Patch Editor")) {
+        if (ImDrawList* drawing = canvas.begin("Canvas", ImGui::GetContentRegionAvail())) {
+            
+            //draw background
+            drawing->AddRectFilled(canvas.frameMin, canvas.frameMax, 0xFF333333);
+            canvas.drawGrid(100.0);
 
-void gui(){
-    if(ImGui::Begin("Patch Editor")){
-
-        if(ImDrawList* drawing = canvas.draw("Canvas", ImGui::GetContentRegionAvail())){
-
-            ImGui::PushClipRect(canvas.frameMin, canvas.frameMax, true);
-
-            drawing->AddRectFilled(canvas.frameMin, canvas.frameMax, 0xFFFFFFFF);
-
-            float markerStep = 1000.0;
-            uint32_t markerColor = 0xFF000088;
-            float markerWidth = 1.0;
-            for(float xMarker = std::floor(canvas.canvasMin.x / markerStep) * markerStep;
-                xMarker < canvas.canvasMax.x;
-                xMarker += markerStep){
-                    glm::vec2 markerMin = canvas.canvasToScreen(glm::vec2(xMarker, canvas.canvasMin.y));
-                    glm::vec2 markerMax = canvas.canvasToScreen(glm::vec2(xMarker, canvas.canvasMax.y));
-                    drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
+            //double click to add fixtures
+            glm::vec2 canvasClickPos;
+            if (canvas.isDoubleClicked(canvasClickPos)) {
+                CreateFixture(canvasClickPos, canvasClickPos + glm::vec2(100, 100), 10);
             }
-               for(float yMarker = std::floor(canvas.canvasMin.y / markerStep) * markerStep;
-                yMarker < canvas.canvasMax.y;
-                yMarker += markerStep){
-                    glm::vec2 markerMin = canvas.canvasToScreen(glm::vec2(canvas.canvasMin.x, yMarker));
-                    glm::vec2 markerMax = canvas.canvasToScreen(glm::vec2(canvas.canvasMax.x, yMarker));
-                    drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
-            }
-                
 
-
-            if(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)){
-                glm::vec2 fixturePos = canvas.screenToCanvas(ImGui::GetMousePos());
-                    currentPatch.fixtures.push_back(
-                        Fixture{.startPos = fixturePos, .endPos = fixturePos + glm::vec2(100.0, 100.0)}
-                    );
-                }
-
-            for(auto& fixture : currentPatch.fixtures){
+            //draw fixtures
+            world.query<const FixtureLine>().each([&](const FixtureLine& f) {
                 drawing->AddLine(
-                    canvas.canvasToScreen(fixture.startPos),
-                    canvas.canvasToScreen(fixture.endPos),
+                    canvas.canvasToScreen(f.start),
+                    canvas.canvasToScreen(f.end),
                     0xFF0000FF, 5.0);
-            }
+            });
 
-            ImGui::PopClipRect();
+            //draw pixels
+            auto pixelQuery = world.query_builder<const Position>()
+                .with<IsPixel>()
+                .build();
+            pixelQuery.each([&](const Position& p){
+                drawing->AddCircleFilled(canvas.canvasToScreen(p.value), 2.0f, 0xFF000000);
+            });
+
+            canvas.end();
         }
     }
     ImGui::End();

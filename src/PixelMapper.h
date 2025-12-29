@@ -4,42 +4,37 @@
 #include <cstdio>
 #include <glm/glm.hpp>
 
+#include <flecs.h>
+
+
 namespace PixelMapper{
 
-struct Pixel{
-    uint8_t r,g,b,w,a;
-    glm::vec2 pos;
+struct Color { uint8_t r, g, b, w, a; };
+struct Position { glm::vec2 value; };
+
+struct FixtureLine {
+    glm::vec2 start;
+    glm::vec2 end;
+    size_t count;
 };
 
-class Fixture{
-public:
-    glm::vec2 startPos;
-    glm::vec2 endPos;
-    uint16_t dmxUniverseStart;
-    uint16_t dmxAddressStart;
-    size_t pixelCount;
-    Pixel* startPixel;
-    
-    void calcPixelPositions();
+struct DmxAddress {
+    uint16_t universe;
+    uint16_t address;
 };
 
-struct Controller{
-    uint32_t ip;
-    uint8_t universeStart;
+struct IpAddress {
+    uint32_t value;
 };
 
-class Patch{
-public:
-    std::vector<Pixel> pixels;
-    std::vector<Fixture> fixtures;
-    std::vector<Controller> controllers;
+struct IsFixture {};
+struct IsPixel {};
+struct IsController {};
 
-    void buildPixels();
-};
-
-extern Patch currentPatch;
+extern flecs::world world;
 
 void init();
+flecs::entity CreateFixture(glm::vec2 start, glm::vec2 end, int numPixels);
 void gui();
 
 }

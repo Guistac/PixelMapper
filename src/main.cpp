@@ -62,7 +62,6 @@ int main(){
 
     PixelMapper::init();
 
-
     while(!glfwWindowShouldClose(mainWindow)){
 
         //with multiple viewports the context of the main window needs to be set on each frame
