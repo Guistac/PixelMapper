@@ -1,21 +1,47 @@
 #pragma once
 
 #include <stdint.h>
-#include <cstdio>
 #include <glm/glm.hpp>
-
 #include <flecs.h>
 
 
 namespace PixelMapper{
 
-struct Color { uint8_t r, g, b, w, a; };
-struct Position { glm::vec2 value; };
+extern flecs::world world;
+void init();
 
-struct FixtureLine {
+
+
+
+
+struct Patch {
+    float refreshRate;
+};
+struct SelectedFixture{
+    flecs::entity fixture;
+};
+
+flecs::entity createPatch();
+flecs::entity getPatch();
+
+
+
+
+struct Fixture{
+    int pixelCount;
+    int channelsPerPixel;
+};
+
+struct Line {
     glm::vec2 start;
     glm::vec2 end;
-    size_t count;
+    float length;
+    bool b_fixedLength = true;
+};
+
+struct Pixel{
+    uint8_t r, g, b, w, a;
+    glm::vec2 position;
 };
 
 struct DmxAddress {
@@ -23,18 +49,28 @@ struct DmxAddress {
     uint16_t address;
 };
 
-struct IpAddress {
-    uint32_t value;
+flecs::entity createFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
+flecs::entity getSelectedFixture(flecs::entity patch);
+void selectFixture(flecs::entity patch, flecs::entity fixture);
+
+
+
+
+
+
+struct DmxOutput{};
+struct DmxUniverse{
+    int universeNumber;
+    std::vector<uint8_t> data;
 };
 
-struct IsFixture {};
-struct IsPixel {};
-struct IsController {};
+struct DmxController{
+    uint32_t ipAddress;
+    std::vector<uint16_t> universes;
+};
 
-extern flecs::world world;
 
-void init();
-flecs::entity CreateFixture(glm::vec2 start, glm::vec2 end, int numPixels);
+
 void gui();
 
 }
