@@ -17,21 +17,12 @@ public:
 
     ImDrawList* drawing;
 
-    glm::vec2 canvasToScreen(glm::vec2 in){
-        return in * scaling - offset + frameMin;
-    }
-
-    glm::vec2 screenToCanvas(glm::vec2 in){
-        return (in - frameMin + offset) / scaling;
-    }
-
-    glm::vec2 screenSizeToCanvasSize(glm::vec2 in){
-        return in / scaling;
-    }
-
-    glm::vec2 canvasSizeToScreenSize(glm::vec2 in){
-        return in * scaling;
-    }
+    glm::vec2 canvasToScreen(glm::vec2 in){ return in * scaling - offset + frameMin; }
+    glm::vec2 screenToCanvas(glm::vec2 in){ return (in - frameMin + offset) / scaling; }
+    glm::vec2 screenSizeToCanvasSize(glm::vec2 in){ return in / scaling; }
+    glm::vec2 canvasSizeToScreenSize(glm::vec2 in){ return in * scaling; }
+    float screenSizeToCanvasSize(float in){ return in / scaling; }
+    float canvasSizeToScreenSize(float in){ return in * scaling; }
 
     ImDrawList* begin(const char* id, ImVec2 size){
         if(size.x <= 0.0 || size.y <= 0.0) return nullptr;
@@ -92,8 +83,8 @@ public:
         }
     }
 
-    bool isDoubleClicked(glm::vec2& canvasClickPos){
-        if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)){
+    bool isDoubleClicked(glm::vec2& canvasClickPos, ImGuiMouseButton button = ImGuiMouseButton_Left){
+        if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(button)){
             canvasClickPos = screenToCanvas(ImGui::GetMousePos());
             return true;
         }
@@ -140,7 +131,6 @@ void gui() {
                 bool edited = false;
                 ImGui::SeparatorText("Fixture");
                 edited |= ImGui::InputInt("Pixel Count", &f.pixelCount);
-                edited |= ImGui::InputInt("Channels Per Pixel", &f.channelsPerPixel);
                 if(edited){
                     selectedFixture.set<Fixture>(f);
                 }
@@ -153,6 +143,16 @@ void gui() {
                 edited |= ImGui::InputFloat2("End Position", &l.end.x, "%.1fmm");
                 if(edited){
                     selectedFixture.set<Line>(l);
+                }
+            }
+            if(selectedFixture.has<Circle>()){
+                Circle c = selectedFixture.get<Circle>();
+                bool edited = false;
+                ImGui::SeparatorText("Circle");
+                edited |= ImGui::InputFloat2("Center", &c.center.x, "%.1fmm");
+                edited |= ImGui::InputFloat("Radius", &c.radius, 0.0, 0.0, "%.1fmm");
+                if(edited){
+                    selectedFixture.set<Circle>(c);
                 }
             }
             if(selectedFixture.has<DmxAddress>()){
@@ -187,7 +187,10 @@ void gui() {
             //double click to add fixtures
             glm::vec2 canvasClickPos;
             if (canvas.isDoubleClicked(canvasClickPos)) {
-                createFixture(selectedPatch, canvasClickPos, canvasClickPos + glm::vec2(100, 100));
+                createLineFixture(selectedPatch, canvasClickPos, canvasClickPos + glm::vec2(100, 100));
+            }
+            if (canvas.isDoubleClicked(canvasClickPos, ImGuiMouseButton_Right)) {
+                createCircleFixture(selectedPatch, canvasClickPos, 100);
             }
 
             //draw all fixtures
@@ -201,6 +204,19 @@ void gui() {
                         canvas.canvasToScreen(l.start),
                         canvas.canvasToScreen(l.end),
                         fixtureColor, 5.0);
+                });
+            world.query_builder<const Fixture, const Circle>()
+                .with(flecs::ChildOf, selectedPatch)
+                .build()
+                .each([&](flecs::entity e, const Fixture& f, const Circle& c) {
+                    uint32_t fixtureColor = 0xFF0000FF;
+                    if(e == selectedFixture) fixtureColor = 0xFF00FFFF;
+                    drawing->AddCircle(
+                        canvas.canvasToScreen(c.center),
+                        canvas.canvasSizeToScreenSize(c.radius),
+                        fixtureColor,
+                        f.pixelCount,
+                        5.0);
                 });
 
             //draw all pixels
@@ -236,21 +252,19 @@ void gui() {
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, grabSize * 0.5);
             world.query_builder<const Fixture>()
-                .with(flecs::ChildOf, selectedPatch)
-                .build()
-                .each([&](flecs::entity e, const Fixture& f){
-                    if(e.has<Line>()){
-                        Line l = e.get<Line>();
-                        bool edited = false;
-                        ImGui::PushID(e.id());
-                        edited |= dragHandle("##Start", l.start);
-                        edited |= dragHandle("##End", l.end);
-                        ImGui::PopID();
-                        if(edited){
-                            e.set<Line>(l);
-                        }
-                    }
-                });
+            .with(flecs::ChildOf, selectedPatch)
+            .build()
+            .each([&](flecs::entity e, const Fixture& f){
+                if(e.has<Line>()){
+                    Line l = e.get<Line>();
+                    bool edited = false;
+                    ImGui::PushID(e.id());
+                    edited |= dragHandle("##Start", l.start);
+                    edited |= dragHandle("##End", l.end);
+                    ImGui::PopID();
+                    if(edited) e.set<Line>(l);
+                }
+            });
             ImGui::PopStyleColor(3);
             ImGui::PopStyleVar();
 

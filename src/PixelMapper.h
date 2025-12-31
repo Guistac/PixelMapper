@@ -12,6 +12,7 @@ void init();
 
 
 
+struct Dirty{};
 
 
 struct Patch {
@@ -20,25 +21,27 @@ struct Patch {
 struct SelectedFixture{
     flecs::entity fixture;
 };
+struct RenderArea{
+    glm::vec2 min;
+    glm::vec2 max;
+};
 
 flecs::entity createPatch();
 flecs::entity getPatch();
 
 
 
-
 struct Fixture{
-    int pixelCount;
-    int channelsPerPixel;
+    int pixelCount = false;
 };
-
 struct Line {
     glm::vec2 start;
     glm::vec2 end;
-    float length;
-    bool b_fixedLength = true;
 };
-
+struct Circle{
+    glm::vec2 center;
+    float radius;
+};
 struct Pixel{
     uint8_t r, g, b, w, a;
     glm::vec2 position;
@@ -49,7 +52,8 @@ struct DmxAddress {
     uint16_t address;
 };
 
-flecs::entity createFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
+flecs::entity createLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
+flecs::entity createCircleFixture(flecs::entity patch, glm::vec2 center, float radius, int numPixels = 16, int channelsPerPixel = 4);
 flecs::entity getSelectedFixture(flecs::entity patch);
 void selectFixture(flecs::entity patch, flecs::entity fixture);
 
