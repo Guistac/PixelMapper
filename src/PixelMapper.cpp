@@ -1,6 +1,7 @@
 #include "PixelMapper.h"
 
 #include <iostream>
+#include <functional>
 
 namespace PixelMapper{
 
@@ -35,6 +36,20 @@ void selectFixture(flecs::entity patch, flecs::entity fixture){
 }
 
 
+void updateFixturePixels(flecs::entity e, std::function<glm::vec2(float range, int index, size_t count)> pos_func) {
+    const Fixture& f = e.get<Fixture>();
+    int pixelIndex = 0;
+    e.children([&](flecs::entity child) {
+        if(Pixel* p = child.try_get_mut<Pixel>()){
+            float range = f.pixelCount > 1 ? (float)pixelIndex / (float)(f.pixelCount - 1) : 0.0f;
+            p->position = pos_func(range, pixelIndex, f.pixelCount);
+            pixelIndex++;
+        }
+    });
+    e.parent().modified<RenderArea>();
+}
+
+
 
 void init(flecs::world& w){
 
@@ -42,6 +57,7 @@ void init(flecs::world& w){
 
     //the FixtureShape relationship is exclusive, like ChildOf
     w.component<FixtureShape>().add(flecs::Exclusive);
+
 
     w.observer<Fixture>("UpdateFixturePixelCount")
     .event(flecs::OnSet)
@@ -68,7 +84,6 @@ void init(flecs::world& w){
                 }
             });
         }
-
         //trigger modified event on the FixtureShape:Shape component
         //this will cause the next observer to recalculate pixel positions
         if(flecs::entity target = e.target<FixtureShape>()){
@@ -78,53 +93,52 @@ void init(flecs::world& w){
     });
 
 
-    w.observer<>("UpdateFixturePixelPositions")
-    .with<FixtureShape>(flecs::Wildcard)
-    .event(flecs::OnSet)
-    .each([](flecs::entity e) {
+    w.observer<>("UpdateLineFixturePixels")
+    .with<FixtureShape, Line>().event(flecs::OnSet)
+    .with<Fixture>()
+    .each([](flecs::entity e){
+        const Line& line = e.get<FixtureShape,Line>();
+        updateFixturePixels(e, [line](float r, int i, size_t c){
+            return line.start + r * (line.end - line.start);
+        });
+    });
 
-        if(!e.has<Fixture>()) return;
-        const Fixture& f = e.get<Fixture>();
 
-        auto w = e.world();
-        auto pixelQuery = w.query_builder<Pixel>().with(flecs::ChildOf, e).build();
-
-        flecs::entity currentShapeType = e.target<FixtureShape>();
-        if(currentShapeType == w.id<Line>()){
-            const Line& l = e.get<FixtureShape, Line>();
-            pixelQuery.each([f,l](flecs::iter& it, size_t index, Pixel& p) {
-                float range = (f.pixelCount > 1) ? (float)index / (float)(f.pixelCount - 1) : 0.0f;
-                p.position = l.start + range * (l.end - l.start);
-            });
-        }
-        else if(currentShapeType == w.id<Circle>()){
-            const Circle& c = e.get<FixtureShape, Circle>();
-            pixelQuery.each([f,c](flecs::iter& it, size_t index, Pixel& p) {
-                float t = (f.pixelCount > 1) ? (float)index / (float)f.pixelCount : 0.0f;
-                float angle = t * M_PI * 2.0;
-                p.position.x = c.center.x + cosf(angle) * c.radius;
-            p.position.y = c.center.y + sinf(angle) * c.radius;
-            });
-        }
-
-        //trigger the render area observer to recalculate pixel bounds
-        e.parent().modified<RenderArea>();
+    w.observer<>("UpdateCircleFixturePixels")
+    .with<FixtureShape, Circle>().event(flecs::OnSet)
+    .with<Fixture>()
+    .each([](flecs::entity e){
+        const Circle& circle = e.get<FixtureShape,Circle>();
+        updateFixturePixels(e, [circle](float r, int i, int c){
+            float angle = float(i) / float(c) * M_PI * 2.0;
+            return glm::vec2{
+                circle.center.x + cosf(angle) * circle.radius,
+                circle.center.y + sinf(angle) * circle.radius
+            };
+        });
     });
 
 
     w.observer<RenderArea>("UpdatePatchRenderArea")
     .event(flecs::OnSet)
     .each([](flecs::entity e, RenderArea& ra){
-        auto pixelQuery = e.world().query_builder<const Pixel>()
-        .with(flecs::ChildOf, e).up(flecs::ChildOf).build();
-        glm::vec2 min(FLT_MAX, FLT_MAX);
-        glm::vec2 max(FLT_MIN, FLT_MIN);
-        pixelQuery.each([&](const Pixel& p) {
-            min = glm::min(min, p.position);
-            max = glm::max(max, p.position);
+        glm::vec2 min(FLT_MAX);
+        glm::vec2 max(-FLT_MAX);
+        bool b_hasPixels = false;
+        e.children([&](flecs::entity fixture){
+            if(!fixture.has<Fixture>()) return;
+            fixture.children([&](flecs::entity pixel){
+                if(const Pixel* p = pixel.try_get<Pixel>()){
+                    min = glm::min(min, p->position);
+                    max = glm::max(max, p->position);
+                    b_hasPixels = true;
+                }
+            });
         });
-        ra.min = min;
-        ra.max = max;
+        if(b_hasPixels){
+            ra.min = min;
+            ra.max = max;
+        }
     });
 
     //on app start, add a default fixture to the world
@@ -140,7 +154,7 @@ void init(flecs::world& w){
 
 flecs::entity createFixture(flecs::entity patch, int numPixels, int channels){
     auto newFixture = patch.world().entity()
-        .set<Fixture>({numPixels}) //triggers pixel creation observer
+        .set<Fixture>({numPixels}) //triggers pixel resize observer
         .add<DmxAddress>()
         .child_of(patch);
     return newFixture;
@@ -152,7 +166,7 @@ flecs::entity createLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 
 
     auto newFixture = createFixture(patch, numPixels, channels)
     .set_name(fixtureName.c_str())
-    .set<FixtureShape, Line>({start, end});
+    .set<FixtureShape, Line>({start, end}); //triggers line pixel position observer
 
     return newFixture;
 }
@@ -163,10 +177,10 @@ flecs::entity createCircleFixture(flecs::entity patch, glm::vec2 center, float r
 
     auto newFixture = createFixture(patch, numPixels, channels)
     .set_name(fixtureName.c_str())
-    .set<FixtureShape, Circle>({center, radius});
+    .set<FixtureShape, Circle>({center, radius}); //triggers circle pixel position observer
 
     return newFixture;
 }
 
 
-};
+};//namespace PixelMapper
