@@ -13,11 +13,12 @@ void gui(flecs::world& w) {
     if(ImGui::Begin("Fixture List")){
         if(ImGui::BeginListBox("##Fixtures", ImGui::GetContentRegionAvail())){
             auto selectedPatch = getPatch(w);
+            auto fixtureList = selectedPatch.target<FixtureList>();
             auto selectedFixture = getSelectedFixture(selectedPatch);
-            w.query_builder<Fixture>()
-                .with(flecs::ChildOf, selectedPatch)
+            w.query_builder<FixtureLayout>()
+                .with(flecs::ChildOf, fixtureList)
                 .build()
-                .each([&](flecs::entity e, Fixture& f){
+                .each([&](flecs::entity e, FixtureLayout& f){
                     bool b_selected = e == selectedFixture;
                     if(ImGui::Selectable(e.name().c_str(), b_selected)){
                         selectFixture(selectedPatch, e);
@@ -36,12 +37,14 @@ void gui(flecs::world& w) {
 
         if(selectedFixture.is_valid()){
 
-            if(selectedFixture.has<Fixture>()){                
-                Fixture f = selectedFixture.get<Fixture>();
+            if(selectedFixture.has<FixtureLayout>()){                
+                FixtureLayout f = selectedFixture.get<FixtureLayout>();
                 bool edited = false;
                 ImGui::SeparatorText("Fixture");
                 edited |= ImGui::InputInt("Pixel Count", &f.pixelCount);
-                if(edited) selectedFixture.set<Fixture>(f);
+                edited |= ImGui::InputInt("Color Channels", &f.colorChannels);
+                ImGui::Text("%i Bytes", f.byteCount);
+                if(edited) selectedFixture.set<FixtureLayout>(f);
             }
 
             if(selectedFixture.has<DmxAddress>()){
@@ -86,8 +89,8 @@ void gui(flecs::world& w) {
             
             auto selectedPatch = getPatch(w);
             auto selectedFixture = getSelectedFixture(selectedPatch);
-            auto fixtureQuery = w.query_builder<const Fixture>().build();
-            auto pixelQuery = w.query_builder<const Pixel>() // Find Pixel where any ancestor (up the ChildOf relationship) is selectedPatch
+            auto fixtureQuery = w.query_builder<const FixtureLayout>().build();
+            auto pixelQuery = w.query_builder<const Position, const ColorRGBWA>() // Find Pixel where any ancestor (up the ChildOf relationship) is selectedPatch
                 .with(flecs::ChildOf, selectedPatch).up(flecs::ChildOf).build();
 
             //draw background with grid
@@ -102,7 +105,7 @@ void gui(flecs::world& w) {
             }
 
             //draw all fixtures
-            fixtureQuery.each([drawing, selectedFixture](flecs::entity e, const Fixture& f){
+            fixtureQuery.each([drawing, selectedFixture](flecs::entity e, const FixtureLayout& f){
                 flecs::entity currentShapeType = e.target<FixtureShape>();
 
                 uint32_t fixtureColor = 0xFF0000FF;
@@ -128,7 +131,7 @@ void gui(flecs::world& w) {
 
  
             //draw all pixels
-            pixelQuery.each([&](const Pixel& p) {
+            pixelQuery.each([&](const Position& p, const ColorRGBWA& c) {
                 drawing->AddCircleFilled(canvas.canvasToScreen(p.position), 2.0f, 0xFF000000);
             });
 
@@ -147,7 +150,7 @@ void gui(flecs::world& w) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0, 0.0, 0.0, 1.0));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0, 1.0, 1.0, 1.0));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0));
-            fixtureQuery.each([&](flecs::entity e, const Fixture& f){
+            fixtureQuery.each([&](flecs::entity e, const FixtureLayout& f){
                 flecs::entity currentShapeType = e.target<FixtureShape>();
                 ImGui::PushID(e.id());
                 bool edited = false;

@@ -8,41 +8,42 @@
 namespace PixelMapper{
 
 void init(flecs::world& w);
+void gui(flecs::world& w);
 
 
-
-struct Dirty{};
-
-
-struct Patch {
+//Patch Components
+struct IsPatch{};
+struct PatchSettings{
     float refreshRate;
 };
-struct SelectedFixture{
-    flecs::entity fixture;
-};
+struct FixtureList{};
+struct SelectedFixture{};
+struct DmxOutput{};
 struct RenderArea{
     glm::vec2 min;
     glm::vec2 max;
 };
-
-flecs::entity createPatch(flecs::world& w);
+//we only have one patch for now
 flecs::entity getPatch(flecs::world& w);
+flecs::entity getSelectedFixture(flecs::entity patch);
+void selectFixture(flecs::entity patch, flecs::entity fixture);
 
 
 
-struct Fixture{
-    int pixelCount = false;
+//Fixture Components
+struct IsFixture{};
+struct FixtureLayout{
+    int pixelCount;
+    int colorChannels;
+    int byteCount;
 };
 struct DmxAddress {
     uint16_t universe;
     uint16_t address;
 };
-struct Pixel{
-    uint8_t r, g, b, w, a;
-    glm::vec2 position;
-};
-struct FixtureShape{};
 
+//Fixture Shape Components
+struct FixtureShape{};
 struct Line {
     glm::vec2 start;
     glm::vec2 end;
@@ -52,30 +53,33 @@ struct Circle{
     float radius;
 };
 
+//Pixel Components
+struct IsPixel{};
+struct ColorRGBWA{
+    uint8_t r, g, b, w, a;
+};
+struct Position{
+    glm::vec2 position;
+};
 
 flecs::entity createLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
 flecs::entity createCircleFixture(flecs::entity patch, glm::vec2 center, float radius, int numPixels = 16, int channelsPerPixel = 4);
-flecs::entity getSelectedFixture(flecs::entity patch);
-void selectFixture(flecs::entity patch, flecs::entity fixture);
 
 
 
 
-
-
-struct DmxOutput{};
+struct IsDmxUniverse{};
 struct DmxUniverse{
-    int universeNumber;
-    std::vector<uint8_t> data;
+    uint16_t universeId;
+    uint16_t lastAddress;
+    uint8_t channels[512];
 };
+
+
 
 struct DmxController{
     uint32_t ipAddress;
     std::vector<uint16_t> universes;
 };
-
-
-
-void gui(flecs::world& w);
 
 }
