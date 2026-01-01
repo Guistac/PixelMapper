@@ -64,22 +64,22 @@ public:
         ImGui::PopClipRect();
     }
 
-    void drawGrid(float lineSpacing){
-        uint32_t markerColor = 0xFF000000;
+    void drawGrid(float lineSpacing, uint32_t backgroundColor, uint32_t lineColor){
         float markerWidth = 1.0;
+        drawing->AddRectFilled(frameMin, frameMax, backgroundColor);
         for(float xMarker = std::floor(canvasMin.x / lineSpacing) * lineSpacing;
             xMarker < canvasMax.x;
             xMarker += lineSpacing){
                 glm::vec2 markerMin = canvasToScreen(glm::vec2(xMarker, canvasMin.y));
                 glm::vec2 markerMax = canvasToScreen(glm::vec2(xMarker, canvasMax.y));
-                drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
+                drawing->AddLine(markerMin, markerMax, lineColor, markerWidth);
         }
         for(float yMarker = std::floor(canvasMin.y / lineSpacing) * lineSpacing;
             yMarker < canvasMax.y;
             yMarker += lineSpacing){
                 glm::vec2 markerMin = canvasToScreen(glm::vec2(canvasMin.x, yMarker));
                 glm::vec2 markerMax = canvasToScreen(glm::vec2(canvasMax.x, yMarker));
-                drawing->AddLine(markerMin, markerMax, markerColor, markerWidth);
+                drawing->AddLine(markerMin, markerMax, lineColor, markerWidth);
         }
     }
 
@@ -90,4 +90,21 @@ public:
         }
         return false;
     }
+
+    bool dragHandle(const char* id, glm::vec2& point, float handleSize){
+        glm::vec2 windowPos = ImGui::GetWindowPos();
+        glm::vec2 cursorPos = canvasToScreen(point) - windowPos - glm::vec2(handleSize*0.5);
+        ImGui::SetCursorPos(cursorPos);
+        ImGui::Button(id, glm::vec2(handleSize));
+        if(ImGui::IsItemActive()){
+            ImVec2 dragDelta = ImGui::GetMouseDragDelta();
+            point += screenSizeToCanvasSize(dragDelta);
+            if(dragDelta.x != 0.0 || dragDelta.y != 0.0) {
+                ImGui::ResetMouseDragDelta();
+                return true;
+            }
+        }
+        return false;
+    }
+
 };
