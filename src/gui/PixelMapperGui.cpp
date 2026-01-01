@@ -98,13 +98,13 @@ namespace PixelMapper{
 
 ImGuiCanvas canvas;
 
-void gui() {
+void gui(flecs::world& w) {
 
     if(ImGui::Begin("Fixture List")){
         if(ImGui::BeginListBox("##Fixtures", ImGui::GetContentRegionAvail())){
-                auto selectedPatch = getPatch();
+                auto selectedPatch = getPatch(w);
                 auto selectedFixture = getSelectedFixture(selectedPatch);
-                world.query_builder<Fixture>()
+                w.query_builder<Fixture>()
                     .with(flecs::ChildOf, selectedPatch)
                     .build()
                     .each([&](flecs::entity e, Fixture& f){
@@ -113,15 +113,15 @@ void gui() {
                             selectFixture(selectedPatch, e);
                         }
                     });
-                ImGui::EndListBox();
-            }
-
-        ImGui::End();
+            ImGui::EndListBox();
+        }
     }
+    ImGui::End();
+
 
     if(ImGui::Begin("Fixture Properties")){
        
-        auto selectedPatch = getPatch();
+        auto selectedPatch = getPatch(w);
         auto selectedFixture = getSelectedFixture(selectedPatch);
 
         if(selectedFixture.is_valid()){
@@ -131,29 +131,7 @@ void gui() {
                 bool edited = false;
                 ImGui::SeparatorText("Fixture");
                 edited |= ImGui::InputInt("Pixel Count", &f.pixelCount);
-                if(edited){
-                    selectedFixture.set<Fixture>(f);
-                }
-            }
-            if(selectedFixture.has<Line>()){
-                Line l = selectedFixture.get<Line>();
-                bool edited = false;
-                ImGui::SeparatorText("Line Segment");
-                edited |= ImGui::InputFloat2("Start Position", &l.start.x, "%.1fmm");
-                edited |= ImGui::InputFloat2("End Position", &l.end.x, "%.1fmm");
-                if(edited){
-                    selectedFixture.set<Line>(l);
-                }
-            }
-            if(selectedFixture.has<Circle>()){
-                Circle c = selectedFixture.get<Circle>();
-                bool edited = false;
-                ImGui::SeparatorText("Circle");
-                edited |= ImGui::InputFloat2("Center", &c.center.x, "%.1fmm");
-                edited |= ImGui::InputFloat("Radius", &c.radius, 0.0, 0.0, "%.1fmm");
-                if(edited){
-                    selectedFixture.set<Circle>(c);
-                }
+                if(edited) selectedFixture.set<Fixture>(f);
             }
             if(selectedFixture.has<DmxAddress>()){
                 DmxAddress dmx = selectedFixture.get<DmxAddress>();
@@ -165,10 +143,28 @@ void gui() {
                     selectedFixture.set<DmxAddress>(dmx);
                 }
             }
-        }
 
-        ImGui::End();
+            flecs::entity shapeType = selectedFixture.target<FixtureShape>();
+            if(shapeType == w.id<Line>()){
+                Line l = selectedFixture.get<FixtureShape, Line>();
+                bool edited = false;
+                ImGui::SeparatorText("Line Segment");
+                edited |= ImGui::InputFloat2("Start Position", &l.start.x, "%.1fmm");
+                edited |= ImGui::InputFloat2("End Position", &l.end.x, "%.1fmm");
+                if(edited) selectedFixture.set<FixtureShape, Line>(l);
+            }
+            else if(shapeType == w.id<Circle>()){
+                Circle c = selectedFixture.get<FixtureShape, Circle>();
+                bool edited = false;
+                ImGui::SeparatorText("Circle");
+                edited |= ImGui::InputFloat2("Center", &c.center.x, "%.1fmm");
+                edited |= ImGui::InputFloat("Radius", &c.radius, 0.0, 0.0, "%.1fmm");
+                if(edited) selectedFixture.set<FixtureShape, Circle>(c);
+            }
+
+        }
     }
+    ImGui::End();
 
     
 
@@ -181,7 +177,7 @@ void gui() {
             drawing->AddRectFilled(canvas.frameMin, canvas.frameMax, 0xFF333333);
             canvas.drawGrid(100.0);
 
-            auto selectedPatch = getPatch();
+            auto selectedPatch = getPatch(w);
             auto selectedFixture = getSelectedFixture(selectedPatch);
 
             //double click to add fixtures
@@ -193,40 +189,47 @@ void gui() {
                 createCircleFixture(selectedPatch, canvasClickPos, 100);
             }
 
+            if(auto renderArea = selectedPatch.try_get<RenderArea>()){
+                drawing->AddRectFilled(
+                    canvas.canvasToScreen(renderArea->min),
+                    canvas.canvasToScreen(renderArea->max),
+                    0x66000000);
+            }
+
+            auto fixtureQuery = w.query_builder<const Fixture>().build();
+            auto pixelQuery = w.query_builder<const Pixel>() // Find Pixel where any ancestor (up the ChildOf relationship) is selectedPatch
+                .with(flecs::ChildOf, selectedPatch).up(flecs::ChildOf).build();
+
             //draw all fixtures
-            world.query_builder<const Fixture, const Line>()
-                .with(flecs::ChildOf, selectedPatch)
-                .build()
-                .each([&](flecs::entity e, const Fixture& f, const Line& l) {
-                    uint32_t fixtureColor = 0xFF0000FF;
-                    if(e == selectedFixture) fixtureColor = 0xFF00FFFF;
+            fixtureQuery.each([drawing, selectedFixture](flecs::entity e, const Fixture& f){
+                flecs::entity currentShapeType = e.target<FixtureShape>();
+
+                uint32_t fixtureColor = 0xFF0000FF;
+                if(e == selectedFixture) fixtureColor = 0xFF00FFFF;
+
+                if(currentShapeType == e.world().id<Line>()){
+                    const Line& l = e.get<FixtureShape, Line>();
                     drawing->AddLine(
                         canvas.canvasToScreen(l.start),
                         canvas.canvasToScreen(l.end),
                         fixtureColor, 5.0);
-                });
-            world.query_builder<const Fixture, const Circle>()
-                .with(flecs::ChildOf, selectedPatch)
-                .build()
-                .each([&](flecs::entity e, const Fixture& f, const Circle& c) {
-                    uint32_t fixtureColor = 0xFF0000FF;
-                    if(e == selectedFixture) fixtureColor = 0xFF00FFFF;
+                }
+                else if(currentShapeType == e.world().id<Circle>()){
+                    const Circle& c = e.get<FixtureShape, Circle>();
                     drawing->AddCircle(
                         canvas.canvasToScreen(c.center),
                         canvas.canvasSizeToScreenSize(c.radius),
                         fixtureColor,
                         f.pixelCount,
                         5.0);
-                });
+                }
+            });
 
+ 
             //draw all pixels
-            world.query_builder<const Pixel>()
-                // Find Pixel where any ancestor (up the ChildOf relationship) is selectedPatch
-                .with(flecs::ChildOf, selectedPatch).up(flecs::ChildOf) 
-                .build()
-                .each([&](const Pixel& p) {
-                    drawing->AddCircleFilled(canvas.canvasToScreen(p.position), 2.0f, 0xFF000000);
-                });
+            pixelQuery.each([&](const Pixel& p) {
+                drawing->AddCircleFilled(canvas.canvasToScreen(p.position), 2.0f, 0xFF000000);
+            });
 
 
             //imgui utility for a button to move a vector by dragging
@@ -246,30 +249,42 @@ void gui() {
                 }
                 return false;
             };
+
+
             //Drag Handles for each Line Fixture Start and End
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0, 0.0, 0.0, 1.0));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0, 1.0, 1.0, 1.0));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, grabSize * 0.5);
-            world.query_builder<const Fixture>()
-            .with(flecs::ChildOf, selectedPatch)
-            .build()
-            .each([&](flecs::entity e, const Fixture& f){
-                if(e.has<Line>()){
-                    Line l = e.get<Line>();
-                    bool edited = false;
-                    ImGui::PushID(e.id());
+
+            fixtureQuery.each([&](flecs::entity e, const Fixture& f){
+                flecs::entity currentShapeType = e.target<FixtureShape>();
+                ImGui::PushID(e.id());
+                bool edited = false;
+                if(currentShapeType == e.world().id<Line>()){
+                    Line l = e.get<FixtureShape, Line>();
                     edited |= dragHandle("##Start", l.start);
                     edited |= dragHandle("##End", l.end);
-                    ImGui::PopID();
-                    if(edited) e.set<Line>(l);
+                    if(edited) e.set<FixtureShape, Line>(l);
                 }
+                else if(currentShapeType == e.world().id<Circle>()){
+                    Circle c = e.get<FixtureShape, Circle>();
+                    edited |= dragHandle("##Center", c.center);
+                    glm::vec2 radiusHandle = c.center + glm::vec2(c.radius, 0.0);
+                    if(dragHandle("##Radius", radiusHandle)){
+                        c.radius = glm::distance(c.center, radiusHandle);
+                        edited = true;
+                    }
+                    if(edited) e.set<FixtureShape, Circle>(c);
+                }
+                ImGui::PopID();
             });
+
             ImGui::PopStyleColor(3);
             ImGui::PopStyleVar();
 
+
             canvas.end();
- 
         }
     }
     ImGui::End();

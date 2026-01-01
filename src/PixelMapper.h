@@ -7,8 +7,7 @@
 
 namespace PixelMapper{
 
-extern flecs::world world;
-void init();
+void init(flecs::world& w);
 
 
 
@@ -26,14 +25,24 @@ struct RenderArea{
     glm::vec2 max;
 };
 
-flecs::entity createPatch();
-flecs::entity getPatch();
+flecs::entity createPatch(flecs::world& w);
+flecs::entity getPatch(flecs::world& w);
 
 
 
 struct Fixture{
     int pixelCount = false;
 };
+struct DmxAddress {
+    uint16_t universe;
+    uint16_t address;
+};
+struct Pixel{
+    uint8_t r, g, b, w, a;
+    glm::vec2 position;
+};
+struct FixtureShape{};
+
 struct Line {
     glm::vec2 start;
     glm::vec2 end;
@@ -42,15 +51,7 @@ struct Circle{
     glm::vec2 center;
     float radius;
 };
-struct Pixel{
-    uint8_t r, g, b, w, a;
-    glm::vec2 position;
-};
 
-struct DmxAddress {
-    uint16_t universe;
-    uint16_t address;
-};
 
 flecs::entity createLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
 flecs::entity createCircleFixture(flecs::entity patch, glm::vec2 center, float radius, int numPixels = 16, int channelsPerPixel = 4);
@@ -75,6 +76,6 @@ struct DmxController{
 
 
 
-void gui();
+void gui(flecs::world& w);
 
 }

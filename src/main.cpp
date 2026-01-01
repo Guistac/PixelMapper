@@ -60,11 +60,15 @@ int main(){
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    PixelMapper::init();
+    flecs::world world;
+    world.import<flecs::stats>();
+    world.set<flecs::Rest>({});
+    
+    PixelMapper::init(world);
 
     while(!glfwWindowShouldClose(mainWindow)){
 
-		PixelMapper::world.progress(); //call this on each frame for flecs::rest to work
+		world.progress(); //call this on each frame for flecs::rest to work
 		
         //with multiple viewports the context of the main window needs to be set on each frame
 		glfwMakeContextCurrent(mainWindow);
@@ -90,7 +94,7 @@ int main(){
         }
         ImGui::DockSpaceOverViewport();
 
-        PixelMapper::gui();
+        PixelMapper::gui(world);
 
         // Rendering
         ImGui::Render();
