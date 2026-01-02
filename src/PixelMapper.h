@@ -19,6 +19,7 @@ struct PatchSettings{
 struct FixtureList{};
 struct SelectedFixture{};
 struct DmxOutput{};
+struct SelectedDmxUniverse{};
 struct RenderArea{
     glm::vec2 min;
     glm::vec2 max;
@@ -41,6 +42,7 @@ struct DmxAddress {
     uint16_t universe;
     uint16_t address;
 };
+struct InUniverse{};
 
 //Fixture Shape Components
 struct FixtureShape{};
@@ -75,6 +77,8 @@ struct DmxUniverse{
     uint8_t channels[512];
 };
 
+void selectUniverse(flecs::entity patch, flecs::entity universe);
+flecs::entity getSelectedUniverse(flecs::entity patch);
 
 
 struct DmxController{

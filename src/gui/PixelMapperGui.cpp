@@ -179,6 +179,29 @@ void gui(flecs::world& w) {
         }
     }
     ImGui::End();
+
+
+
+    if(ImGui::Begin("Dmx Map")){
+
+        if(ImGui::BeginListBox("##UniverseList", ImVec2(ImGui::CalcTextSize("Universe 999").x, ImGui::GetContentRegionAvail().y))){
+            auto patch = getPatch(w);
+            auto dmxOutput = patch.target<DmxOutput>();
+            auto selectedUniverse = getSelectedUniverse(patch);
+            dmxOutput.children([&](flecs::entity universe){
+                if(auto u = universe.try_get<DmxUniverse>()){
+                    bool b_selected = universe == selectedUniverse;
+                    if(ImGui::Selectable(universe.name(), b_selected)){
+                        selectUniverse(patch, universe);
+                    }
+                }
+            });
+
+            ImGui::EndListBox();
+        }
+
+    }
+    ImGui::End();
 }
 
 };//namespace PixelMapper
