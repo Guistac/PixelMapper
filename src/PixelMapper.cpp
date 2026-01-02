@@ -14,10 +14,25 @@ flecs::entity createPatch(flecs::world& w){
         .add<PatchSettings>()
         .add<RenderArea>();
 
-    auto fixtureList = w.entity("FixtureFolder").child_of(newPatch);
-    newPatch.add<FixtureList>(fixtureList);
+    auto fixtureFolder = w.entity("FixtureFolder").child_of(newPatch);
+    FixtureList fixtureList{
+        .fixtureLayoutQuery = w.query_builder<FixtureLayout>("FixtureLayoutQuery")
+            .with(flecs::ChildOf, fixtureFolder)
+            .build(),
+        .pixelQuery = w.query_builder<IsPixel>() // Find Pixel where any ancestor (up the ChildOf relationship) is selectedPatch
+                .with(flecs::ChildOf, newPatch).up(flecs::ChildOf).build()
+    };
+    fixtureFolder.set<FixtureList>(fixtureList);
+    newPatch.add<FixtureList>(fixtureFolder);
 
-    auto dmxOutput = w.entity("DmxOutputFolder").child_of(newPatch);    
+    auto dmxOutput = w.entity("DmxOutputFolder").child_of(newPatch);
+    auto universeQuery = w.query_builder<DmxUniverse>("DmxUniverseQueryOrdered")
+        .with(flecs::ChildOf, dmxOutput)
+        .order_by<DmxUniverse>([](flecs::entity_t e1, const DmxUniverse* u1, flecs::entity_t e2, const DmxUniverse* u2) -> int{
+            return (u1->universeId > u2->universeId) - (u1->universeId < u2->universeId);
+        })
+        .build();
+    dmxOutput.set<DmxOutput>({universeQuery});
     newPatch.add<DmxOutput>(dmxOutput);
 
     return newPatch;
@@ -29,21 +44,23 @@ flecs::entity getPatch(flecs::world& w){
 
 int patchGetFixtureCount(flecs::entity patch){
     auto fixtureList = patch.target<FixtureList>();
-    return patch.world().query_builder<FixtureLayout>().with(flecs::ChildOf, fixtureList).build().count();
+    return patch.target<FixtureList>().get<FixtureList>().fixtureLayoutQuery.count();
 }
+
+
 
 flecs::entity getSelectedFixture(flecs::entity patch){
     return patch.target<SelectedFixture>();
 }
-
 void selectFixture(flecs::entity patch, flecs::entity fixture){
     patch.add<SelectedFixture>(fixture);
 }
 
+
+
 void selectUniverse(flecs::entity patch, flecs::entity universe){
     patch.target<DmxOutput>().add<SelectedDmxUniverse>(universe);
 }
-
 flecs::entity getSelectedUniverse(flecs::entity patch){
     return patch.target<DmxOutput>().target<SelectedDmxUniverse>();
 }
@@ -54,9 +71,20 @@ flecs::entity createFixture(flecs::entity patch, int numPixels, int channels){
     auto fixtureList = patch.target<FixtureList>();
     auto newFixture = patch.world().entity()
         .child_of(fixtureList)
-        .add<IsFixture>()
-        .set<FixtureLayout>({numPixels, channels}) //triggers pixel resize observer
-        .set<DmxAddress>({0,0});
+        .add<IsFixture>();
+
+    FixtureLayout layout{
+        .pixelCount = numPixels,
+        .colorChannels = channels,
+        .byteCount = 0,
+        .pixelQuery = patch.world().query_builder<IsPixel>()
+            .with(flecs::ChildOf, newFixture)
+            .build()
+    };
+
+    newFixture.set<FixtureLayout>(layout) //triggers pixel resize observer
+    .set<DmxAddress>({0,0});
+
     return newFixture;
 }
 
@@ -84,113 +112,30 @@ flecs::entity createPixel(flecs::entity fixture){
     .add<Position>();
 }
 
+flecs::entity getFixturePatch(flecs::entity fixture) {
+    if (!fixture.is_valid() || !fixture.is_alive())
+        return flecs::entity::null();
+    flecs::entity fixtureList = fixture.parent();
+    if (!fixtureList.is_valid())
+        return flecs::entity::null();
+    flecs::entity patch = fixtureList.parent();
+    if (patch.is_valid() && patch.has<IsPatch>())
+        return patch;
+    return flecs::entity::null();
+}
+
 void updateFixturePixelPositions(flecs::entity fixture, std::function<glm::vec2(float range, int index, size_t count)> pos_func) {
     const FixtureLayout& f = fixture.get<FixtureLayout>();
     int pixelIndex = 0;
-    fixture.children([&](flecs::entity child) {
-        if(!child.has<IsPixel>()) return;
-        if(Position* p = child.try_get_mut<Position>()){
+    f.pixelQuery.each([&](flecs::entity pixel, IsPixel){
+        if(Position* p = pixel.try_get_mut<Position>()){
             float range = f.pixelCount > 1 ? (float)pixelIndex / (float)(f.pixelCount - 1) : 0.0f;
             p->position = pos_func(range, pixelIndex, f.pixelCount);
             pixelIndex++;
         }
     });
-    fixture.parent().parent().modified<RenderArea>();
 }
 
-
-void resizePatchDmxOutput(flecs::entity patch){
-    if(!patch.has<PatchSettings>()) return;
-    auto fixtureList = patch.target<FixtureList>();
-    if(!fixtureList.is_valid()) return;
-    flecs::entity dmxOutput = patch.target<DmxOutput>();
-    if (!dmxOutput.is_valid()) return;
-
-    std::vector<uint16_t> univIds = {};
-    struct FixtureToUniverse{
-        flecs::entity fixture;
-        std::vector<uint16_t> universes = {};
-    };
-    std::vector<FixtureToUniverse> fixtureToUniverseLinks;
-
-    //compile a list of universes that are needed to cover all fixtures
-    fixtureList.children([&](flecs::entity fixture){
-        if(!fixture.has<IsFixture>()) return;
-        const FixtureLayout* f = fixture.try_get<FixtureLayout>();
-        const DmxAddress* a = fixture.try_get<DmxAddress>();
-        if(!f || !a) return;
-
-        int fixtureUniverseCount = 1;
-        int channels = a->address + f->byteCount;
-        while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
-
-        FixtureToUniverse link{.fixture = fixture};
-        for(int i = 0; i < fixtureUniverseCount; i++){
-            univIds.push_back(a->universe + i);
-            link.universes.push_back(a->universe + i);
-        }
-        fixtureToUniverseLinks.push_back(link);
-    });
-
-    //sort the universe ids and remove duplicates
-    std::sort(univIds.begin(), univIds.end());
-    auto lastUnique = std::unique(univIds.begin(), univIds.end());
-    univIds.erase(lastUnique, univIds.end());
-
-    // We'll track which existing entities we still need
-    std::vector<uint16_t> existingUnivs;
-    std::vector<flecs::entity> toDelete;
-
-    //Delete universes that are not needed
-    dmxOutput.children([&](flecs::entity e) {
-        if (!e.has<IsDmxUniverse>() || !e.has<DmxUniverse>()) return;
-        const DmxUniverse& u = e.get<DmxUniverse>();
-        // If this universe ID is NOT in our new list, mark for deletion
-        if (std::find(univIds.begin(), univIds.end(), u.universeId) == univIds.end()) {
-            toDelete.push_back(e);
-        } else {
-            existingUnivs.push_back(u.universeId);
-        }
-    });
-
-    //Safe Deletion outside of iteration
-    for (auto e : toDelete) e.destruct();
-
-    // Add missing universes
-    for (uint16_t id : univIds) {
-        if(std::find(existingUnivs.begin(), existingUnivs.end(), id) == existingUnivs.end()){
-            std::string univName = "Universe " + std::to_string(id);
-            patch.world().entity()
-            .child_of(dmxOutput)
-            .set_name(univName.c_str())
-            .add<IsDmxUniverse>()
-            .set<DmxUniverse>({id, 0});
-        }
-    }
-
-    //Build Fixture:InUniverse-Universe relationships
-    for(auto& link : fixtureToUniverseLinks) link.fixture.remove<InUniverse>(flecs::Wildcard);
-    std::unordered_map<uint16_t, flecs::entity> idToUniverseEnt;
-    patch.world().query_builder<DmxUniverse>()
-    .with(flecs::ChildOf, dmxOutput)
-    .build()
-    .each([&](flecs::entity universe, DmxUniverse& u){
-        idToUniverseEnt[u.universeId] = universe;
-    });
-    for(auto& link : fixtureToUniverseLinks){
-        for(auto id : link.universes){
-            if(idToUniverseEnt.count(id)) link.fixture.add<InUniverse>(idToUniverseEnt[id]);
-        }
-    }
-
-    //Sort Universes by id
-    patch.world().query_builder<DmxUniverse>()
-    .with(flecs::ChildOf, dmxOutput)
-    .order_by<DmxUniverse>([](flecs::entity_t e1, const DmxUniverse* u1, flecs::entity_t e2, const DmxUniverse* u2) -> int{
-        return (u1->universeId > u2->universeId) - (u1->universeId < u2->universeId);
-    })
-    .build();
-}
 
 
 
@@ -199,42 +144,56 @@ void init(flecs::world& w){
     //the FixtureShape relationship is exclusive, like ChildOf
     w.component<FixtureShape>().add(flecs::Exclusive);
 
-    //only single fixture selection for now
+    //Only single selection for now
     w.component<SelectedFixture>().add(flecs::Exclusive);
     w.component<SelectedDmxUniverse>().add(flecs::Exclusive);
 
-    w.observer<>("UpdateFixtureDmxMap")
-    .with<DmxAddress>().event(flecs::OnSet)
-    .each([](flecs::entity fixture){
-        DmxAddress& dmx = fixture.get_mut<DmxAddress>();
+
+
+    
+    w.observer<FixtureLayout>("UpdateFixturePixelCount").event(flecs::OnSet)
+    .with<IsFixture>()
+    .each([](flecs::entity e, FixtureLayout& l) {
+        l.pixelCount = std::clamp<int>(l.pixelCount, 1, INT_MAX);
+        l.colorChannels = std::clamp<int>(l.colorChannels, 1, 4);
+        l.byteCount = l.pixelCount * l.colorChannels;
+        e.add<LayoutDirty>();
+    });
+    
+    w.observer<DmxAddress>("UpdateFixtureDmxMap").event(flecs::OnSet)
+    .with<IsFixture>()
+    .each([](flecs::entity fixture, DmxAddress& dmx){
         dmx.address = std::clamp<uint16_t>(dmx.address, 0, 511);
         dmx.universe = std::clamp<uint16_t>(dmx.universe, 0, 32767);
-        auto fixtureFolder = fixture.parent();
-        if(!fixtureFolder.is_valid()) return;
-        auto patch = fixtureFolder.parent();
-        if(!patch.is_valid()) return;
-        resizePatchDmxOutput(patch);
+        getFixturePatch(fixture).add<DmxMapDirty>();
+    });
+
+    w.observer<>("UpdateShape")
+    .with<IsFixture>()
+    .with<FixtureShape>(flecs::Wildcard).event(flecs::OnSet)
+    .each([](flecs::entity fixture){
+        fixture.add<PixelPositionsDirty>();
+        getFixturePatch(fixture).add<RenderAreaDirty>();
     });
 
 
-    w.observer<FixtureLayout>("UpdateFixturePixelCount").event(flecs::OnSet)
-    .each([](flecs::entity e, FixtureLayout& f) {
-
-        f.byteCount = f.pixelCount * f.colorChannels;
 
 
-        auto w = e.world();
-        auto q = w.query_builder<>()
-        .with<IsPixel>()
-        .with(flecs::ChildOf, e).build();
-        int current = q.count();
+
+
+    w.system<FixtureLayout>("UpdateFixtureLayouts").with<LayoutDirty>()
+    .with<IsFixture>()
+    .each([](flecs::entity fixture, FixtureLayout l){
+        auto w = fixture.world();
+
+        int current = l.pixelQuery.count();
         
-        if (current < f.pixelCount) {
-            int toAdd = f.pixelCount - current;
-            for (int i = 0; i < toAdd; i++) createPixel(e);
-        } else if (current > f.pixelCount) {
-            int toDelete = current - f.pixelCount;
-            q.each([&](flecs::entity pixel){
+        if (current < l.pixelCount) {
+            int toAdd = l.pixelCount - current;
+            for (int i = 0; i < toAdd; i++) createPixel(fixture);
+        } else if (current > l.pixelCount) {
+            int toDelete = current - l.pixelCount;
+            l.pixelQuery.each([&](flecs::entity pixel, IsPixel){
                 if (toDelete > 0) {
                     pixel.destruct();
                     toDelete--;
@@ -243,64 +202,150 @@ void init(flecs::world& w){
         }
         //trigger modified event on the FixtureShape:Shape component
         //this will cause the next observer to recalculate pixel positions
-        if(flecs::entity target = e.target<FixtureShape>()){
+        if(flecs::entity target = fixture.target<FixtureShape>()){
             flecs::id pair_id = w.pair<FixtureShape>(target);
-            e.modified(pair_id);
+            fixture.modified(pair_id);
         }
-        e.modified<DmxAddress>(); //adjust the dmx output map
+        getFixturePatch(fixture).add<DmxMapDirty>(); //adjust the dmx output map
+        fixture.remove<LayoutDirty>();
     });
 
-    
 
-
-    w.observer<>("UpdateLineFixturePixels")
-    .with<FixtureShape, Line>().event(flecs::OnSet)
-    .with<FixtureLayout>()
-    .each([](flecs::entity e){
-        const Line& line = e.get<FixtureShape,Line>();
-        updateFixturePixelPositions(e, [line](float r, int i, size_t c){
+    w.system<>().with<FixtureShape, Line>()
+    .with<PixelPositionsDirty>()
+    .with<IsFixture>()
+    .each([](flecs::entity fixture) {
+        const Line& line = fixture.get<FixtureShape,Line>();
+        updateFixturePixelPositions(fixture, [line](float r, int i, size_t c){
             return line.start + r * (line.end - line.start);
         });
+        getFixturePatch(fixture).add<RenderAreaDirty>();
+        fixture.remove<PixelPositionsDirty>();
     });
 
-
-    w.observer<>("UpdateCircleFixturePixels")
-    .with<FixtureShape, Circle>().event(flecs::OnSet)
-    .with<FixtureLayout>()
-    .each([](flecs::entity e){
-        const Circle& circle = e.get<FixtureShape,Circle>();
-        updateFixturePixelPositions(e, [circle](float r, int i, int c){
+    w.system<>().with<FixtureShape, Circle>()
+    .with<PixelPositionsDirty>()
+    .with<IsFixture>()
+    .each([](flecs::entity fixture) {
+        const Circle& circle = fixture.get<FixtureShape,Circle>();
+        updateFixturePixelPositions(fixture, [circle](float r, int i, int c){
             float angle = float(i) / float(c) * M_PI * 2.0;
             return glm::vec2{
                 circle.center.x + cosf(angle) * circle.radius,
                 circle.center.y + sinf(angle) * circle.radius
             };
         });
+        getFixturePatch(fixture).add<RenderAreaDirty>();
+        fixture.remove<PixelPositionsDirty>();
     });
 
+    w.system<IsPatch>().with<DmxMapDirty>()
+    .each([](flecs::entity patch, IsPatch){
+        
+        flecs::entity fixtureFolder = patch.target<FixtureList>();
+        flecs::entity dmxOutputFolder = patch.target<DmxOutput>();
+        if(!fixtureFolder.is_valid() || !dmxOutputFolder.is_valid()) return;
+        
+        const FixtureList& fixtureList = fixtureFolder.get<FixtureList>();
+        const DmxOutput& dmxOutput = dmxOutputFolder.get<DmxOutput>();
+        
+        std::vector<uint16_t> univIds = {};
+        struct FixtureToUniverse{
+            flecs::entity fixture;
+            std::vector<uint16_t> universes = {};
+        };
+        std::vector<FixtureToUniverse> fixtureToUniverseLinks;
+            
+        //compile a list of universes that are needed to cover all fixtures
+        fixtureList.fixtureLayoutQuery.each([&](flecs::entity fixture, const FixtureLayout& fl){
+            const DmxAddress* a = fixture.try_get<DmxAddress>();
+            if(!a) return;
+            
+            int fixtureUniverseCount = 1;
+            int channels = a->address + fl.byteCount;
+            while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
+            
+            FixtureToUniverse link{.fixture = fixture};
+            for(int i = 0; i < fixtureUniverseCount; i++){
+                univIds.push_back(a->universe + i);
+                link.universes.push_back(a->universe + i);
+            }
+            fixtureToUniverseLinks.push_back(link);
+        });
+                
+        //sort the universe ids and remove duplicates
+        std::sort(univIds.begin(), univIds.end());
+        auto lastUnique = std::unique(univIds.begin(), univIds.end());
+        univIds.erase(lastUnique, univIds.end());
+        
+        // We'll track which existing entities we still need
+        std::vector<uint16_t> existingUnivs;
+        std::vector<flecs::entity> toDelete;
+        
+        dmxOutput.sortedQuery.each([&](flecs::entity dmxUniverse, DmxUniverse& u){
+            // If this universe ID is NOT in our new list, mark for deletion
+            if (std::find(univIds.begin(), univIds.end(), u.universeId) == univIds.end()) {
+                toDelete.push_back(dmxUniverse);
+            } else {
+                existingUnivs.push_back(u.universeId);
+            }
+        });
+        
+        //Safe Deletion outside of iteration
+        for (auto e : toDelete) e.destruct();
 
-    w.observer<RenderArea>("UpdatePatchRenderArea").event(flecs::OnSet)
-    .each([](flecs::entity e, RenderArea& ra){
+
+        // Add missing universes
+        for (uint16_t id : univIds) {
+            if(std::find(existingUnivs.begin(), existingUnivs.end(), id) == existingUnivs.end()){
+                std::string univName = "Universe " + std::to_string(id);
+                patch.world().entity()
+                .child_of(dmxOutputFolder)
+                .set_name(univName.c_str())
+                .add<IsDmxUniverse>()
+                .set<DmxUniverse>({id, 0});
+            }
+        }
+
+        //Build Fixture:InUniverse-Universe relationships
+        for(auto& link : fixtureToUniverseLinks) link.fixture.remove<InUniverse>(flecs::Wildcard);
+        std::unordered_map<uint16_t, flecs::entity> idToUniverseEnt;
+
+        dmxOutput.sortedQuery.each([&](flecs::entity universe, DmxUniverse& u){
+            idToUniverseEnt[u.universeId] = universe;
+        });
+        for(auto& link : fixtureToUniverseLinks){
+            for(auto id : link.universes){
+                if(idToUniverseEnt.count(id)) link.fixture.add<InUniverse>(idToUniverseEnt[id]);
+            }
+        }
+
+
+        patch.remove<DmxMapDirty>();
+    });
+
+    w.system<RenderArea>("UpdateRenderArea").with<RenderAreaDirty>()
+    .with<IsPatch>()
+    .each([](flecs::entity patch, RenderArea& ra){
         glm::vec2 min(FLT_MAX);
         glm::vec2 max(-FLT_MAX);
         bool b_hasPixels = false;
-        auto fixtureList = e.target<FixtureList>();
-        fixtureList.children([&](flecs::entity fixture){
-            if(!fixture.has<IsFixture>()) return;
-            fixture.children([&](flecs::entity pixel){
-                if(!pixel.has<IsPixel>()) return;
-                if(const Position* p = pixel.try_get<Position>()){
-                    min = glm::min(min, p->position);
-                    max = glm::max(max, p->position);
-                    b_hasPixels = true;
-                }
-            });
+        auto fixtureFolder = patch.target<FixtureList>();
+        const FixtureList& fixtureList = fixtureFolder.get<FixtureList>();
+        fixtureList.pixelQuery.each([&](flecs::entity pixel, IsPixel){
+            if(const Position* p = pixel.try_get<Position>()){
+                min = glm::min(min, p->position);
+                max = glm::max(max, p->position);
+                b_hasPixels = true;
+            }
         });
         if(b_hasPixels){
             ra.min = min;
             ra.max = max;
         }
+        patch.remove<RenderAreaDirty>();
     });
+
 
     createPatch(w);
     createLineFixture(getPatch(w), glm::vec2(0.0, 0.0), glm::vec2(100.0, 150.0));
