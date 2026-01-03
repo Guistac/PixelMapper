@@ -54,6 +54,9 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/PixelMapper.cpp
 
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
+
+	${PROJECT_SRC_DIR}/flecs-modules/glfw.hpp
+	${PROJECT_SRC_DIR}/flecs-modules/glfw.cpp
 )
 
 # utility to match source file hierarchy in IDE

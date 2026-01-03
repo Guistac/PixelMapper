@@ -9,17 +9,16 @@
 #include <glad/glad.h>
 
 #include "PixelMapper.h"
+#include "flecs-modules/glfw.hpp"
 
 #define GL_SILENCE_DEPRECATION
 
-void glfw_error_callback(int error, const char* description){
-    fprintf(stderr, "GLFW Error %d: %s\n", error, description);
-}
-
 int main(){
-    if(!glfwInit()) return 1; //this also sets the working directory to .app/Resources on MacOs builds
+    flecs::world world;
+    world.import<flecs::stats>();
+    world.set<flecs::Rest>({});
 
-    glfwSetErrorCallback(glfw_error_callback);
+    world.import<glfw>();
 
 #if defined(__APPLE__)
     // GL 3.2 + GLSL 150
@@ -37,7 +36,8 @@ int main(){
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 #endif
 
-    GLFWwindow* mainWindow = glfwCreateWindow(1280, 720, "PixelMapper", nullptr, nullptr);
+    auto windowEntt = glfw::createWindow(world, 1280, 720, "PixelMapperWindow");
+    GLFWwindow *mainWindow = windowEntt.get<WindowHandle>().handle;
     
     //activate the opengl context & activate vsync
     glfwMakeContextCurrent(mainWindow);
@@ -59,61 +59,58 @@ int main(){
     //initialize glfw & opengl backends
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
-
-    flecs::world world;
-    world.import<flecs::stats>();
-    world.set<flecs::Rest>({});
     
     PixelMapper::init(world);
 
-    while(!glfwWindowShouldClose(mainWindow)){
+    // FIXME: Hack until i figure out how to handle that
+    //glfwPollEvents();
+    //int display_w, display_h;
+    //glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
+    //glViewport(0, 0, display_w, display_h);
+    //glClearColor(0,0,0,255);
+    //glClear(GL_COLOR_BUFFER_BIT);
+    // -------------------------------------------------
 
-		world.progress(); //call this on each frame for flecs::rest to work
-		
-        //with multiple viewports the context of the main window needs to be set on each frame
-		glfwMakeContextCurrent(mainWindow);
 
-        glfwPollEvents();
+    world.system("temp update")
+        .kind(flecs::OnUpdate)
+        .each([&](){
+            // With multiple viewports the context of the main window needs to be set on each frame
+            glfwMakeContextCurrent(mainWindow);
+            // Start the Dear ImGui frame
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
 
-        // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        if(ImGui::BeginMainMenuBar()){
-            if(ImGui::BeginMenu("PixelMapper")){
-                ImGui::EndMenu();
+            if(ImGui::BeginMainMenuBar()){
+                if(ImGui::BeginMenu("PixelMapper")){
+                    ImGui::EndMenu();
+                }
+                if(ImGui::BeginMenu("Edit")){
+                    ImGui::EndMenu();
+                }
+                if(ImGui::BeginMenu("View")){
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMainMenuBar();
             }
-            if(ImGui::BeginMenu("Edit")){
-                ImGui::EndMenu();
+            ImGui::DockSpaceOverViewport();
+
+            PixelMapper::gui(world);
+
+            // Rendering
+            ImGui::Render();
+
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            // Update and Render additional Viewports
+            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+                ImGui::UpdatePlatformWindows();
+                ImGui::RenderPlatformWindowsDefault();
             }
-            if(ImGui::BeginMenu("View")){
-                ImGui::EndMenu();
-            }
-            ImGui::EndMainMenuBar();
-        }
-        ImGui::DockSpaceOverViewport();
+        })
+    ;
 
-        PixelMapper::gui(world);
-
-        // Rendering
-        ImGui::Render();
-
-        int display_w, display_h;
-        glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(0,0,0,255);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(mainWindow);
-
-        //Update and Render additional Viewports
-		if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-			ImGui::UpdatePlatformWindows();
-			ImGui::RenderPlatformWindowsDefault();
-		}
-    }
+    while (!glfwWindowShouldClose(mainWindow) && world.progress());
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
