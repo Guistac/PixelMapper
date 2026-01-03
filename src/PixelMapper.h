@@ -7,34 +7,29 @@
 
 namespace PixelMapper{
 
-namespace Fixture{
-    struct Layout;
-};
-namespace Dmx::Universe{
-    struct Is;
-    struct Properties;
-}
-namespace Pixel{
-    struct Is;
+
+struct Module{
+    Module(flecs::world& w);
 };
 
-
-void init(flecs::world& w);
+void menubar(flecs::world& w);
 void gui(flecs::world& w);
 
-struct Queries{
-    flecs::query<Fixture::Layout> patchFixtureLayoutQuery;
-    flecs::query<Dmx::Universe::Properties> patchDmxUniverseQuery;
-    flecs::query<Pixel::Is> fixturePixelQuery;
-    flecs::query<Pixel::Is> patchPixelQuery;
-};
 
-//we only have one patch for now
-flecs::entity getPatch(flecs::world& w);
+struct Is{};
+struct PatchFolder{};
+struct SelectedPatch{};
+
+flecs::entity get(const flecs::world& w);
+flecs::entity createPatch(flecs::entity pixelMapper);
+void iteratePatches(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn);
+flecs::entity getSelectedPatch(flecs::entity pixelMapper);
+void selectPatch(flecs::entity pixelMapper, flecs::entity patch);
+
 
 namespace Patch{
-    void iterateFixtures(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::Layout& layout)> fn);
-    void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Dmx::Universe::Properties& up)> fn);
+    void iterateFixtures(flecs::entity patch, std::function<void(flecs::entity fixture)> fn);
+    void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse)> fn);
     void iteratePixels(flecs::entity patch, std::function<void(flecs::entity pixel)> fn);
 
     flecs::entity spawnLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
@@ -66,6 +61,8 @@ namespace Patch{
     };
 };
 
+
+
 namespace Fixture{
     void iteratePixels(flecs::entity fixture, std::function<void(flecs::entity pixel)> fn);
 
@@ -86,8 +83,9 @@ namespace Fixture{
         uint16_t universe;
         uint16_t address;
     };
-
 };
+
+
 
 namespace Pixel{
     struct Is{};
@@ -100,11 +98,13 @@ namespace Pixel{
     };
 };
 
+
+
 namespace Dmx::Universe{
     struct Is{};
     struct Properties{
         uint16_t universeId;
-        uint16_t lastAddress;
+        uint16_t usedSize;
     };
     struct Channels{
         uint8_t channels[512];
@@ -112,14 +112,15 @@ namespace Dmx::Universe{
 };
 
 
-
-struct Line {
-    glm::vec2 start;
-    glm::vec2 end;
-};
-struct Circle{
-    glm::vec2 center;
-    float radius;
+namespace Shape{
+    struct Line {
+        glm::vec2 start;
+        glm::vec2 end;
+    };
+    struct Circle{
+        glm::vec2 center;
+        float radius;
+    };
 };
 
 }

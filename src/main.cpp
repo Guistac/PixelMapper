@@ -7,19 +7,13 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <glad/glad.h>
+#define GL_SILENCE_DEPRECATION
 
 #include "PixelMapper.h"
 
-#define GL_SILENCE_DEPRECATION
-
-void glfw_error_callback(int error, const char* description){
-    fprintf(stderr, "GLFW Error %d: %s\n", error, description);
-}
 
 int main(){
     if(!glfwInit()) return 1; //this also sets the working directory to .app/Resources on MacOs builds
-
-    glfwSetErrorCallback(glfw_error_callback);
 
 #if defined(__APPLE__)
     // GL 3.2 + GLSL 150
@@ -38,14 +32,10 @@ int main(){
 #endif
 
     GLFWwindow* mainWindow = glfwCreateWindow(1280, 720, "PixelMapper", nullptr, nullptr);
-    
-    //activate the opengl context & activate vsync
-    glfwMakeContextCurrent(mainWindow);
-    glfwSwapInterval(1);
+    glfwMakeContextCurrent(mainWindow); //enable the opengl context
+    glfwSwapInterval(1);    //enable vsync
 
-    if(!gladLoadGL()) {
-        return 0;
-    }
+    if(!gladLoadGL()) return 0;
 
     //initialize gui contexts
     IMGUI_CHECKVERSION();
@@ -60,19 +50,28 @@ int main(){
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    //import our flecs modules
     flecs::world world;
     world.import<flecs::stats>();
-    world.set<flecs::Rest>({});
-    
-    PixelMapper::init(world);
+    world.set<flecs::Rest>({});    
+    world.import<PixelMapper::Module>();
+
+    //init our app
+    auto pixelMapper = PixelMapper::get(world);
+    auto patch1 = PixelMapper::createPatch(pixelMapper);
+    PixelMapper::selectPatch(pixelMapper, patch1);
+    PixelMapper::Patch::spawnLineFixture(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0));
+    PixelMapper::Patch::spawnCircleFixture(patch1, glm::vec2(100.0, 100.0), 50.0);
+    auto patch2 = PixelMapper::createPatch(pixelMapper);
+    for(int i = 0; i < 8; i++){
+        for(int j = 0; j < 8; j++){
+            PixelMapper::Patch::spawnCircleFixture(patch2, glm::vec2(i*100.0 + 50.0, j*100.0 + 50), 45.0);
+        }
+    }
 
     while(!glfwWindowShouldClose(mainWindow)){
-
-		world.progress(); //call this on each frame for flecs::rest to work
-		
         //with multiple viewports the context of the main window needs to be set on each frame
 		glfwMakeContextCurrent(mainWindow);
-
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -80,24 +79,14 @@ int main(){
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        world.progress();
+
         if(ImGui::BeginMainMenuBar()){
-            if(ImGui::BeginMenu("PixelMapper")){
-                ImGui::EndMenu();
-            }
-            if(ImGui::BeginMenu("Edit")){
-                ImGui::EndMenu();
-            }
-            if(ImGui::BeginMenu("View")){
-                ImGui::EndMenu();
-            }
+            PixelMapper::menubar(world);
             ImGui::EndMainMenuBar();
         }
         ImGui::DockSpaceOverViewport();
-
         PixelMapper::gui(world);
-
-        // Rendering
-        ImGui::Render();
 
         int display_w, display_h;
         glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
@@ -105,6 +94,7 @@ int main(){
         glClearColor(0,0,0,255);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(mainWindow);
 
@@ -121,4 +111,4 @@ int main(){
 	glfwTerminate();
 
     return 1;
-}
+}//main()
