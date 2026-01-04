@@ -54,7 +54,7 @@ int main(){
     flecs::world world;
     world.import<flecs::stats>();
     world.set<flecs::Rest>({});    
-    world.import<PixelMapper::Module>();
+    PixelMapper::import(world);
 
     //init our app
     auto pixelMapper = PixelMapper::get(world);

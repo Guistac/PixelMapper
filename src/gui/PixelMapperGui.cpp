@@ -173,7 +173,6 @@ void gui(flecs::world& w) {
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0, 1.0, 1.0, 1.0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0));
                 w.defer_begin();
-
                 Patch::iterateFixtures(selectedPatch, [](flecs::entity fixture){
                     flecs::entity currentShapeType = fixture.target<Fixture::Shape>();
                     ImGui::PushID(fixture.id());

@@ -8,9 +8,7 @@
 namespace PixelMapper{
 
 
-struct Module{
-    Module(flecs::world& w);
-};
+void import(flecs::world& w);
 
 void menubar(flecs::world& w);
 void gui(flecs::world& w);
@@ -59,6 +57,8 @@ namespace Patch{
         glm::vec2 min;
         glm::vec2 max;
     };
+
+    void import(flecs::world& w);
 };
 
 
@@ -83,6 +83,8 @@ namespace Fixture{
         uint16_t universe;
         uint16_t address;
     };
+
+    void import(flecs::world& w);
 };
 
 
@@ -96,6 +98,8 @@ namespace Pixel{
     struct Position{
         glm::vec2 position;
     };
+
+    void import(flecs::world& w);
 };
 
 
@@ -109,6 +113,8 @@ namespace Dmx::Universe{
     struct Channels{
         uint8_t channels[512];
     };
+
+    void import(flecs::world& w);
 };
 
 
@@ -121,6 +127,8 @@ namespace Shape{
         glm::vec2 center;
         float radius;
     };
+
+    void import(flecs::world& w);
 };
 
 }
