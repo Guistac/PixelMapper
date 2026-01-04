@@ -54,7 +54,6 @@ int main(){
     //enable docking & viewports
     ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     
     //initialize glfw & opengl backends
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
@@ -102,11 +101,6 @@ int main(){
             ImGui::Render();
 
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            // Update and Render additional Viewports
-            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-                ImGui::UpdatePlatformWindows();
-                ImGui::RenderPlatformWindowsDefault();
-            }
         })
     ;
 
