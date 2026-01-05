@@ -11,12 +11,10 @@ struct MappedField {
 
 bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<MappedField>& fields, const MappedField** clickedField) {
     static ImGuiTableFlags flags =  ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX;
-    static std::string hoveredGroup = "";
+    static std::string hoveredGroup = ""; //track previous hovered field to show hover on all bytes belonging to it
     bool b_anyGroupHovered = false;
     bool blink = std::sin(ImGui::GetTime() * 10.0f) > 0.0;
     bool ret = false;
-    
-    // Calculate size to make buttons perfectly square/uniform
     ImVec2 cellSize = glm::vec2(ImGui::CalcTextSize("00")) + glm::vec2(ImGui::GetStyle().FramePadding) * 2.0f;
 
     // Optimization: Build map once per frame
@@ -33,15 +31,14 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0)); // Make button transparent so table background shows through
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
-
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7, 0.7, 0.7, 1.0));
 
     if (ImGui::BeginTable("HexEditor", 17, flags)) {
         for (int row = 0; row < 32; row++) {
             ImGui::TableNextRow();
-            
-            // Address Column
+        
             ImGui::TableSetColumnIndex(0);
-            ImGui::AlignTextToFramePadding(); // Align "Addr" text with buttons
+            ImGui::AlignTextToFramePadding();
             ImGui::TextDisabled(" %04X ", row * 16);
 
             for (int col = 0; col < 16; col++) {
@@ -51,14 +48,13 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
                 if (byteIdx < (int)dataSize) {
                     const auto& owners = collisionMap[byteIdx];
 
-                    // 1. Color Logic
+                    //Byte Color
                     if (owners.size() > 1) {
                         ImU32 conflictCol = IM_COL32(blink ? 180 : 100, 0, 0, 255);
                         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, conflictCol);
                     } else if (!owners.empty()) {
                         ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, owners[0]->Color);
                     }
-
                     bool b_groupHovered = false;
                     if(!owners.empty()){
                         if(owners.back()->Name == hoveredGroup) {
@@ -67,7 +63,7 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
                         }
                     }
 
-                    // 2. Button Logic
+                    //Byte Interaction
                     ImGui::PushID(byteIdx);
                     char label[4];
                     snprintf(label, 4, "%02X", data[byteIdx]);
@@ -81,12 +77,13 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
 
                     if(b_groupHovered) ImGui::PopStyleColor();
 
-                    // 3. Tooltip
+
                     if(ImGui::IsItemHovered()){
                         b_anyGroupHovered = true;
                         if (!owners.empty()) {
                             hoveredGroup = owners.back()->Name;
                             ImGui::BeginTooltip();
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0, 1.0, 1.0, 1.0));
                             if (owners.size() > 1) {
                                 ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Overlap Detected (%d fields)", (int)owners.size());
                                 ImGui::Separator();
@@ -94,6 +91,8 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
                             for (auto* f : owners) {
                                 ImGui::BulletText("%s (%d to %d)", f->Name.c_str(), f->Offset, f->Offset + f->Count - 1);
                             }
+                            ImGui::Text("DMX Address %i", byteIdx);
+                            ImGui::PopStyleColor();
                             ImGui::EndTooltip();
                         }
                         else hoveredGroup = "";
@@ -104,9 +103,10 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
         ImGui::EndTable();
     }
 
+    //reset group hover tracking
     if(!b_anyGroupHovered) hoveredGroup = "";
     
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(4);
     ImGui::PopStyleVar(2);
     return ret;
 }

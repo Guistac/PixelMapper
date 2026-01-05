@@ -3,112 +3,106 @@
 #include <algorithm>
 #include <iostream>
 
-namespace PixelMapper{
-
-flecs::entity get(const flecs::world& w){
-    return w.target<PixelMapper::Is>();
-}
-
-struct Queries{
-    flecs::query<Patch::Is> patchQuery;
-    flecs::query<Fixture::Is> patchFixtureQuery;
-    flecs::query<Fixture::Is> patchFixtureInUniverseQuery;
-    flecs::query<Dmx::Universe::Is> patchDmxUniverseQuery;
-    flecs::query<Pixel::Is> patchPixelQuery;
-    flecs::query<Pixel::Is> fixturePixelQuery;
-};
-
-const Queries& getQueries(const flecs::world& w){
-    return get(w).get<Queries>();
-}
-
-void iteratePatches(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn){
-    auto patchFolder = pixelMapper.target<PatchFolder>();
-    if(!patchFolder.is_valid()) return;
-    getQueries(pixelMapper.world()).patchQuery.set_var("parent", patchFolder)
-    .each([fn](flecs::entity patch, Patch::Is){
-        fn(patch);
-    });
-}
-
-int getPatchCount(flecs::entity pixelMapper){
-    auto patchFolder = pixelMapper.target<PatchFolder>();
-    if(!patchFolder.is_valid()) return 0;
-    const auto& queries = pixelMapper.get<Queries>();
-    return queries.patchQuery.set_var("parent", patchFolder).count();
-}
-
-flecs::entity getSelectedPatch(flecs::entity pixelMapper){
-    return pixelMapper.target<SelectedPatch>();
-}
-void selectPatch(flecs::entity pixelMapper, flecs::entity patch){
-    pixelMapper.add<SelectedPatch>(patch);
-}
-
-flecs::entity createPatch(flecs::entity pixelMapper){
-    auto patchFolder = pixelMapper.target<PatchFolder>();
-    if(!patchFolder.is_valid()) return flecs::entity::null();
-    const auto& world = pixelMapper.world();
-
-    auto newPatch = world.entity()
-        .add<Patch::Is>()
-        .add<Patch::Settings>()
-        .add<Patch::RenderArea>()
-        .child_of(patchFolder);
-
-    std::string patchName = "Patch " + std::to_string(getPatchCount(pixelMapper));
-    newPatch.set_name(patchName.c_str());
-
-    auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
-    auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
-
-    newPatch.add<Patch::FixtureFolder>(fixtureFolder);
-    newPatch.add<Patch::DmxUniverseFolder>(dmxOutputFolder);
-    
-    return newPatch;
-}
+#include "utils/FlecsUtils.h"
 
 
 
+namespace PixelMapper::Application{
+
+    flecs::entity get(const flecs::world& w){
+        return w.target<Is>();
+    }
+
+    const Queries& getQueries(const flecs::world& w){
+        return get(w).get<Queries>();
+    }
+
+    void iteratePatches(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn){
+        auto patchFolder = pixelMapper.target<PatchFolder>();
+        if(!patchFolder.is_valid()) return;
+        getQueries(pixelMapper.world()).patchQuery.set_var("parent", patchFolder)
+        .each([fn](flecs::entity patch, Patch::Is){
+            fn(patch);
+        });
+    }
+
+    int getPatchCount(flecs::entity pixelMapper){
+        auto patchFolder = pixelMapper.target<PatchFolder>();
+        if(!patchFolder.is_valid()) return 0;
+        const auto& queries = pixelMapper.get<Queries>();
+        return queries.patchQuery.set_var("parent", patchFolder).count();
+    }
+
+    flecs::entity getSelectedPatch(flecs::entity pixelMapper){
+        return pixelMapper.target<SelectedPatch>();
+    }
+    void selectPatch(flecs::entity pixelMapper, flecs::entity patch){
+        pixelMapper.add<SelectedPatch>(patch);
+    }
+
+    flecs::entity createPatch(flecs::entity pixelMapper){
+        auto patchFolder = pixelMapper.target<PatchFolder>();
+        if(!patchFolder.is_valid()) return flecs::entity::null();
+        const auto& world = pixelMapper.world();
+
+        auto newPatch = world.entity()
+            .add<Patch::Is>()
+            .add<Patch::Settings>()
+            .add<Patch::RenderArea>()
+            .child_of(patchFolder);
+
+        std::string patchName = "Patch " + std::to_string(getPatchCount(pixelMapper));
+        newPatch.set_name(patchName.c_str());
+
+        auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
+        auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
+
+        newPatch.add<Patch::FixtureFolder>(fixtureFolder);
+        newPatch.add<Patch::DmxUniverseFolder>(dmxOutputFolder);
+        
+        return newPatch;
+    }
+
+}//namespace PixelMapper::Application
 
 
-namespace Patch{
+namespace PixelMapper::Patch{
 
-    void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse)> fn){
+    void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Dmx::Universe::Properties&)> fn){
         auto dmxUniverseFolder = patch.target<DmxUniverseFolder>();
         if(!dmxUniverseFolder.is_valid()) return;
-        getQueries(patch.world()).patchDmxUniverseQuery.set_var("parent", dmxUniverseFolder)
-        .each([fn](flecs::entity universe, Dmx::Universe::Is){
-            fn(universe);
+        Application::getQueries(patch.world()).patchDmxUniverseQuery.set_var("parent", dmxUniverseFolder)
+        .each([fn](flecs::entity universe, Dmx::Universe::Is, Dmx::Universe::Properties& properties){
+            fn(universe, properties);
         });
     }
 
-    void iterateFixtures(flecs::entity patch, std::function<void(flecs::entity fixture)> fn){
+    void iterateDmxFixtures(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn){
         auto fixtureFolder = patch.target<FixtureFolder>();
         if(!fixtureFolder.is_valid()) return;
-        getQueries(patch.world()).patchFixtureQuery.set_var("parent", fixtureFolder)
-        .each([fn](flecs::entity fixture, Fixture::Is){
-            fn(fixture);
+        Application::getQueries(patch.world()).patchDmxFixtureQuery.set_var("parent", fixtureFolder)
+        .each([fn](flecs::entity fixture, Fixture::Is, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+            fn(fixture, layout, dmxAddress);
         });
     }
 
-    void iterateFixturesInUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture)> fn){
+    void iterateFixturesInUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn){
         auto fixtureFolder = patch.target<FixtureFolder>();
         if(!fixtureFolder.is_valid()) return;
-        getQueries(patch.world()).patchFixtureInUniverseQuery
+        Application::getQueries(patch.world()).patchFixtureInUniverseQuery
         .set_var("parent", fixtureFolder)
         .set_var("universe", universe)
-        .each([fn](flecs::entity fixture, Fixture::Is){
-            fn(fixture);
+        .each([fn](flecs::entity fixture, Fixture::Is, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+            fn(fixture, layout, dmxAddress);
         });
     }
 
-    void iteratePixels(flecs::entity patch, std::function<void(flecs::entity pixel)> fn){
+    void iteratePixels(flecs::entity patch, std::function<void(flecs::entity pixel, Pixel::Position& position, Pixel::ColorRGBW& color)> fn){
         auto fixtureFolder = patch.target<FixtureFolder>();
         if(!fixtureFolder.is_valid()) return;
-        getQueries(patch.world()).patchPixelQuery.set_var("parent", fixtureFolder)
-        .each([fn](flecs::entity pixel, Pixel::Is){
-            fn(pixel);
+        Application::getQueries(patch.world()).patchPixelQuery.set_var("parent", fixtureFolder)
+        .each([fn](flecs::entity pixel, Pixel::Is, Pixel::Position position, Pixel::ColorRGBW color){
+            fn(pixel, position, color);
         });
     }
 
@@ -122,10 +116,10 @@ namespace Patch{
     void removeFixtureSelection(flecs::entity patch){
         patch.remove<SelectedFixture>(flecs::Wildcard);
     }
-    int getFixtureCount(flecs::entity patch){
+    int getDmxFixtureCount(flecs::entity patch){
         auto fixtureFolder = patch.target<FixtureFolder>();
         if(!fixtureFolder.is_valid()) return 0;
-        return getQueries(patch.world()).patchFixtureQuery.set_var("parent", fixtureFolder).count();
+        return Application::getQueries(patch.world()).patchDmxFixtureQuery.set_var("parent", fixtureFolder).count();
     }
 
     flecs::entity getSelectedUniverse(flecs::entity patch){
@@ -148,48 +142,15 @@ namespace Patch{
             .set<Dmx::Universe::Properties>({universeId, 0});
     }
 
-    flecs::entity createFixture(flecs::entity patch, int numPixels, int channels){
-        auto fixtureList = patch.target<FixtureFolder>();
-        auto newFixture = patch.world().entity()
-            .child_of(fixtureList)
-            .add<Fixture::Is>();
+}//namespace PixelMapper::Patch
 
-        Fixture::Layout layout{
-            .pixelCount = numPixels,
-            .colorChannels = channels,
-            .byteCount = 0
-        };
 
-        newFixture.set<Fixture::Layout>(layout) //triggers pixel resize observer
-        .set<Fixture::DmxAddress>({0,0});
+namespace PixelMapper::Fixture{
 
-        return newFixture;
-    }
-
-    flecs::entity spawnLineFixture(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels, int channels) {
-        std::string fixtureName = "Line Fixture " + std::to_string(getFixtureCount(patch) + 1);
-        auto newFixture = createFixture(patch, numPixels, channels)
-        .set_name(fixtureName.c_str())
-        .set<Fixture::Shape, Shape::Line>({start, end});
-        return newFixture;
-    }
-
-    flecs::entity spawnCircleFixture(flecs::entity patch, glm::vec2 center, float radius, int numPixels, int channels){
-        std::string fixtureName = "Circle Fixture " + std::to_string(getFixtureCount(patch) + 1);
-        auto newFixture = createFixture(patch, numPixels, channels)
-        .set_name(fixtureName.c_str())
-        .set<Fixture::Shape, Shape::Circle>({center, radius});
-        return newFixture;
-    }
-
-}//namespace Patch
-
-namespace Fixture{
-
-    void iteratePixels(flecs::entity fixture, std::function<void(flecs::entity pixel)> fn){
-        getQueries(fixture.world()).fixturePixelQuery.set_var("parent", fixture)
-        .each([fn](flecs::entity pixel, Pixel::Is){
-            fn(pixel);
+    void iteratePixels(flecs::entity fixture, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn){
+        Application::getQueries(fixture.world()).fixturePixelQuery.set_var("parent", fixture)
+        .each([fn](flecs::entity pixel, Pixel::Is, Pixel::Position& position, Pixel::ColorRGBW& color){
+            fn(pixel, position, color);
         });
     }
 
@@ -202,14 +163,14 @@ namespace Fixture{
     }
 
     int getPixelCount(flecs::entity fixture){
-        return getQueries(fixture.world()).fixturePixelQuery.set_var("parent", fixture).count();
+        return Application::getQueries(fixture.world()).fixturePixelQuery.set_var("parent", fixture).count();
     }
 
     flecs::entity createPixel(flecs::entity fixture){
         return fixture.world().entity()
         .child_of(fixture)
         .add<Pixel::Is>()
-        .add<Pixel::ColorRGBWA>()
+        .add<Pixel::ColorRGBW>()
         .add<Pixel::Position>();
     }
 
@@ -228,62 +189,100 @@ namespace Fixture{
     void updatePixelPositions(flecs::entity fixture, std::function<glm::vec2(float range, int index, size_t count)> pos_func) {
         const Fixture::Layout& f = fixture.get<Fixture::Layout>();
         int pixelIndex = 0;
-        iteratePixels(fixture, [&](flecs::entity pixel){
-            if(Pixel::Position* p = pixel.try_get_mut<Pixel::Position>()){
-                float range = f.pixelCount > 1 ? (float)pixelIndex / (float)(f.pixelCount - 1) : 0.0f;
-                p->position = pos_func(range, pixelIndex, f.pixelCount);
-                pixelIndex++;
-            }
+        iteratePixels(fixture, [&](flecs::entity pixel, Pixel::Position& p, Pixel::ColorRGBW& c){
+            float range = f.pixelCount > 1 ? (float)pixelIndex / (float)(f.pixelCount - 1) : 0.0f;
+            p.position = pos_func(range, pixelIndex, f.pixelCount);
+            pixelIndex++;
         });
+        fixture.remove<Fixture::PixelPositionsDirty>();
+        Fixture::getPatch(fixture).add<Patch::RenderAreaDirty>();
     }
 
-}//namespace Fixture
+    flecs::entity create(flecs::entity patch, int numPixels, int channels){
+        auto fixtureList = patch.target<Patch::FixtureFolder>();
+        auto newFixture = patch.world().entity()
+            .child_of(fixtureList)
+            .add<Fixture::Is>();
+
+        Fixture::Layout layout{
+            .pixelCount = numPixels,
+            .colorChannels = channels,
+            .byteCount = 0
+        };
+
+        newFixture.set<Fixture::Layout>(layout) //triggers pixel resize observer
+        .set<Fixture::DmxAddress>({0,0});
+
+        return newFixture;
+    }
+
+    flecs::entity createLine(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels, int channels) {
+        std::string fixtureName = "Line Fixture " + std::to_string(Patch::getDmxFixtureCount(patch) + 1);
+        auto newFixture = create(patch, numPixels, channels)
+        .set_name(fixtureName.c_str())
+        .set<WithShape, Shape::Line>({start, end});
+        return newFixture;
+    }
+
+    flecs::entity createCircle(flecs::entity patch, glm::vec2 center, float radius, int numPixels, int channels){
+        std::string fixtureName = "Circle Fixture " + std::to_string(Patch::getDmxFixtureCount(patch) + 1);
+        auto newFixture = create(patch, numPixels, channels)
+        .set_name(fixtureName.c_str())
+        .set<WithShape, Shape::Circle>({center, radius});
+        return newFixture;
+    }
+
+}//namespace PixelMapper::Fixture
 
 
-
-void Patch::import(flecs::world& w){
-    w.component<Patch::Is>();
-    w.component<Patch::FixtureFolder>();
-    w.component<Patch::DmxUniverseFolder>();
-    w.component<Patch::SelectedFixture>();
-    w.component<Patch::SelectedDmxUniverse>();
-    w.component<Patch::DmxMapDirty>();
-    w.component<Patch::RenderAreaDirty>();
-    w.component<Patch::Settings>();
-    w.component<Patch::RenderArea>();
+namespace PixelMapper::Patch{
+    void import(flecs::world& w){
+        w.component<Is>();
+        w.component<FixtureFolder>();
+        w.component<DmxUniverseFolder>();
+        w.component<SelectedFixture>();
+        w.component<SelectedDmxUniverse>();
+        w.component<DmxMapDirty>();
+        w.component<RenderAreaDirty>();
+        w.component<Settings>();
+        w.component<RenderArea>();
+    }
 }
-void Fixture::import(flecs::world& w){
-    w.component<Fixture::Is>();
-    w.component<Fixture::Shape>();
-    w.component<Fixture::InUniverse>();
-    w.component<Fixture::LayoutDirty>();
-    w.component<Fixture::PixelPositionsDirty>();
-    w.component<Fixture::Layout>();
-    w.component<Fixture::DmxAddress>();
+namespace PixelMapper::Fixture{
+    void import(flecs::world& w){
+        w.component<Is>();
+        w.component<WithShape>();
+        w.component<InUniverse>();
+        w.component<LayoutDirty>();
+        w.component<PixelPositionsDirty>();
+        w.component<Layout>();
+        w.component<DmxAddress>();
+    }
 }
-void Pixel::import(flecs::world& w){
-    w.component<Pixel::Is>();
-    w.component<Pixel::ColorRGBWA>().add(flecs::Sparse);
-    w.component<Pixel::Position>().add(flecs::Sparse);
+namespace PixelMapper::Pixel{
+    void import(flecs::world& w){
+        w.component<Is>();
+        w.component<ColorRGBW>().add(flecs::Sparse);
+        w.component<Position>().add(flecs::Sparse);
+    }
 }
-void Dmx::Universe::import(flecs::world& w){
-    w.component<Dmx::Universe::Is>();
-    w.component<Dmx::Universe::SendToController>();
-    w.component<Dmx::Universe::Properties>().add(flecs::Sparse);
-    w.component<Dmx::Universe::Channels>().add(flecs::Sparse);
+namespace PixelMapper::Dmx::Universe{
+    void import(flecs::world& w){
+        w.component<Is>();
+        w.component<SendToController>();
+        w.component<Properties>().add(flecs::Sparse);
+        w.component<Channels>().add(flecs::Sparse);
+    }
 }
-void Shape::import(flecs::world& w){
-    w.component<Shape::Line>();
-    w.component<Shape::Circle>();
+namespace PixelMapper::Shape{
+    void import(flecs::world& w){
+        w.component<Line>();
+        w.component<Circle>();
+    }
 }
 
-//Render Shader Framebuffer on Patch::RenderArea
-//Iterate Pixels, using Pixel::Position, Write interpolated Pixel::Color
-//Iterate Fixtures, Write Pixel::Color to corresponding Dmx::Universe::Channels
-//Iterate Controllers, get corresponding Dmx::Universe::Channels and send Arnet frames over UDP
 
-
-void import(flecs::world& w){
+void PixelMapper::Application::import(flecs::world& w){
 
     //——————————————————— COMPONENTS ——————————————————————
 
@@ -298,7 +297,7 @@ void import(flecs::world& w){
 
     //————————————————— PAIR PROPERTIES ———————————————————
 
-    w.component<Fixture::Shape>().add(flecs::Exclusive);
+    w.component<Fixture::WithShape>().add(flecs::Exclusive);
     w.component<Patch::SelectedFixture>().add(flecs::Exclusive);
     w.component<Patch::SelectedDmxUniverse>().add(flecs::Exclusive);
     w.component<SelectedPatch>().add(flecs::Exclusive);
@@ -306,7 +305,7 @@ void import(flecs::world& w){
     //———————————————————— TREE ROOT ——————————————————————
 
     auto pixelMapper = w.entity("PixelMapperApp");
-    w.add<PixelMapper::Is>(pixelMapper);
+    w.add<Is>(pixelMapper);
     auto patchFolder = w.entity("Patches").child_of(pixelMapper);
     pixelMapper.add<PatchFolder>(patchFolder);
 
@@ -316,21 +315,21 @@ void import(flecs::world& w){
         .patchQuery = w.query_builder<Patch::Is>()
             .term().first(flecs::ChildOf).second("$parent")
             .build(),
-        .patchFixtureQuery = w.query_builder<Fixture::Is>()
+        .patchDmxFixtureQuery = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress>()
             .term().first(flecs::ChildOf).second("$parent")
             .build(),
-        .patchFixtureInUniverseQuery = w.query_builder<Fixture::Is>()
+        .patchFixtureInUniverseQuery = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress>()
             .term().first(flecs::ChildOf).second("$parent")
             .with<Fixture::InUniverse>().second("$universe")
             .build(),
-        .patchDmxUniverseQuery = w.query_builder<Dmx::Universe::Is>()
+        .patchDmxUniverseQuery = w.query_builder<Dmx::Universe::Is, Dmx::Universe::Properties>()
             .term().first(flecs::ChildOf).second("$parent")
             .build(),
-        .patchPixelQuery = w.query_builder<Pixel::Is>()
+        .patchPixelQuery = w.query_builder<Pixel::Is, Pixel::Position, Pixel::ColorRGBW>()
             .term().first(flecs::ChildOf).second("$fixture")
             .term().first(flecs::ChildOf).second("$parent").src("$fixture")
             .build(),
-        .fixturePixelQuery = w.query_builder<Pixel::Is>()
+        .fixturePixelQuery = w.query_builder<Pixel::Is, Pixel::Position, Pixel::ColorRGBW>()
             .term().first(flecs::ChildOf).second("$parent")
             .build()
     };
@@ -363,58 +362,49 @@ void import(flecs::world& w){
     .with<Fixture::Is>()
     .each([](flecs::entity fixture, Fixture::Layout l){
         std::cout << "UpdateFixtureLayout" << std::endl;
-        auto w = fixture.world();
 
         int current = Fixture::getPixelCount(fixture);
-        
         if (current < l.pixelCount) {
             int toAdd = l.pixelCount - current;
             for (int i = 0; i < toAdd; i++) Fixture::createPixel(fixture);
         } else if (current > l.pixelCount) {
             int toDelete = current - l.pixelCount;
-            Fixture::iteratePixels(fixture, [&](flecs::entity pixel){
+            Fixture::iteratePixels(fixture, [&](flecs::entity pixel, Pixel::Position& p, Pixel::ColorRGBW& c){
                 if (toDelete > 0) {
                     pixel.destruct();
                     toDelete--;
                 }
             });
         }
-        //trigger modified event on the FixtureShape:Shape component
-        //this will cause the next observer to recalculate pixel positions
-        if(flecs::entity target = fixture.target<Fixture::Shape>()){
-            flecs::id pair_id = w.pair<Fixture::Shape>(target);
-            fixture.modified(pair_id);
-        }
 
         fixture.remove<Fixture::LayoutDirty>();
-        Fixture::getPatch(fixture).add<Patch::DmxMapDirty>(); //adjust the dmx output map
         fixture.add<Fixture::PixelPositionsDirty>(); //recalculate pixel positions
+        Fixture::getPatch(fixture).add<Patch::DmxMapDirty>(); //adjust the dmx output map
     });
 
 
 
-    w.system<>("UpdateLinePixelPositions").with<Fixture::Shape, Shape::Line>()
+    w.system<>("UpdateLinePixelPositions").with<Fixture::WithShape, Shape::Line>()
     .with<Fixture::PixelPositionsDirty>()
     .with<Fixture::Is>()
     .each([](flecs::entity fixture) {
-        //std::cout << "UpdateLinePixelPositions" << std::endl;
-        const Shape::Line& line = fixture.get<Fixture::Shape,Shape::Line>();
+        std::cout << "UpdateLinePixelPositions" << std::endl;
+
+        const Shape::Line& line = fixture.get<Fixture::WithShape,Shape::Line>();
         Fixture::updatePixelPositions(fixture, [line](float r, int i, size_t c){
             return line.start + r * (line.end - line.start);
         });
-
-        fixture.remove<Fixture::PixelPositionsDirty>();
-        Fixture::getPatch(fixture).add<Patch::RenderAreaDirty>();
     });
 
 
 
-    w.system<>("UpdateCirclePixelPositions").with<Fixture::Shape, Shape::Circle>()
+    w.system<>("UpdateCirclePixelPositions").with<Fixture::WithShape, Shape::Circle>()
     .with<Fixture::PixelPositionsDirty>()
     .with<Fixture::Is>()
     .each([](flecs::entity fixture) {
-        //std::cout << "UpdateCirclePixelPositions" << std::endl;
-        const Shape::Circle& circle = fixture.get<Fixture::Shape,Shape::Circle>();
+        std::cout << "UpdateCirclePixelPositions" << std::endl;
+
+        const Shape::Circle& circle = fixture.get<Fixture::WithShape,Shape::Circle>();
         Fixture::updatePixelPositions(fixture, [circle](float r, int i, int c){
             float angle = float(i) / float(c) * M_PI * 2.0;
             return glm::vec2{
@@ -422,107 +412,20 @@ void import(flecs::world& w){
                 circle.center.y + sinf(angle) * circle.radius
             };
         });
-
-        fixture.remove<Fixture::PixelPositionsDirty>();
-        Fixture::getPatch(fixture).add<Patch::RenderAreaDirty>();
-    });
-
-
-
-    w.system<Patch::Is>("UpdateDmxOutputMap").with<Patch::DmxMapDirty>()
-    .each([](flecs::entity patch, Patch::Is){
-
-        std::cout << "UpdateDmxOutputMap" << std::endl;
-        
-        std::vector<uint16_t> univIds = {};
-        struct FixtureToUniverse{
-            flecs::entity fixture;
-            std::vector<uint16_t> universes = {};
-        };
-        std::vector<FixtureToUniverse> fixtureToUniverseLinks;
-            
-        //compile a list of universes that are needed to cover all fixtures
-        Patch::iterateFixtures(patch, [&](flecs::entity fixture){
-            const Fixture::DmxAddress* address = fixture.try_get<Fixture::DmxAddress>();
-            const Fixture::Layout* layout = fixture.try_get<Fixture::Layout>();
-            if(!address || !layout) return;
-            
-            int fixtureUniverseCount = 1;
-            int channels = address->address + layout->byteCount;
-            while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
-            
-            FixtureToUniverse link{.fixture = fixture};
-            for(int i = 0; i < fixtureUniverseCount; i++){
-                univIds.push_back(address->universe + i);
-                link.universes.push_back(address->universe + i);
-            }
-            fixtureToUniverseLinks.push_back(link);
-        });
-                
-        //sort the universe ids and remove duplicates
-        std::sort(univIds.begin(), univIds.end());
-        auto lastUnique = std::unique(univIds.begin(), univIds.end());
-        univIds.erase(lastUnique, univIds.end());
-        
-        // We'll track which existing entities we still need
-        std::vector<uint16_t> existingUnivs;
-        std::vector<flecs::entity> toDelete;
-        
-        std::unordered_map<uint16_t, flecs::entity> idToUniverseEnt;
-
-        Patch::iterateDmxUniverses(patch, [&](flecs::entity universe){
-            const auto* properties = universe.try_get<Dmx::Universe::Properties>();
-            // If this universe ID is NOT in our new list, mark for deletion
-            if (std::find(univIds.begin(), univIds.end(), properties->universeId) == univIds.end()) {
-                toDelete.push_back(universe);
-            } else {
-                idToUniverseEnt[properties->universeId] = universe;
-                existingUnivs.push_back(properties->universeId);
-            }
-        });
-        
-        //Safe Deletion outside of iteration
-        for (auto e : toDelete) e.destruct();
-
-
-        // Add missing universes
-        for (uint16_t id : univIds) {
-            if(std::find(existingUnivs.begin(), existingUnivs.end(), id) == existingUnivs.end()){
-                flecs::entity univ = Patch::createUniverse(patch, id);
-                idToUniverseEnt[id] = univ;
-            }
-        }
-
-        //Build Fixture:InUniverse-Universe relationships
-        for(auto& link : fixtureToUniverseLinks) link.fixture.remove<Fixture::InUniverse>(flecs::Wildcard);
-
-        for(auto& link : fixtureToUniverseLinks){
-            for(auto id : link.universes){
-                if(idToUniverseEnt.count(id)) {
-                    auto universe = idToUniverseEnt[id];
-                    link.fixture.add<Fixture::InUniverse>(universe);
-                    std::cout << link.fixture.name() << " in universe " << universe.name() << std::endl;
-                }
-            }
-        }
-
-        patch.remove<Patch::DmxMapDirty>();
     });
 
 
     w.system<Patch::RenderArea>("UpdateRenderArea").with<Patch::RenderAreaDirty>()
     .with<Patch::Is>()
     .each([](flecs::entity patch, Patch::RenderArea& ra){
-        //std::cout << "UpdateRenderArea" << std::endl;
+        std::cout << "UpdateRenderArea" << std::endl;
         glm::vec2 min(FLT_MAX);
         glm::vec2 max(-FLT_MAX);
         bool b_hasPixels = false;
-        Patch::iteratePixels(patch, [&](flecs::entity pixel){
-             if(const Pixel::Position* p = pixel.try_get<Pixel::Position>()){
-                min = glm::min(min, p->position);
-                max = glm::max(max, p->position);
-                b_hasPixels = true;
-            }
+        Patch::iteratePixels(patch, [&](flecs::entity pixel, Pixel::Position& p, Pixel::ColorRGBW& c){
+            min = glm::min(min, p.position);
+            max = glm::max(max, p.position);
+            b_hasPixels = true;
         });
         if(b_hasPixels){
             ra.min = min;
@@ -532,9 +435,55 @@ void import(flecs::world& w){
         patch.remove<Patch::RenderAreaDirty>();
     });
 
-};//struct Module
 
+    w.system<Patch::Is>("UpdateDmxOutputMap").with<Patch::DmxMapDirty>()
+    .each([](flecs::entity patch, Patch::Is){
+        std::cout << "UpdateDmxOutputMap" << std::endl;
 
+        std::unordered_map<uint16_t, flecs::entity> univsByNumber;
+        std::unordered_map<flecs::entity, std::vector<uint16_t>, EntityHasher> univsByFixture;
 
+        //compile a list of universes that are needed to cover all fixtures
+        Patch::iterateDmxFixtures(patch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress dmxAddress){
+            int fixtureUniverseCount = 1;
+            int channels = dmxAddress.address + layout.byteCount;
+            while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
+            
+            auto& fixtureUnivNumbers = univsByFixture[fixture];
+            for(int i = 0; i < fixtureUniverseCount; i++){
+                univsByNumber[dmxAddress.universe + i] = flecs::entity::null();
+                fixtureUnivNumbers.push_back(dmxAddress.universe + i);
+            }
+        });
 
-};//namespace PixelMapper
+        //compare with the current list of universes, decide what to keep and delete
+        std::vector<flecs::entity> toDelete;
+        Patch::iterateDmxUniverses(patch, [&](flecs::entity universe, Dmx::Universe::Properties& properties){
+            //if not in new list, mark for deletion
+            if(univsByNumber.count(properties.universeId) == 0)
+                toDelete.push_back(universe);
+            //else store in map
+            else univsByNumber[properties.universeId] = universe;
+        });
+        
+        //Delete and add universes
+        for (auto e : toDelete) e.destruct();
+        for(auto& [id, universe] : univsByNumber){
+            if(!universe.is_valid()){
+                flecs::entity newUniverse = Patch::createUniverse(patch, id);
+                if(newUniverse.is_valid()) universe = newUniverse;
+            }
+        }
+
+        //Rebuild Fixture-InUniverse relationships
+        for(const auto& [fixture, univList] : univsByFixture){
+            fixture.remove<Fixture::InUniverse>(flecs::Wildcard);
+            for(auto id : univList){
+                fixture.add<Fixture::InUniverse>(univsByNumber[id]);
+            }
+        }
+
+        patch.remove<Patch::DmxMapDirty>();
+    });
+
+};//main Application Import
