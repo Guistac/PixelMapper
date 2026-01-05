@@ -27,6 +27,7 @@ void selectPatch(flecs::entity pixelMapper, flecs::entity patch);
 
 namespace Patch{
     void iterateFixtures(flecs::entity patch, std::function<void(flecs::entity fixture)> fn);
+    void iterateFixturesInUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture)> fn);
     void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse)> fn);
     void iteratePixels(flecs::entity patch, std::function<void(flecs::entity pixel)> fn);
 
@@ -35,6 +36,7 @@ namespace Patch{
 
     flecs::entity getSelectedFixture(flecs::entity patch);
     void selectFixture(flecs::entity patch, flecs::entity fixture);
+    void removeFixtureSelection(flecs::entity patch);
 
     flecs::entity getSelectedUniverse(flecs::entity patch);
     void selectUniverse(flecs::entity patch, flecs::entity universe);
@@ -65,6 +67,7 @@ namespace Patch{
 
 namespace Fixture{
     void iteratePixels(flecs::entity fixture, std::function<void(flecs::entity pixel)> fn);
+    void setDmxProperties(flecs::entity fixture, uint16_t universe, uint16_t startAddress);
 
     struct Is{};
 
@@ -106,6 +109,9 @@ namespace Pixel{
 
 namespace Dmx::Universe{
     struct Is{};
+
+    struct SendToController{};
+
     struct Properties{
         uint16_t universeId;
         uint16_t usedSize;
@@ -115,6 +121,17 @@ namespace Dmx::Universe{
     };
 
     void import(flecs::world& w);
+};
+
+
+namespace ArtNetController{
+    struct Is{};
+
+    struct HasUniverse{};
+
+    struct IpAddress{
+        uint32_t address;
+    };
 };
 
 

@@ -1,6 +1,7 @@
 #include "PixelMapper.h"
 
 #include "ImGuiCanvas.h"
+#include "ImGuiHexView.h"
 
 namespace PixelMapper{
 
@@ -76,8 +77,10 @@ void gui(flecs::world& w) {
                 Fixture::DmxAddress dmx = selectedFixture.get<Fixture::DmxAddress>();
                 bool edited = false;
                 ImGui::SeparatorText("Dmx Address");
-                edited |= ImGui::InputScalar("Start Universe", ImGuiDataType_U16, &dmx.universe);
-                edited |= ImGui::InputScalar("Start Address", ImGuiDataType_U16, &dmx.address);
+                uint16_t step = 1;
+                uint16_t stepFast = 10;
+                edited |= ImGui::InputScalar("Start Universe", ImGuiDataType_U16, &dmx.universe, &step, &stepFast);
+                edited |= ImGui::InputScalar("Start Address", ImGuiDataType_U16, &dmx.address, &step, &stepFast);
                 if(edited){
                     selectedFixture.set<Fixture::DmxAddress>(dmx);
                 }
@@ -210,7 +213,7 @@ void gui(flecs::world& w) {
 
     if(ImGui::Begin("Dmx Map")){
 
-        if(ImGui::BeginListBox("##UniverseList", ImVec2(ImGui::CalcTextSize("Universe 999").x, ImGui::GetContentRegionAvail().y))){
+        if(ImGui::BeginListBox("##UniverseList", ImVec2(ImGui::CalcTextSize("Universe 99999").x, ImGui::GetContentRegionAvail().y))){
             if(selectedPatch.is_valid()){
                 Patch::iterateDmxUniverses(selectedPatch, [&](flecs::entity universe){
                     bool b_selected = universe == selectedUniverse;
@@ -220,6 +223,59 @@ void gui(flecs::world& w) {
                 });
             }
             ImGui::EndListBox();
+            ImGui::SameLine();
+
+            ImGui::BeginChild("##dmxHex", ImGui::GetContentRegionAvail());
+
+
+            if(selectedUniverse.is_valid()){
+                std::vector<MappedField> fields;
+                uint32_t colors[2] = {
+                    IM_COL32(30,30,140,255),
+                    IM_COL32(30,30,70,255)
+                };
+                int fixtureCount = 0;
+                const auto* univProps = selectedUniverse.try_get<Dmx::Universe::Properties>();
+                Patch::iterateFixturesInUniverse(selectedPatch, selectedUniverse, [&](flecs::entity fixture){
+                    const auto* fixtureAddress = fixture.try_get<Fixture::DmxAddress>();
+                    const auto* fixtureLayout = fixture.try_get<Fixture::Layout>();
+                    if(!fixtureAddress || !fixtureLayout) return;
+                    bool b_selected = selectedFixture == fixture;
+
+                    int offset;
+                    int count = 0;
+                    if(fixtureAddress->universe == univProps->universeId) {
+                        offset = fixtureAddress->address;
+                        count = fixtureLayout->byteCount;
+                        if(offset + count > 512) count -= offset + count - 512;
+                    }
+                    else if(fixtureAddress->universe < univProps->universeId){
+                        offset = 0;
+                        count = fixtureLayout->byteCount - (512 - fixtureAddress->address);
+                        for(int i = fixtureAddress->universe + 1; i < univProps->universeId; i++) count -= 512;
+                    }
+                    if(count <= 0) return;
+                    fields.push_back(MappedField{
+                        .Name = fixture.name().c_str(),
+                        .Count = count,
+                        .Offset = offset,
+                        .Color = b_selected ? IM_COL32(127, 127, 0, 255) : colors[fixtureCount % 2]
+                    });
+                    fixtureCount++;
+                });
+                auto& channels = selectedUniverse.get<Dmx::Universe::Channels>();
+                const MappedField* clickedField = nullptr;
+                if(DrawHexViewer(channels.channels, 512, fields, &clickedField)){
+                    if(clickedField == nullptr) Patch::removeFixtureSelection(selectedPatch);
+                    else {
+                        auto clickedFixture = selectedPatch.target<Patch::FixtureFolder>().lookup(clickedField->Name.c_str());
+                        Patch::selectFixture(selectedPatch, clickedFixture);
+                    }
+                }
+
+            }
+            ImGui::EndChild();
+
         }
 
     }

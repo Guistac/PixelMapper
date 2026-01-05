@@ -59,13 +59,21 @@ int main(){
     //init our app
     auto pixelMapper = PixelMapper::get(world);
     auto patch1 = PixelMapper::createPatch(pixelMapper);
-    PixelMapper::selectPatch(pixelMapper, patch1);
     PixelMapper::Patch::spawnLineFixture(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0));
     PixelMapper::Patch::spawnCircleFixture(patch1, glm::vec2(100.0, 100.0), 50.0);
     auto patch2 = PixelMapper::createPatch(pixelMapper);
+    PixelMapper::selectPatch(pixelMapper, patch2);
+    int fixtureCount = 0;
+    int pixelCount = 50;
+    int channelCount = 4;
     for(int i = 0; i < 8; i++){
         for(int j = 0; j < 8; j++){
-            PixelMapper::Patch::spawnCircleFixture(patch2, glm::vec2(i*100.0 + 50.0, j*100.0 + 50), 45.0);
+            flecs::entity fixture = PixelMapper::Patch::spawnCircleFixture(patch2, glm::vec2(i*100.0 + 50.0, j*100.0 + 50), 45.0, pixelCount, channelCount);
+            int addresses = pixelCount * channelCount * fixtureCount;
+            int universe = addresses / 512;
+            int startAddress = addresses % 512;
+            fixtureCount++;
+            PixelMapper::Fixture::setDmxProperties(fixture, universe, startAddress);
         }
     }
 
