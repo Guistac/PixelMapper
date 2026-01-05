@@ -3,54 +3,53 @@
 #include "ImGuiCanvas.h"
 #include "ImGuiHexView.h"
 
-namespace PixelMapper{
+#include <iostream>
 
-void menubar(flecs::world& w){
-
-    flecs::entity pixelMapper = Application::get(w);
-
-    if(ImGui::BeginMenu("PixelMapper")){
-        ImGui::EndMenu();
-    }
-    if(ImGui::BeginMenu("Edit")){
-        auto selectedPatch = Application::getSelectedPatch(pixelMapper);
-        Application::iteratePatches(pixelMapper, [&](flecs::entity patch){
-            bool b_selected = selectedPatch == patch;
-            ImGui::PushID(patch.id());
-            if(ImGui::MenuItem(patch.name().c_str(), "", b_selected)){
-                Application::selectPatch(pixelMapper, patch);
-            }
-            ImGui::PopID();
-        });
-        ImGui::Separator();
-        if(ImGui::MenuItem("Create Patch")){
-            auto newPatch = Application::createPatch(pixelMapper);
-            Application::selectPatch(pixelMapper, newPatch);
-        }
-        ImGui::EndMenu();
-    }
-    if(ImGui::BeginMenu("View")){
-        ImGui::EndMenu();
-    }
-}
-
+namespace PixelMapper::Gui{
 
 ImGuiCanvas canvas;
 
-void gui(flecs::world& w) {
+void submit(flecs::entity application){
 
-    flecs::entity pixelMapper = Application::get(w);
-    flecs::entity selectedPatch = Application::getSelectedPatch(pixelMapper);
-    flecs::entity selectedFixture = Patch::getSelectedFixture(selectedPatch);
-    flecs::entity selectedUniverse = Patch::getSelectedUniverse(selectedPatch);
+    flecs::entity selectedPatch = Patch::getSelected(application);
+    flecs::entity selectedFixture = Fixture::getSelected(selectedPatch);
+    flecs::entity selectedUniverse = Dmx::Universe::getSelected(selectedPatch);
+
+    if(ImGui::BeginMainMenuBar()){
+        if(ImGui::BeginMenu("PixelMapper")){
+            ImGui::EndMenu();
+        }
+        if(ImGui::BeginMenu("Edit")){
+            auto selectedPatch = Patch::getSelected(application);
+            Patch::iterate(application, [&](flecs::entity patch){
+                bool b_selected = selectedPatch == patch;
+                ImGui::PushID(patch.id());
+                if(ImGui::MenuItem(patch.name().c_str(), "", b_selected)){
+                    Patch::select(application, patch);
+                }
+                ImGui::PopID();
+            });
+            ImGui::Separator();
+            if(ImGui::MenuItem("Create Patch")){
+                auto newPatch = Patch::create(application);
+                Patch::select(application, newPatch);
+            }
+            ImGui::EndMenu();
+        }
+        if(ImGui::BeginMenu("View")){
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+    ImGui::DockSpaceOverViewport();
 
     if(ImGui::Begin("Fixture List")){
         if(ImGui::BeginListBox("##Fixtures", ImGui::GetContentRegionAvail())){
             if(selectedPatch.is_valid()){
-                Patch::iterateDmxFixtures(selectedPatch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+                Fixture::iterateWithDmx(selectedPatch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
                     bool b_selected = fixture == selectedFixture;
                     if(ImGui::Selectable(fixture.name().c_str(), b_selected)){
-                        Patch::selectFixture(selectedPatch, fixture);
+                        Fixture::select(selectedPatch, fixture);
                     }
                 });
             }
@@ -87,7 +86,7 @@ void gui(flecs::world& w) {
             }
 
             flecs::entity shapeType = selectedFixture.target<Fixture::WithShape>();
-            if(shapeType == w.id<Shape::Line>()){
+            if(shapeType == application.world().id<Shape::Line>()){
                 Shape::Line& l = selectedFixture.get_mut<Fixture::WithShape, Shape::Line>();
                 bool edited = false;
                 ImGui::SeparatorText("Line Segment");
@@ -95,7 +94,7 @@ void gui(flecs::world& w) {
                 edited |= ImGui::InputFloat2("End Position", &l.end.x, "%.1fmm");
                 if(edited) selectedFixture.add<Fixture::PixelPositionsDirty>();
             }
-            else if(shapeType == w.id<Shape::Circle>()){
+            else if(shapeType == application.world().id<Shape::Circle>()){
                 Shape::Circle& c = selectedFixture.get_mut<Fixture::WithShape, Shape::Circle>();
                 bool edited = false;
                 ImGui::SeparatorText("Circle");
@@ -129,7 +128,7 @@ void gui(flecs::world& w) {
                 }
 
                 //draw all fixtures
-                Patch::iterateDmxFixtures(selectedPatch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+                Fixture::iterateWithDmx(selectedPatch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
 
                     flecs::entity currentShapeType = fixture.target<Fixture::WithShape>();
 
@@ -154,7 +153,7 @@ void gui(flecs::world& w) {
                     }
                 });
     
-                Patch::iteratePixels(selectedPatch, [&](flecs::entity pixel, Pixel::Position& p, Pixel::ColorRGBW& c){
+                Pixel::iterateInPatch(selectedPatch, [&](flecs::entity pixel, Pixel::Position& p, Pixel::ColorRGBW& c){
                     drawing->AddCircleFilled(canvas.canvasToScreen(p.position), 2.0f, 0xFF000000);
                 });
 
@@ -171,8 +170,8 @@ void gui(flecs::world& w) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0, 0.0, 0.0, 1.0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0, 1.0, 1.0, 1.0));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0));
-                w.defer_begin();
-                Patch::iterateDmxFixtures(selectedPatch, [](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+                application.world().defer_begin();
+                Fixture::iterateWithDmx(selectedPatch, [](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
                     flecs::entity currentShapeType = fixture.target<Fixture::WithShape>();
                     ImGui::PushID(fixture.id());
                     bool edited = false;
@@ -194,7 +193,7 @@ void gui(flecs::world& w) {
                     }
                     ImGui::PopID();
                 });
-                w.defer_end();
+                application.world().defer_end();
                 ImGui::PopStyleColor(3);
 
             }//is patch alive
@@ -211,10 +210,10 @@ void gui(flecs::world& w) {
 
         if(ImGui::BeginListBox("##UniverseList", ImVec2(ImGui::CalcTextSize("Universe 99999").x, ImGui::GetContentRegionAvail().y))){
             if(selectedPatch.is_valid()){
-                Patch::iterateDmxUniverses(selectedPatch, [&](flecs::entity universe, Dmx::Universe::Properties& properties){
+                Dmx::Universe::iterate(selectedPatch, [&](flecs::entity universe, Dmx::Universe::Properties& properties){
                     bool b_selected = universe == selectedUniverse;
                     if(ImGui::Selectable(universe.name(), b_selected)){
-                        Patch::selectUniverse(selectedPatch, universe);
+                        Dmx::Universe::select(selectedPatch, universe);
                     }
                 });
             }
@@ -232,7 +231,7 @@ void gui(flecs::world& w) {
                 };
                 int fixtureCount = 0;
                 const auto* univProps = selectedUniverse.try_get<Dmx::Universe::Properties>();
-                Patch::iterateFixturesInUniverse(selectedPatch, selectedUniverse, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
+                Fixture::iterateInDmxUniverse(selectedPatch, selectedUniverse, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& dmxAddress){
                     bool b_selected = selectedFixture == fixture;
 
                     int offset;
@@ -259,10 +258,10 @@ void gui(flecs::world& w) {
                 auto& channels = selectedUniverse.get<Dmx::Universe::Channels>();
                 const MappedField* clickedField = nullptr;
                 if(DrawHexViewer(channels.channels, 512, fields, &clickedField)){
-                    if(clickedField == nullptr) Patch::removeFixtureSelection(selectedPatch);
+                    if(clickedField == nullptr) Fixture::clearSelection(selectedPatch);
                     else {
                         auto clickedFixture = selectedPatch.target<Patch::FixtureFolder>().lookup(clickedField->Name.c_str());
-                        Patch::selectFixture(selectedPatch, clickedFixture);
+                        Fixture::select(selectedPatch, clickedFixture);
                     }
                 }
 
@@ -273,6 +272,15 @@ void gui(flecs::world& w) {
 
     }
     ImGui::End();
+}
+
+
+void import(flecs::world& w){
+    w.system<>().kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        std::cout << "Gui Submit" << std::endl;
+        submit(App::get(it.world()));
+    });
 }
 
 };//namespace PixelMapper

@@ -50,19 +50,21 @@ int main(){
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    //import our flecs modules
     flecs::world world;
+
+    //import our flecs modules
     world.import<flecs::stats>();
     world.set<flecs::Rest>({});    
-    PixelMapper::Application::import(world);
+    PixelMapper::App::import(world);
+    PixelMapper::Gui::import(world);
 
     //init our app
-    auto pixelMapper = PixelMapper::Application::get(world);
-    auto patch1 = PixelMapper::Application::createPatch(pixelMapper);
+    auto pixelMapper = PixelMapper::App::get(world);
+    auto patch1 = PixelMapper::Patch::create(pixelMapper);
     PixelMapper::Fixture::createLine(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0));
     PixelMapper::Fixture::createCircle(patch1, glm::vec2(100.0, 100.0), 50.0);
-    auto patch2 = PixelMapper::Application::createPatch(pixelMapper);
-    PixelMapper::Application::selectPatch(pixelMapper, patch2);
+    auto patch2 = PixelMapper::Patch::create(pixelMapper);
+    PixelMapper::Patch::select(pixelMapper, patch2);
     int bytes = 0;
     int channelCount = 3;
     for(int i = 0; i < 8; i++){
@@ -88,13 +90,6 @@ int main(){
         ImGui::NewFrame();
 
         world.progress();
-
-        if(ImGui::BeginMainMenuBar()){
-            PixelMapper::menubar(world);
-            ImGui::EndMainMenuBar();
-        }
-        ImGui::DockSpaceOverViewport();
-        PixelMapper::gui(world);
 
         int display_w, display_h;
         glfwGetFramebufferSize(mainWindow, &display_w, &display_h);

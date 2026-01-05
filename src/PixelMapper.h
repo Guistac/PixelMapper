@@ -7,9 +7,17 @@
 
 namespace PixelMapper{
 
-void menubar(flecs::world& w);
-void gui(flecs::world& w);
+namespace App{
+    struct Is{};
+    struct PatchFolder{};
+    struct SelectedPatch{};
+    void import(flecs::world& w);
+    flecs::entity get(const flecs::world& w);
+}
 
+namespace Gui{
+    void import(flecs::world& w);
+};
 
 namespace Patch{
     struct Is{};
@@ -30,6 +38,13 @@ namespace Patch{
         glm::vec2 min;
         glm::vec2 max;
     };
+
+    flecs::entity create(flecs::entity pixelMapper);
+    void select(flecs::entity pixelMapper, flecs::entity patch);
+    flecs::entity getSelected(flecs::entity pixelMapper);
+
+    int getCount(flecs::entity pixelMapper);
+    void iterate(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn);
 };
 
 
@@ -51,6 +66,19 @@ namespace Fixture{
         uint16_t universe;
         uint16_t address;
     };
+
+    void select(flecs::entity patch, flecs::entity fixture);
+    flecs::entity getSelected(flecs::entity patch);
+    void clearSelection(flecs::entity patch);
+
+    flecs::entity createLine(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
+    flecs::entity createCircle(flecs::entity patch, glm::vec2 center, float radius, int numPixels = 16, int channelsPerPixel = 4);
+    
+    void setDmxProperties(flecs::entity fixture, uint16_t universe, uint16_t startAddress);
+
+    int getCountWithDmx(flecs::entity patch);
+    void iterateWithDmx(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
+    void iterateInDmxUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
 };
 
 
@@ -63,6 +91,9 @@ namespace Pixel{
     struct Position{
         glm::vec2 position;
     };
+
+    void iterateInFixture(flecs::entity fixture, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
+    void iterateInPatch(flecs::entity patch, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
 };
 
 
@@ -78,6 +109,11 @@ namespace Dmx::Universe{
     struct Channels{
         uint8_t channels[512];
     };
+
+    flecs::entity getSelected(flecs::entity patch);
+    void select(flecs::entity patch, flecs::entity universe);
+
+    void iterate(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Dmx::Universe::Properties&)> fn);
 };
 
 
@@ -103,50 +139,5 @@ namespace Shape{
     };
 };
 
-namespace Application{
-    struct Is{};
-    struct PatchFolder{};
-    struct SelectedPatch{};
-    struct Queries{
-        flecs::query<Patch::Is> patchQuery;
-        flecs::query<Fixture::Is, Fixture::Layout, Fixture::DmxAddress> patchDmxFixtureQuery;
-        flecs::query<Fixture::Is, Fixture::Layout, Fixture::DmxAddress> patchFixtureInUniverseQuery;
-        flecs::query<Dmx::Universe::Is, Dmx::Universe::Properties> patchDmxUniverseQuery;
-        flecs::query<Pixel::Is, Pixel::Position, Pixel::ColorRGBW> patchPixelQuery;
-        flecs::query<Pixel::Is, Pixel::Position, Pixel::ColorRGBW> fixturePixelQuery;
-    };
-    void import(flecs::world& w);
-}
 
-
-namespace Application{
-    flecs::entity get(const flecs::world& w);
-    flecs::entity createPatch(flecs::entity pixelMapper);
-    void iteratePatches(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn);
-    flecs::entity getSelectedPatch(flecs::entity pixelMapper);
-    void selectPatch(flecs::entity pixelMapper, flecs::entity patch);
-}
-
-namespace Patch{
-    void iterateDmxFixtures(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
-    void iterateFixturesInUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
-    void iterateDmxUniverses(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Dmx::Universe::Properties&)> fn);
-    void iteratePixels(flecs::entity patch, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
-
-    flecs::entity getSelectedFixture(flecs::entity patch);
-    void selectFixture(flecs::entity patch, flecs::entity fixture);
-    void removeFixtureSelection(flecs::entity patch);
-    
-    flecs::entity getSelectedUniverse(flecs::entity patch);
-    void selectUniverse(flecs::entity patch, flecs::entity universe);
-};
-
-namespace Fixture{
-    void iteratePixels(flecs::entity fixture, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
-    void setDmxProperties(flecs::entity fixture, uint16_t universe, uint16_t startAddress);
-
-    flecs::entity createLine(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels = 16, int channelsPerPixel = 4);
-    flecs::entity createCircle(flecs::entity patch, glm::vec2 center, float radius, int numPixels = 16, int channelsPerPixel = 4);
-};
-
-}
+}//namespace PixelMapper
