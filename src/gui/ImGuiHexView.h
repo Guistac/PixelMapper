@@ -63,10 +63,9 @@ bool DrawHexViewer(const uint8_t* data, size_t dataSize, const std::vector<Mappe
                         }
                     }
 
-                    //Byte Interaction
                     ImGui::PushID(byteIdx);
-                    char label[4];
-                    snprintf(label, 4, "%02X", data[byteIdx]);
+                    char label[16];
+                    snprintf(label, sizeof(label), "%02X###byte", data[byteIdx]);
                     if (ImGui::Button(label, cellSize)) {
                         if (!owners.empty()) {
                             *clickedField = owners.back();

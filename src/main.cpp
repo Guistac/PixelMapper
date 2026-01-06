@@ -61,10 +61,12 @@ int main(){
     //init our app
     auto pixelMapper = PixelMapper::App::get(world);
     auto patch1 = PixelMapper::Patch::create(pixelMapper);
-    PixelMapper::Fixture::createLine(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0));
-    PixelMapper::Fixture::createCircle(patch1, glm::vec2(100.0, 100.0), 50.0);
+    auto f1 = PixelMapper::Fixture::createLine(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0), 16, 4);
+    auto f2 = PixelMapper::Fixture::createCircle(patch1, glm::vec2(100.0, 100.0), 50.0, 32, 3);
+    PixelMapper::Fixture::setDmxProperties(f1, 0, 0);
+    PixelMapper::Fixture::setDmxProperties(f2, 0, 64);
     auto patch2 = PixelMapper::Patch::create(pixelMapper);
-    PixelMapper::Patch::select(pixelMapper, patch2);
+    PixelMapper::Patch::select(pixelMapper, patch1);
     int bytes = 0;
     int channelCount = 3;
     for(int i = 0; i < 8; i++){

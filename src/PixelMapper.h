@@ -35,8 +35,8 @@ namespace Patch{
         float refreshRate;
     };
     struct RenderArea{
-        glm::vec2 min;
-        glm::vec2 max;
+        glm::vec3 min;
+        glm::vec3 max;
     };
 
     flecs::entity create(flecs::entity pixelMapper);
@@ -47,6 +47,12 @@ namespace Patch{
     void iterate(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn);
 };
 
+struct ColorRGBW{
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+    uint8_t w = 0;
+};
 
 namespace Fixture{
     struct Is{};
@@ -59,12 +65,15 @@ namespace Fixture{
 
     struct Layout{
         int pixelCount;
-        int colorChannels;
-        int byteCount;
+        int channelsPerPixel;
     };
     struct DmxAddress{
         uint16_t universe;
         uint16_t address;
+    };
+    struct PixelData{
+        std::vector<glm::vec3> positions;
+        std::vector<ColorRGBW> colors;
     };
 
     void select(flecs::entity patch, flecs::entity fixture);
@@ -79,28 +88,14 @@ namespace Fixture{
     int getCountWithDmx(flecs::entity patch);
     void iterateWithDmx(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
     void iterateInDmxUniverse(flecs::entity patch, flecs::entity universe, std::function<void(flecs::entity fixture, Fixture::Layout&, Fixture::DmxAddress&)> fn);
+    void iterateWithPixelData(flecs::entity patch, std::function<void(flecs::entity fixture, Fixture::PixelData&)> fn);
 };
 
 
-namespace Pixel{
+namespace Artnet::Universe{
     struct Is{};
 
-    struct ColorRGBW{
-        uint8_t r, g, b, w;
-    };
-    struct Position{
-        glm::vec2 position;
-    };
-
-    void iterateInFixture(flecs::entity fixture, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
-    void iterateInPatch(flecs::entity patch, std::function<void(flecs::entity pixel, Pixel::Position&, Pixel::ColorRGBW&)> fn);
-};
-
-
-namespace Dmx::Universe{
-    struct Is{};
-
-    struct SendToController{};
+    struct SendTo{};
 
     struct Properties{
         uint16_t universeId;
@@ -113,11 +108,10 @@ namespace Dmx::Universe{
     flecs::entity getSelected(flecs::entity patch);
     void select(flecs::entity patch, flecs::entity universe);
 
-    void iterate(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Dmx::Universe::Properties&)> fn);
+    void iterate(flecs::entity patch, std::function<void(flecs::entity dmxUniverse, Artnet::Universe::Properties&)> fn);
 };
 
-
-namespace ArtNetController{
+namespace Artnet::Device{
     struct Is{};
 
     struct HasUniverse{};
