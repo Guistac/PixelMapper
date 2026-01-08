@@ -57,6 +57,8 @@ set(PROJECT_SRC_FILES
 
 	${PROJECT_SRC_DIR}/flecs-modules/glfw.hpp
 	${PROJECT_SRC_DIR}/flecs-modules/glfw.cpp
+	${PROJECT_SRC_DIR}/flecs-modules/gfx.hpp
+	${PROJECT_SRC_DIR}/flecs-modules/gfx.cpp
 )
 
 # utility to match source file hierarchy in IDE

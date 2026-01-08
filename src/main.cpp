@@ -10,6 +10,7 @@
 
 #include "PixelMapper.h"
 #include "flecs-modules/glfw.hpp"
+#include "flecs-modules/gfx.hpp"
 
 #define GL_SILENCE_DEPRECATION
 
@@ -19,6 +20,7 @@ int main(){
     world.set<flecs::Rest>({});
 
     world.import<glfw>();
+    world.import<gfx>();
 
 #if defined(__APPLE__)
     // GL 3.2 + GLSL 150
@@ -61,6 +63,45 @@ int main(){
     
     PixelMapper::init(world);
 
+    // checker texture tester
+    int width = 128;
+    uint32_t *data = new uint32_t[width*width];
+
+    for (int y=0; y<width; y++) {
+        for (int x=0; x<width; x++) {
+            data[x + y * width] = (x+y/8*8) % 16 < 8 ? 0xff666666 : 0xffeeeeee;
+        }
+    }
+
+    world.entity()
+        .set_name("texture test")
+        .set<gfx::TextureSize>({ width, width })
+        .set<gfx::TextureFormat>({ GL_RGBA, GL_RGBA8 })
+        .set<gfx::TextureParameters>({
+            GL_LINEAR, GL_LINEAR,
+            GL_REPEAT, GL_REPEAT
+        })
+        .set<gfx::TextureDataSource>({ width*width, data })
+    ;
+    
+    uint32_t *data2 = new uint32_t[width*width];
+    for (int y=0; y<width; y++) {
+        for (int x=0; x<width; x++) {
+            data2[x + y * width] = (x+y/8*8) % 16 < 8 ? 0xffff6666 : 0xffee22ee;
+        }
+    }
+    
+    world.entity()
+        .set_name("texture test 2")
+        .set<gfx::TextureSize>({ width, width })
+        .set<gfx::TextureFormat>({ GL_RGBA, GL_RGBA8 })
+        .set<gfx::TextureParameters>({
+            GL_LINEAR, GL_LINEAR,
+            GL_REPEAT, GL_REPEAT
+        })
+        .set<gfx::TextureDataSource>({ width*width, data2 })
+    ;
+
     // FIXME: Hack until i figure out how to handle that
     //glfwPollEvents();
     //int display_w, display_h;
@@ -69,7 +110,6 @@ int main(){
     //glClearColor(0,0,0,255);
     //glClear(GL_COLOR_BUFFER_BIT);
     // -------------------------------------------------
-
 
     world.system("temp update")
         .kind(flecs::OnUpdate)
@@ -96,6 +136,17 @@ int main(){
             ImGui::DockSpaceOverViewport();
 
             PixelMapper::gui(world);
+
+
+            if (ImGui::Begin("texture test")) {
+                world.query<const gfx::TextureID, const gfx::TextureSize>()
+                    .each([](flecs::entity e, const gfx::TextureID& id, const gfx::TextureSize& size) {
+                        ImGui::Text(e.name());
+                        ImGui::Image((ImTextureID)id.id, ImVec2(size.width, size.height), ImVec2(0,0), ImVec2(1,1));
+                    })
+                ;
+            }
+            ImGui::End();
 
             // Rendering
             ImGui::Render();
