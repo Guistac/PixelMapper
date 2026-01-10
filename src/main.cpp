@@ -28,14 +28,10 @@ int main(){
     const glfw::WindowHint windowHintList[] = {
         { .name = GLFW_CONTEXT_VERSION_MAJOR, .value = 3 },
         { .name = GLFW_CONTEXT_VERSION_MINOR, .value = 2 },
-        { .name = GLFW_OPENGL_PROFILE, .value = GLFW_OPENGL_CORE_PROFILE },
-        { .name = GLFW_OPENGL_FORWARD_COMPAT, .value = GLFW_TRUE },
+        { .name = GLFW_OPENGL_PROFILE, .value = GLFW_OPENGL_CORE_PROFILE }, // 3.2+ only
+        { .name = GLFW_OPENGL_FORWARD_COMPAT, .value = GLFW_TRUE },         // Required on Mac
         {0}
     };
-    //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-    //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
 #else
     // GL 3.0 + GLSL 130
     const char* glsl_version = "#version 130";
@@ -44,10 +40,6 @@ int main(){
         { .name = GLFW_CONTEXT_VERSION_MINOR, .value = 0 },
         {0}
     };
-    //glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    //glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-    //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 #endif
 
     auto windowNtt = world.entity()
@@ -104,11 +96,11 @@ int main(){
     uint32_t *data2 = new uint32_t[width*width];
     for (int y=0; y<width; y++) {
         for (int x=0; x<width; x++) {
-            data2[x + y * width] = (x+y/8*8) % 16 < 8 ? 0xffff6666 : 0xffee22ee;
+            data2[x + y * width] = gfx::Rgba(x%256, y%256, 0).u;
         }
     }
     
-    world.entity()
+    auto texture_test2 = world.entity()
         .set_name("texture test 2")
         .set<gfx::TextureSize>({ width, width })
         .set<gfx::TextureFormat>({ GL_RGBA, GL_RGBA8 })
@@ -118,6 +110,38 @@ int main(){
         })
         .set<gfx::TextureDataSource>({ width*width, data2 })
     ;
+
+    auto shader_test = world.entity()
+        .set_name("shader test")
+        .set<gfx::VertexShaderSource>({
+            "#version 130\n"
+            "const vec2 positions[4] = vec2[4](vec2(0,0), vec2(1,0), vec2(0,1), vec2(1,1));\n"
+            "out vec2 uv;\n"
+            "void main(void) {\n"
+            "    uv = positions[gl_VertexID];\n"
+            "    gl_Position = vec4(positions[gl_VertexID] * 2.0 - 1.0, 0, 1);\n"
+            "}\n"
+        })
+        .set<gfx::FragmentShaderSource>({
+            "#version 130\n"
+            "uniform vec4 u_color;\n"
+            "uniform float u_time;\n"
+            "in vec2 uv;\n"
+            "out vec4 fragColor;\n"
+            "void main(void) {\n"
+            "    vec3 col = vec3(0);\n"
+            "    col.rg += uv;\n"
+            "    col.b = mod(u_time, 1.0);\n"
+            "    fragColor = u_color * vec4(col, 1.0);\n"
+            "}\n"
+        })
+        .set<gfx::UniformList>({
+            {
+                gfx::Uniform(gfx::Rgba(255, 10, 10), "u_color"),
+            }
+        })
+    ;
+
 
     // FIXME: Hack until i figure out how to handle that
     //glfwPollEvents();
@@ -162,6 +186,9 @@ int main(){
                         ImGui::Image(id.id, ImVec2(size.width, size.height), ImVec2(0,0), ImVec2(1,1));
                     })
                 ;
+
+                if (ImGui::Button("test")) {
+                }
             }
             ImGui::End();
 

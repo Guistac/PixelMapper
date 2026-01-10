@@ -31,8 +31,8 @@ struct gfx {
 
     struct Uniform {
         UniformType type;
-        int location = 0;
-        const char *name;
+        int location = -1;
+        std::string name = "";
         union {
             uint32_t valu32;
             int32_t vali32;
@@ -45,18 +45,18 @@ struct gfx {
         };
 
         Uniform();
-        Uniform(uint32_t val);
-        Uniform(int32_t val);
-        Uniform(float val);
-        Uniform(glm::vec2 val);
-        Uniform(glm::vec3 val);
-        Uniform(Rgba val);
+        Uniform(uint32_t val, std::string name);
+        Uniform(int32_t val, std::string name);
+        Uniform(float val, std::string name);
+        Uniform(glm::vec2 val, std::string name);
+        Uniform(glm::vec3 val, std::string name);
+        Uniform(Rgba val, std::string name);
 
         void upload() const;
     };
 
     struct UniformList {
-        std::vector<Uniform> uniforms;
+        std::vector<Uniform> list;
 
         void updateLocation(uint32_t prog);
         void upload() const;
@@ -67,30 +67,18 @@ struct gfx {
     struct Invalid {};
 
     struct ComputeShaderSource {
-        std::string source;
+        std::string str;
     };
 
     struct VertexShaderSource {
-        std::string source;
+        std::string str;
     };
 
     struct FragmentShaderSource {
-        std::string source;
+        std::string str;
     };
 
-    struct TextureID {
-        uint32_t id;
-
-//        TextureID(); // Default constructor should do nothing as generating the id is handle by Texture build system
-//        TextureID(uint32_t id);
-//        ~TextureID(); // In other and destructing the id is handle here
-//
-//        TextureID(const TextureID& id) = default; // Copy
-//        TextureID(TextureID&& id) = default; // Move
-//
-//        TextureID& operator=(const TextureID& id) = default; // Copy assing
-//        TextureID& operator=(TextureID&& id) = default; // Move assing
-    };
+    struct TextureID { uint32_t id; };
     struct TextureSize { int width, height; };
     struct TextureFormat {
         // TODO: make these enum componant
@@ -117,7 +105,7 @@ struct gfx {
     // Usable Framebuffer archetype: id, size, and at least one (attachement, output)
     struct FramebufferID { uint32_t id; };
     struct FramebufferSize { int width, height; };
-    struct FrameBufferColorAttachment0 {};
+    struct FramebufferColorAttachment0 { int point; };
 
     struct ShaderID { uint32_t id; };
 
