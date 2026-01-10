@@ -105,7 +105,7 @@ struct gfx {
     // Usable Framebuffer archetype: id, size, and at least one (attachement, output)
     struct FramebufferID { uint32_t id; };
     struct FramebufferSize { int width, height; };
-    struct FramebufferColorAttachment0 { int point; };
+    struct FramebufferColorAttachment0 {};
 
     struct ShaderID { uint32_t id; };
 
