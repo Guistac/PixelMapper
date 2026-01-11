@@ -3,44 +3,44 @@
 #include <cstdio>
 
 static uint32_t buildShaderProgram(const char *vs_source, const char *fs_source) {
-	char log[1024];
-	int32_t success = 0;
-	uint32_t prog = glCreateProgram(), vs = 0, fs = 0;
+    char log[1024];
+    int32_t success = 0;
+    uint32_t prog = glCreateProgram(), vs = 0, fs = 0;
 
-	glDisable(GL_DEBUG_OUTPUT);
-	vs = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vs, 1, &vs_source, NULL);
-	glCompileShader(vs);
-	glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		glGetShaderInfoLog(vs, 1024, NULL, log);
-		fprintf(stderr, "Fail'd to compile vertex shader:\n%s\n", log);
-		goto err;
-	}
-	glAttachShader(prog, vs);
+    glDisable(GL_DEBUG_OUTPUT);
+    vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vs_source, NULL);
+    glCompileShader(vs);
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(vs, 1024, NULL, log);
+        fprintf(stderr, "Fail'd to compile vertex shader:\n%s\n", log);
+        goto err;
+    }
+    glAttachShader(prog, vs);
 
-	fs = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fs, 1, &fs_source, NULL);
-	glCompileShader(fs);
-	glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		glGetShaderInfoLog(fs, 1024, NULL, log);
-		fprintf(stderr, "Fail'd to compile fragment shader:\n%s\n", log);
-		goto err;
-	}
-	glAttachShader(prog, fs);
+    fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fs_source, NULL);
+    glCompileShader(fs);
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        glGetShaderInfoLog(fs, 1024, NULL, log);
+        fprintf(stderr, "Fail'd to compile fragment shader:\n%s\n", log);
+        goto err;
+    }
+    glAttachShader(prog, fs);
 
-	glLinkProgram(prog);
-	glGetProgramiv(prog, GL_LINK_STATUS, &success);
-	if (!success) {
-		glGetProgramInfoLog(prog, 1024, NULL, log);
-		fprintf(stderr, "Fail'd to link program:\n%s\n", log);
-		goto err;
-	}
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(prog, 1024, NULL, log);
+        fprintf(stderr, "Fail'd to link program:\n%s\n", log);
+        goto err;
+    }
 
-	glDeleteShader(vs); glDeleteShader(fs);
-	glEnable(GL_DEBUG_OUTPUT);
-	return prog;
+    glDeleteShader(vs); glDeleteShader(fs);
+    glEnable(GL_DEBUG_OUTPUT);
+    return prog;
 
 err:
     if (vs) glDeleteShader(vs);
@@ -62,7 +62,6 @@ static uint32_t createTexture(
     uint32_t id = 0;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
-    // TODO: format !
     glTexImage2D(GL_TEXTURE_2D, 0, format.internal, width, height, 0, format.pixel, GL_UNSIGNED_BYTE, data);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, params ? params->min_filter : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, params ? params->mag_filter : GL_LINEAR);
@@ -185,6 +184,33 @@ gfx::gfx(flecs::world& w) {
         })
     ;
 
+    // Texture Observers
+    w.observer<const TextureID, const TextureFormat, const TextureSize, const TextureDataSource>("Texture size updater")
+        .event(flecs::OnSet)
+        .without<Invalid>()
+        .each([](const TextureID& texture, const TexuteFormat& format, const TextureSize& size, const TextureDataSource* dataSource) {
+            glBindTexture(GL_TEXTURE_2D, texture.id);
+            uint8_t *data = nullptr;
+            if (dataSource && dataSource->len >= (size_t)size.width * (size_t)size.height)
+                data = (uint8_t*)dataSource->data;
+            glTexImage2D(GL_TEXTURE_2D, 0, format.internal, size.width, size.height, 0, format.pixel, GL_UNSIGNED_BYTE, data);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        })
+    ;
+
+    w.observer<const TextureID, const TextureParameters>("Texture parameters updater")
+        .event(flecs::OnSet)
+        .without<Invalid>()
+        .each([](const TextureID& texture, const TextureParameters& params) {
+            glBindTexture(GL_TEXTURE_2D, texture.id);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, params.min_filter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, params.mag_filter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, params.wrap_s);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, params.wrap_t);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        })
+    ;
+
     // We wat system that catch entity with
     // FramebufferSize And at least an {Attachment, TextureId} pair but Not a FramebufferID
     // that crate the FramebufferID componant for that entity
@@ -200,7 +226,7 @@ gfx::gfx(flecs::world& w) {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.id, 0);
   
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                std::cerr << "error::gfx::framebuffer incomplete framebuffer\n";
+                std::cerr << "[gfx] error: framebuffer incomplete framebuffer\n";
                 e.add<Invalid>();
                 return;
             }
