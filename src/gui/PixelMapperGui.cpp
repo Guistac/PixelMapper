@@ -266,8 +266,8 @@ void submit(flecs::entity application){
                         if(count <= 0) return;
                         fields.push_back(MappedField{
                             .Name = fixture.name().c_str(),
-                            .Count = count,
                             .Offset = offset,
+                            .Count = count,
                             .Color = b_selected ? IM_COL32(127, 127, 0, 255) : colors[fixtureCount % 2]
                         });
                         fixtureCount++;

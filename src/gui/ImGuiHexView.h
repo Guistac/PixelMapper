@@ -1,4 +1,5 @@
 #include <imgui.h>
+#include <string>
 
 
 struct MappedField {
