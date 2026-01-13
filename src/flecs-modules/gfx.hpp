@@ -16,6 +16,8 @@ struct gfx {
         Rgba(uint8_t grey);
         Rgba(uint8_t r, uint8_t g, uint8_t b);
         Rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+
+        static Rgba lerp(const Rgba& a, const Rgba& b, float t);
     };
 
     enum UniformType {
@@ -66,6 +68,7 @@ struct gfx {
     // TODO? should this contain a error meassage descibing why the system fail'd ?
     struct Invalid {};
 
+    struct ShaderID { uint32_t id; };
     struct ComputeShaderSource {
         std::string str;
     };
@@ -101,13 +104,23 @@ struct gfx {
 
     // We Could have a sync tag which is match in compinaison with a valid Texture archetype
     // in a system that fetch the data from the gpu ?
+    struct FramebufferDataRequest {
+        int width, height;
+        std::vector<Rgba> data;
+
+        Rgba at(int x, int y) const;
+        Rgba sample(glm::vec2 pos) const; // bilinear sampling
+    };
 
     // Usable Framebuffer archetype: id, size, and at least one (attachement, output)
     struct FramebufferID { uint32_t id; };
     struct FramebufferSize { int width, height; };
-    struct FramebufferColorAttachment0 {};
+    struct FramebufferColorAttachment0 { flecs::entity e; }; // The entity should Match the texture Archetype (note: this is not enforced so the texture can be set before build)
 
-    struct ShaderID { uint32_t id; };
+    struct RenderCommand {
+        flecs::entity fb;
+        flecs::entity shader;
+    };
 
     gfx(flecs::world& w);
 

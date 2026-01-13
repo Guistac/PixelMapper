@@ -1,4 +1,7 @@
 #include "gfx.hpp"
+#include <GLFW/glfw3.h>
+#include <cmath>
+#include <algorithm>
 #include <iostream>
 #include <cstdio>
 
@@ -50,7 +53,11 @@ err:
     return 0;
 }
 
-static void getDataFromSource() {
+static bool hasFramebufferArchetype(flecs::entity e) {
+    return !e.has<gfx::Invalid>() && e.has<gfx::FramebufferID>() && e.has<gfx::FramebufferColorAttachment0>();
+}
+static bool hasShaderArchetype(flecs::entity e) {
+    return !e.has<gfx::Invalid>() && e.has<gfx::ShaderID>() && e.has<gfx::UniformList>();
 }
 
 static uint32_t createTexture(
@@ -123,7 +130,6 @@ gfx::gfx(flecs::world& w) {
         .member<int>("pixel")
         .member<int>("internal")
     ;
-
     w.component<TextureDataSource>();
 
     w.component<FramebufferID>();
@@ -132,32 +138,49 @@ gfx::gfx(flecs::world& w) {
         .member<int>("height")
     ;
     w.component<FramebufferColorAttachment0>()
+        .member<flecs::entity>("e")
     ;
 
+    w.component<ShaderID>();
     w.component<VertexShaderSource>()
         .member<std::string>("str")
     ;
-
     w.component<FragmentShaderSource>()
         .member<std::string>("str")
     ;
-
     w.component<ComputeShaderSource>()
         .member<std::string>("str")
     ;
-
     w.component<Uniform>()
         .member<UniformType>("type")
         .member<int>("location")
         .member<std::string>("name")
-        //.member<float>("f32 value", 4)
-        //.member<uint32_t>("u32 value", 4)
     ;
     w.component<std::vector<Uniform>>()
         .opaque(stdVectorSupport<Uniform>)
     ;
     w.component<UniformList>()
         .member<std::vector<Uniform>>("list")
+    ;
+
+    w.component<RenderCommand>()
+        .member<flecs::entity>("fb")
+        .member<flecs::entity>("shader")
+    ;
+
+    w.component<Rgba>()
+        .member<uint8_t>("red")
+        .member<uint8_t>("green")
+        .member<uint8_t>("blue")
+        .member<uint8_t>("alpha")
+    ;
+    w.component<std::vector<Rgba>>()
+        .opaque(stdVectorSupport<Rgba>)
+    ;
+    w.component<FramebufferDataRequest>()
+        .member<int>("width")
+        .member<int>("height")
+        .member<std::vector<Rgba>>("data")
     ;
 
     // We want system that catch entity with
@@ -185,10 +208,10 @@ gfx::gfx(flecs::world& w) {
     ;
 
     // Texture Observers
-    w.observer<const TextureID, const TextureFormat, const TextureSize, const TextureDataSource>("Texture size updater")
+    w.observer<const TextureID, const TextureSize, const TextureFormat, const TextureDataSource*>("Texture size updater")
         .event(flecs::OnSet)
         .without<Invalid>()
-        .each([](const TextureID& texture, const TexuteFormat& format, const TextureSize& size, const TextureDataSource* dataSource) {
+        .each([](const TextureID& texture, const TextureSize& size, const TextureFormat& format, const TextureDataSource* dataSource) {
             glBindTexture(GL_TEXTURE_2D, texture.id);
             uint8_t *data = nullptr;
             if (dataSource && dataSource->len >= (size_t)size.width * (size_t)size.height)
@@ -214,23 +237,30 @@ gfx::gfx(flecs::world& w) {
     // We wat system that catch entity with
     // FramebufferSize And at least an {Attachment, TextureId} pair but Not a FramebufferID
     // that crate the FramebufferID componant for that entity
-    w.system<const TextureID>("Framebuffer builder")
+    w.system<const FramebufferColorAttachment0>("Framebuffer builder")
         .kind(flecs::PreUpdate)
         .without<Invalid>()
         .without<FramebufferID>()
-        .term_at(0).first<const FramebufferColorAttachment0>()
-        .each([](flecs::entity e, const TextureID& texture) {
+        .each([](flecs::entity e, const FramebufferColorAttachment0& attachment0) {
+            std::cout << "[gfx] Framebuffer builder: " << e.name() << " | " << attachment0.e.name() << '\n';
+            if (!(attachment0.e.has<TextureID>() && attachment0.e.has<TextureSize>())) {
+                //std::cerr << "[gfx]:Framebuffer builder: attachment0(" << attachment0.e.name() << ") is not a texture\n";
+                return;
+            }
+            const TextureID texture = attachment0.e.get<TextureID>();
+            //const TextureSize size = attachment0.e.get<TextureID>();
             uint32_t id = 0;
             glGenFramebuffers(1, &id);
             glBindFramebuffer(GL_FRAMEBUFFER, id);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.id, 0);
-  
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 std::cerr << "[gfx] error: framebuffer incomplete framebuffer\n";
                 e.add<Invalid>();
                 return;
             }
-            std::cout << "[gfx] create framebuffer for (" << e.name() << ")\n";
+            std::cout << "[gfx] create framebuffer ID for (" << e.name() << ")\n";
             e.set<FramebufferID>({ id });
         })
     ;
@@ -253,16 +283,16 @@ gfx::gfx(flecs::world& w) {
     // that create the ShaderID component for that entity
     // TODO!
 
-    w.observer<ShaderID&>("Shader updater")
-        .event(flecs::OnSet)
-        .with<const VertexShaderSource>()
-        .with<const FragmentShaderSource>()
-        .without<Invalid>()
-        .each([](flecs::entity e, ShaderID& shader) {
-            glDeleteProgram(shader.id);
-            e.remove<ShaderID>();
-        })
-    ;
+    //w.observer<ShaderID&>("Shader updater")
+    //    .event(flecs::OnRemove)
+    //    .with<const VertexShaderSource>()
+    //    .with<const FragmentShaderSource>()
+    //    .without<Invalid>()
+    //    .each([](flecs::entity e, ShaderID& shader) {
+    //        glDeleteProgram(shader.id);
+    //        e.remove<ShaderID>();
+    //    })
+    //;
 
     // Observer that react to UniformList and update there location
     w.observer<const ShaderID, UniformList>("Uniform location updater")
@@ -272,8 +302,75 @@ gfx::gfx(flecs::world& w) {
             uniforms.updateLocation(shader.id);
         })
     ;
+
+    // System that do the rendering
+    w.system<const RenderCommand>("Render effect system")
+        .kind(flecs::PreStore)
+        .each([](const RenderCommand& cmd) {
+            if (!hasFramebufferArchetype(cmd.fb) || !hasShaderArchetype(cmd.shader))
+                return;
+            glBindFramebuffer(GL_FRAMEBUFFER, cmd.fb.get<FramebufferID>().id);
+            const TextureSize& size = cmd.fb.get<FramebufferColorAttachment0>().e.get<TextureSize>();
+            glViewport(0,0, size.width, size.height);
+            glUseProgram(cmd.shader.get<ShaderID>().id);
+            // default uniform hack
+            glUniform1f(1, (float)glfwGetTime());
+            cmd.shader.get<UniformList>().upload();
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        })
+    ;
+
+    // FIXME: format! for now this assume rgba unsigned_byte format (well openGL do handle conversion)
+    w.system<const FramebufferID, const FramebufferColorAttachment0, FramebufferDataRequest>("Framebuffer request")
+        .kind(flecs::OnStore)
+        .without<Invalid>()
+        .each([](const FramebufferID& framebuffer, const FramebufferColorAttachment0& attachment0, FramebufferDataRequest& request) {
+            // FIXME: check attachment validity
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id);
+            const TextureSize& size = attachment0.e.get<TextureSize>();
+            size_t len = (size_t)size.width * (size_t)size.height;
+            request.width = size.width; request.height = size.height;
+            request.data.resize(len);
+            glReadPixels(0, 0, size.width, size.height, GL_RGBA, GL_UNSIGNED_BYTE, request.data.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        })
+    ;
+}
+
+gfx::Rgba gfx::FramebufferDataRequest::at(int x, int y) const {
+    x = std::clamp(x, 0, this->width-1);
+    y = std::clamp(y, 0, this->height-1);
+    return this->data[x + y * this->width];
+}
+
+gfx::Rgba gfx::FramebufferDataRequest::sample(glm::vec2 pos) const {
+    const float x1 = pos.x * this->width - 0.5;
+    const float x2 = x1 + 1.0;
+    const float y1 = pos.y * this->height - 0.5;
+    const float y2 = y1 + 1.0;
+
+    const auto v1 = gfx::Rgba::lerp(
+        at(std::floor(x1), std::floor(y1)),
+        at(std::floor(x2), std::floor(y1)),
+        1.0 - x1 - std::floor(x1)
+    );
+    const auto v2 = gfx::Rgba::lerp(
+        at(std::floor(x1), std::floor(y2)),
+        at(std::floor(x2), std::floor(y2)),
+        1.0 - x1 - std::floor(x1)
+    );
+    return Rgba::lerp(v1, v2, 1.0 - y1 - std::floor(y1));
 }
         
+gfx::Rgba gfx::Rgba::lerp(const gfx::Rgba& a, const gfx::Rgba& b, float t) {
+    return gfx::Rgba(
+        std::lerp((float)a.r, (float)b.r, t),
+        std::lerp((float)a.g, (float)b.g, t),
+        std::lerp((float)a.b, (float)b.b, t)
+    );
+}
+
 gfx::Rgba::Rgba()                                           : r(255),  g(255),  b(255),  a(255) {}
 gfx::Rgba::Rgba(uint8_t grey)                               : r(grey), g(grey), b(grey), a(255) {}
 gfx::Rgba::Rgba(uint8_t r, uint8_t g, uint8_t b)            : r(r),    g(g),    b(b),    a(255) {}

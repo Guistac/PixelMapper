@@ -73,12 +73,13 @@ int main(){
     PixelMapper::init(world);
 
     // checker texture tester
-    int width = 128;
-    uint32_t *data = new uint32_t[width*width];
+    const int width = 128;
+    uint32_t *data = new uint32_t[(size_t)width*(size_t)width];
 
     for (int y=0; y<width; y++) {
         for (int x=0; x<width; x++) {
-            data[x + y * width] = (x+y/8*8) % 16 < 8 ? 0xff666666 : 0xffeeeeee;
+            //data[x + y * width] = (x+y/8*8) % 16 < 8 ? 0xff666666 : 0xffeeeeee;
+            data[x + y * width] = gfx::Rgba(x%256, y%256, 0).u;
         }
     }
 
@@ -90,15 +91,8 @@ int main(){
             GL_LINEAR, GL_LINEAR,
             GL_REPEAT, GL_REPEAT
         })
-        .set<gfx::TextureDataSource>({ width*width, data })
+        .set<gfx::TextureDataSource>({ (size_t)width*(size_t)width, data })
     ;
-    
-    uint32_t *data2 = new uint32_t[width*width];
-    for (int y=0; y<width; y++) {
-        for (int x=0; x<width; x++) {
-            data2[x + y * width] = gfx::Rgba(x%256, y%256, 0).u;
-        }
-    }
     
     auto texture_test2 = world.entity()
         .set_name("texture test 2")
@@ -108,7 +102,12 @@ int main(){
             GL_LINEAR, GL_LINEAR,
             GL_REPEAT, GL_REPEAT
         })
-        .set<gfx::TextureDataSource>({ width*width, data2 })
+    ;
+
+    auto framebuffer_test = world.entity()
+        .set_name("framebuffer test")
+        .set<gfx::FramebufferColorAttachment0>({ texture_test2 })
+        .set<gfx::FramebufferDataRequest>({ 0, 0, {} });
     ;
 
     auto shader_test = world.entity()
@@ -124,22 +123,28 @@ int main(){
         })
         .set<gfx::FragmentShaderSource>({
             "#version 130\n"
-            "uniform vec4 u_color;\n"
             "uniform float u_time;\n"
+            "uniform vec4 u_color;\n"
             "in vec2 uv;\n"
             "out vec4 fragColor;\n"
             "void main(void) {\n"
             "    vec3 col = vec3(0);\n"
-            "    col.rg += uv;\n"
-            "    col.b = mod(u_time, 1.0);\n"
+            "    //col.rg += uv;\n"
+            "    col.b = sin(u_time) * 0.5 + 0.5;\n"
             "    fragColor = u_color * vec4(col, 1.0);\n"
             "}\n"
         })
         .set<gfx::UniformList>({
             {
-                gfx::Uniform(gfx::Rgba(255, 10, 10), "u_color"),
+                //gfx::Uniform((float)0.0, "u_time"),
+                gfx::Uniform(gfx::Rgba(255, 255, 255), "u_color"),
             }
         })
+    ;
+
+    auto render_command_test = world.entity()
+        .set_name("render command test")
+        .set<gfx::RenderCommand>({ framebuffer_test, shader_test })
     ;
 
 
