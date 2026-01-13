@@ -7,18 +7,18 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <glad/glad.h>
+#define GL_SILENCE_DEPRECATION
 
 #include "PixelMapper.h"
 #include "flecs-modules/glfw.hpp"
 #include "flecs-modules/gfx.hpp"
 
-#define GL_SILENCE_DEPRECATION
-
 int main(){
     flecs::world world;
+    // module needed for flecs explorer
     world.import<flecs::stats>();
     world.set<flecs::Rest>({});
-
+    // our own extra app module
     world.import<glfw>();
     world.import<gfx>();
 
@@ -43,7 +43,7 @@ int main(){
 #endif
 
     auto windowNtt = world.entity()
-        .set_name("main window")
+        .set_name("PixelMapper")
         .set<glfw::ScreenSize>({ 1280, 720 })
         .set<glfw::ScreenCoord>({ 0, 0 })
         .set<glfw::WindowHintList>({ windowHintList })
@@ -62,16 +62,42 @@ int main(){
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
-    //enable docking & viewports
+    //enable docking
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     
     //initialize glfw & opengl backends
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
-    
-    PixelMapper::init(world);
 
+    //import our flecs modules
+    PixelMapper::App::import(world);
+    PixelMapper::Gui::import(world);
+
+    //init our app
+    auto pixelMapper = PixelMapper::App::get(world);
+    auto patch1 = PixelMapper::Patch::create(pixelMapper);
+    auto f1 = PixelMapper::Fixture::createLine(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0), 16, 4);
+    auto f2 = PixelMapper::Fixture::createCircle(patch1, glm::vec2(100.0, 100.0), 50.0, 32, 3);
+    PixelMapper::Fixture::setDmxProperties(f1, 0, 0);
+    PixelMapper::Fixture::setDmxProperties(f2, 0, 64);
+    auto patch2 = PixelMapper::Patch::create(pixelMapper);
+    PixelMapper::Patch::select(pixelMapper, patch1);
+    int bytes = 0;
+    int channelCount = 3;
+    for(int i = 0; i < 8; i++){
+        for(int j = 0; j < 8; j++){
+            int pixelCount = random() % 16 + 6;
+            int fixtureBytes = pixelCount * channelCount;
+            flecs::entity fixture = PixelMapper::Fixture::createCircle(patch2, glm::vec2(i*100.0 + 50.0, j*100.0 + 50), 45.0, pixelCount, channelCount);
+            int universe = bytes / 512;
+            int startAddress = bytes % 512;
+            PixelMapper::Fixture::setDmxProperties(fixture, universe, startAddress);
+            bytes += fixtureBytes;
+        }
+    }
+
+//=========================================
     // checker texture tester
     const int width = 128;
     uint32_t *data = new uint32_t[(size_t)width*(size_t)width];
@@ -147,18 +173,8 @@ int main(){
         .set<gfx::RenderCommand>({ framebuffer_test, shader_test })
     ;
 
-
-    // FIXME: Hack until i figure out how to handle that
-    //glfwPollEvents();
-    //int display_w, display_h;
-    //glfwGetFramebufferSize(mainWindow, &display_w, &display_h);
-    //glViewport(0, 0, display_w, display_h);
-    //glClearColor(0,0,0,255);
-    //glClear(GL_COLOR_BUFFER_BIT);
-    // -------------------------------------------------
-
-    world.system("temp update")
-        .kind(flecs::OnUpdate)
+    world.system("Frame begin")
+        .kind(flecs::PreUpdate)
         .each([&](){
             // With multiple viewports the context of the main window needs to be set on each frame
             glfwMakeContextCurrent(mainWindow);
@@ -166,40 +182,12 @@ int main(){
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
-
-            if(ImGui::BeginMainMenuBar()){
-                if(ImGui::BeginMenu("PixelMapper")){
-                    ImGui::EndMenu();
-                }
-                if(ImGui::BeginMenu("Edit")){
-                    ImGui::EndMenu();
-                }
-                if(ImGui::BeginMenu("View")){
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMainMenuBar();
-            }
-            ImGui::DockSpaceOverViewport();
-
-            PixelMapper::gui(world);
-
-
-            if (ImGui::Begin("texture test")) {
-                world.query<const gfx::TextureID, const gfx::TextureSize>()
-                    .each([](flecs::entity e, const gfx::TextureID& id, const gfx::TextureSize& size) {
-                        ImGui::Text(e.name());
-                        ImGui::Image(id.id, ImVec2(size.width, size.height), ImVec2(0,0), ImVec2(1,1));
-                    })
-                ;
-
-                if (ImGui::Button("test")) {
-                }
-            }
-            ImGui::End();
-
-            // Rendering
+        })
+    ;
+    world.system("Frame end")
+        .kind(flecs::OnStore)
+        .each([](){
             ImGui::Render();
-
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         })
     ;
@@ -210,5 +198,5 @@ int main(){
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    return 1;
-}
+    return 0;
+}//main()
