@@ -51,7 +51,16 @@ set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/main.cpp
 	${PROJECT_SRC_DIR}/PixelMapper.h
-	${PROJECT_SRC_DIR}/PixelMapper.cpp
+	${PROJECT_SRC_DIR}/Common.h
+	${PROJECT_SRC_DIR}/Shape.h
+	${PROJECT_SRC_DIR}/Fixture.h
+	${PROJECT_SRC_DIR}/Fixture.cpp
+	${PROJECT_SRC_DIR}/Artnet.h
+	${PROJECT_SRC_DIR}/Artnet.cpp
+	${PROJECT_SRC_DIR}/Patch.h
+	${PROJECT_SRC_DIR}/Patch.cpp
+	${PROJECT_SRC_DIR}/App.h
+	${PROJECT_SRC_DIR}/App.cpp
 
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
 )

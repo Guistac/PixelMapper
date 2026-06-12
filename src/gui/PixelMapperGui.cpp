@@ -374,6 +374,42 @@ void import(flecs::world& w){
 
 
     });
+
+    w.system<>("WindowPatchSettings").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+
+        flecs::entity application = App::get(it.world());
+        flecs::entity selectedPatch = Patch::getSelected(application);
+
+        if(ImGui::Begin("Patch & Network Settings")){
+            if(selectedPatch.is_valid()){
+                if(auto* settings = selectedPatch.try_get_mut<Patch::Settings>()){
+                    bool edited = false;
+                    ImGui::SeparatorText("Network Broadcasting");
+                    
+                    edited |= ImGui::Checkbox("Enable ArtNet Sending", &settings->networkEnabled);
+
+                    int sourcePortInt = settings->sourcePort;
+                    if(ImGui::InputInt("Source Port", &sourcePortInt)){
+                        settings->sourcePort = std::clamp(sourcePortInt, 1, 65535);
+                        edited = true;
+                    }
+
+                    ImGui::SeparatorText("Timing");
+                    edited |= ImGui::SliderFloat("Refresh Rate (Hz)", &settings->refreshRate, 1.0f, 120.0f, "%.1f Hz");
+
+                    if(edited){
+                        selectedPatch.add<Patch::ProgramDirty>();
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("No active patch selected.");
+            }
+        }
+        ImGui::End();
+
+    });
+
     w.system<>("WindowArtnetDevices").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
 
@@ -381,14 +417,34 @@ void import(flecs::world& w){
         flecs::entity selectedPatch = Patch::getSelected(application);
         flecs::entity selectedArtnetDevice = Artnet::Device::getSelected(selectedPatch);
 
-
         if(ImGui::Begin("Artnet Devices")){
-            if(ImGui::BeginListBox(
-                "##ArtnetDeviceList",
-                ImVec2(ImGui::CalcTextSize("Universe 999").x + ImGui::GetStyle().ScrollbarSize,
-                ImGui::GetContentRegionAvail().y))
-            ){
-                if(selectedPatch.is_valid()){
+            if(!selectedPatch.is_valid()){
+                ImGui::TextDisabled("No active patch selected.");
+                ImGui::End();
+                return;
+            }
+
+            if (ImGui::Button("Add Device")) {
+                auto dev = Artnet::Device::create(selectedPatch);
+                // Assign a default name
+                static int devCounter = 1;
+                dev.set_name(("Device " + std::to_string(devCounter++)).c_str());
+                if (auto* s = dev.try_get_mut<Artnet::Device::Settings>()) {
+                    s->ipAddress = 0xFFFFFFFF; // 255.255.255.255
+                    s->startUniverse = 0;
+                    s->universeCount = 1;
+                }
+                selectedPatch.add<Patch::ProgramDirty>();
+            }
+
+            ImGui::Separator();
+
+            // Setup columns: list on the left, settings on the right
+            if (ImGui::BeginTable("DeviceLayoutTable", 2, ImGuiTableFlags_Resizable)) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+
+                if(ImGui::BeginListBox("##ArtnetDeviceList", ImGui::GetContentRegionAvail())){
                     Artnet::Device::iterateInPatch(selectedPatch, 
                         [&](flecs::entity device, const Artnet::Device::Settings& settings){
                             bool b_selected = device == selectedArtnetDevice;
@@ -396,17 +452,52 @@ void import(flecs::world& w){
                                 Artnet::Device::select(selectedPatch, device);
                             }
                     });
+                    ImGui::EndListBox();
                 }
-                ImGui::EndListBox();
-            }
 
+                ImGui::TableSetColumnIndex(1);
+                if(selectedArtnetDevice.is_valid()){
+                    if(auto* settings = selectedArtnetDevice.try_get_mut<Artnet::Device::Settings>()){
+                        bool edited = false;
+                        ImGui::SeparatorText("Device Settings");
+
+                        // IP Address Octet Editing
+                        uint8_t* ipBytes = reinterpret_cast<uint8_t*>(&settings->ipAddress);
+                        int ipBuf[4] = { ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3] };
+                        if(ImGui::InputInt4("IP Address", ipBuf)){
+                            ipBytes[0] = std::clamp(ipBuf[0], 0, 255);
+                            ipBytes[1] = std::clamp(ipBuf[1], 0, 255);
+                            ipBytes[2] = std::clamp(ipBuf[2], 0, 255);
+                            ipBytes[3] = std::clamp(ipBuf[3], 0, 255);
+                            edited = true;
+                        }
+
+                        int startUniv = settings->startUniverse;
+                        if(ImGui::InputInt("Start Universe", &startUniv)){
+                            settings->startUniverse = std::clamp(startUniv, 0, 32767);
+                            edited = true;
+                        }
+
+                        int count = settings->universeCount;
+                        if(ImGui::InputInt("Universe Count", &count)){
+                            settings->universeCount = std::clamp(count, 1, 32768);
+                            edited = true;
+                        }
+
+                        if(edited){
+                            selectedPatch.add<Patch::ProgramDirty>();
+                        }
+                    }
+                } else {
+                    ImGui::TextDisabled("Select a device from the list to edit its properties.");
+                }
+
+                ImGui::EndTable();
+            }
         }
         ImGui::End();
 
     });
-
-
-
 }
 
 };//namespace PixelMapper
