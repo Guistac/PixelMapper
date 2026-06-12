@@ -19,8 +19,8 @@ public:
 
     glm::vec2 canvasToScreen(glm::vec2 in){ return in * scaling - offset + frameMin; }
     glm::vec2 screenToCanvas(glm::vec2 in){ return (in - frameMin + offset) / scaling; }
-    glm::vec2 screenSizeToCanvasSize(glm::vec2 in){ return in / scaling; }
-    glm::vec2 canvasSizeToScreenSize(glm::vec2 in){ return in * scaling; }
+    glm::vec3 screenSizeToCanvasSize(glm::vec3 in){ return in / scaling; }
+    glm::vec3 canvasSizeToScreenSize(glm::vec3 in){ return in * scaling; }
     float screenSizeToCanvasSize(float in){ return in / scaling; }
     float canvasSizeToScreenSize(float in){ return in * scaling; }
 
@@ -91,13 +91,14 @@ public:
         return false;
     }
 
-    bool dragHandle(const char* id, glm::vec2& point, float handleSize){
+    bool dragHandle(const char* id, glm::vec3& point, float handleSize){
         glm::vec2 windowPos = ImGui::GetWindowPos();
         glm::vec2 cursorPos = canvasToScreen(point) - windowPos - glm::vec2(handleSize*0.5);
         ImGui::SetCursorPos(cursorPos);
         ImGui::Button(id, glm::vec2(handleSize));
         if(ImGui::IsItemActive()){
-            ImVec2 dragDelta = ImGui::GetMouseDragDelta();
+            ImVec2 delta = ImGui::GetMouseDragDelta();
+            glm::vec3 dragDelta{delta.x, delta.y, 0.0};
             point += screenSizeToCanvasSize(dragDelta);
             if(dragDelta.x != 0.0 || dragDelta.y != 0.0) {
                 ImGui::ResetMouseDragDelta();

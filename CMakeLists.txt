@@ -61,4 +61,4 @@ source_group(TREE ${PROJECT_SRC_DIR} FILES ${PROJECT_SRC_FILES})
 
 add_executable(PixelMapper ${PROJECT_SRC_FILES})
 target_include_directories(PixelMapper PUBLIC ${PROJECT_SRC_DIR})
-target_link_libraries(PixelMapper PUBLIC ${PixelMapperDeps})
+target_link_libraries(PixelMapper PRIVATE ${PixelMapperDeps})

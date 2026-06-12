@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <shared_mutex>
+
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -10,7 +12,7 @@
 #define GL_SILENCE_DEPRECATION
 
 #include "PixelMapper.h"
-
+#include "utils/Profiling.h"
 
 int main(){
     if(!glfwInit()) return 1; //this also sets the working directory to .app/Resources on MacOs builds
@@ -50,30 +52,30 @@ int main(){
     ImGui_ImplGlfw_InitForOpenGL(mainWindow, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    flecs::world world;
 
-    //import our flecs modules
+    flecs::world world;
     world.import<flecs::stats>();
-    world.set<flecs::Rest>({});    
+    world.set<flecs::Rest>({});   
     PixelMapper::App::import(world);
     PixelMapper::Gui::import(world);
 
     //init our app
     auto pixelMapper = PixelMapper::App::get(world);
     auto patch1 = PixelMapper::Patch::create(pixelMapper);
-    auto f1 = PixelMapper::Fixture::createLine(patch1, glm::vec2(100.0, 200.0), glm::vec2(200.0, 100.0), 16, 4);
-    auto f2 = PixelMapper::Fixture::createCircle(patch1, glm::vec2(100.0, 100.0), 50.0, 32, 3);
+    auto f1 = PixelMapper::Fixture::createLine(patch1, glm::vec3(100.0, 200.0, 0.0), glm::vec3(200.0, 100.0, 0.0), 16, 4);
+    auto f2 = PixelMapper::Fixture::createCircle(patch1, glm::vec3(100.0, 100.0, 0.0), 50.0, 32, 3);
     PixelMapper::Fixture::setDmxProperties(f1, 0, 0);
     PixelMapper::Fixture::setDmxProperties(f2, 0, 64);
     auto patch2 = PixelMapper::Patch::create(pixelMapper);
-    PixelMapper::Patch::select(pixelMapper, patch1);
+    PixelMapper::Patch::select(pixelMapper, patch2);
     int bytes = 0;
     int channelCount = 3;
-    for(int i = 0; i < 8; i++){
-        for(int j = 0; j < 8; j++){
+    int fixtureCount = 32;
+    for(int i = 0; i < fixtureCount; i++){
+        for(int j = 0; j < fixtureCount; j++){
             int pixelCount = random() % 16 + 6;
             int fixtureBytes = pixelCount * channelCount;
-            flecs::entity fixture = PixelMapper::Fixture::createCircle(patch2, glm::vec2(i*100.0 + 50.0, j*100.0 + 50), 45.0, pixelCount, channelCount);
+            flecs::entity fixture = PixelMapper::Fixture::createCircle(patch2, glm::vec3(i*100.0 + 50.0, j*100.0 + 50, 0.0), 45.0, pixelCount, channelCount);
             int universe = bytes / 512;
             int startAddress = bytes % 512;
             PixelMapper::Fixture::setDmxProperties(fixture, universe, startAddress);
@@ -109,6 +111,8 @@ int main(){
 			ImGui::RenderPlatformWindowsDefault();
 		}
     }
+
+    PixelMapper::App::terminate();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

@@ -1,16 +1,19 @@
 #include "PixelMapper.h"
 
 #include <algorithm>
+#include <thread>
+#include <atomic>
+
 #include <iostream>
 #include <iomanip>
 
 #include "utils/FlecsUtils.h"
+#include "utils/Profiling.h"
 
 #include <imgui.h>
 
 
 namespace PixelMapper{
-
 
 namespace App{
     flecs::entity get(const flecs::world& w){
@@ -22,9 +25,43 @@ namespace App{
         flecs::query<Fixture::Is, Fixture::Layout, Fixture::DmxAddress> fixtureInDmxUniverse;
         flecs::query<Fixture::Is, Fixture::PixelData> fixtureWithPixelDataInPatch;
         flecs::query<Artnet::Universe::Is, Artnet::Universe::Properties> dmxUniverseInPatch;
+        flecs::query<Artnet::Device::Is, Artnet::Device::Settings> artnetDeviceInPatch;
     };
     const Queries& getQueries(const flecs::world& w){
         return get(w).get<Queries>();
+    }
+
+
+    std::thread rtPatchRunner;
+    PatchProgram* currentPatchProgram;
+    std::mutex patchProgramLock;
+    bool b_rtPatchRunner = false;
+
+    void pushNewProgram(PatchProgram* newProg){
+        patchProgramLock.lock();
+        PatchProgram* oldProgram = currentPatchProgram;
+        currentPatchProgram = newProg;
+        patchProgramLock.unlock();
+        delete oldProgram;
+    }
+
+    void runPatch(){
+        b_rtPatchRunner = true;
+        while(b_rtPatchRunner){
+            auto start = std::chrono::steady_clock::now();
+            patchProgramLock.lock();
+            if(currentPatchProgram){
+                render(App::currentPatchProgram);
+                encode(App::currentPatchProgram);
+            }
+            patchProgramLock.unlock();
+            std::this_thread::sleep_until(start + std::chrono::milliseconds(3));
+        }
+    }
+
+    void terminate(){
+        b_rtPatchRunner = false;
+        if(rtPatchRunner.joinable()) rtPatchRunner.join();
     }
 }//namespace App
 
@@ -48,9 +85,13 @@ namespace Patch{
 
         auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
         auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
+        auto artnetDeviceFolder = world.entity("ArtnetDeviceFolder").child_of(newPatch);
 
         newPatch.add<Patch::FixtureFolder>(fixtureFolder);
         newPatch.add<Patch::DmxUniverseFolder>(dmxOutputFolder);
+        newPatch.add<Patch::ArtnetDeviceFolder>(artnetDeviceFolder);
+
+        select(pixelMapper, newPatch);
         
         return newPatch;
     }
@@ -98,10 +139,12 @@ namespace Fixture{
         newFixture.set<Fixture::Layout>(layout) //triggers pixel resize observer
         .set<Fixture::DmxAddress>({0,0});
 
+        select(patch, newFixture);
+
         return newFixture;
     }
 
-    flecs::entity createLine(flecs::entity patch, glm::vec2 start, glm::vec2 end, int numPixels, int channels) {
+    flecs::entity createLine(flecs::entity patch, glm::vec3 start, glm::vec3 end, int numPixels, int channels) {
         std::string fixtureName = "Line Fixture " + std::to_string(Fixture::getCountWithDmx(patch) + 1);
         auto newFixture = create(patch, numPixels, channels)
         .set_name(fixtureName.c_str())
@@ -109,7 +152,7 @@ namespace Fixture{
         return newFixture;
     }
 
-    flecs::entity createCircle(flecs::entity patch, glm::vec2 center, float radius, int numPixels, int channels){
+    flecs::entity createCircle(flecs::entity patch, glm::vec3 center, float radius, int numPixels, int channels){
         std::string fixtureName = "Circle Fixture " + std::to_string(Fixture::getCountWithDmx(patch) + 1);
         auto newFixture = create(patch, numPixels, channels)
         .set_name(fixtureName.c_str())
@@ -241,6 +284,11 @@ namespace Artnet::Universe{
             fn(universe, properties);
         });
     }
+    int getCount(flecs::entity patch){
+        auto dmxUniverseFolder = patch.target<Patch::DmxUniverseFolder>();
+        if(!dmxUniverseFolder.is_valid()) return 0;
+        return App::getQueries(patch.world()).dmxUniverseInPatch.set_var("parent", dmxUniverseFolder).count();
+    }
 
     flecs::entity getSelected(flecs::entity patch){
         if(!patch.is_valid() || !patch.is_alive()) return flecs::entity::null();
@@ -254,15 +302,51 @@ namespace Artnet::Universe{
         auto dmxUniverseFolder = patch.target<Patch::DmxUniverseFolder>();
         if(!dmxUniverseFolder.is_valid()) return flecs::entity::null();
         std::string univName = "Universe " + std::to_string(universeId);
-        return patch.world().entity()
+        flecs::entity newUniv = patch.world().entity()
             .child_of(dmxUniverseFolder)
             .set_name(univName.c_str())
             .add<Is>()
             .add<Channels>()
             .set<Properties>({universeId, 0});
+        select(patch, newUniv);
+        return newUniv;
     }
 
 };//namespace Artnet::Universe
+
+
+namespace Artnet::Device{
+
+    flecs::entity create(flecs::entity patch){
+        flecs::entity deviceFolder = patch.target<Patch::ArtnetDeviceFolder>();
+        flecs::entity newDevice = patch.world().entity()
+        .child_of(deviceFolder)
+        .add<Is>()
+        .add<Settings>();
+
+        select(patch, newDevice);
+
+        return newDevice;
+    }
+
+    void iterateInPatch(flecs::entity patch, std::function<void(flecs::entity device, Settings&)> fn){
+        flecs::entity deviceFolder = patch.target<Patch::ArtnetDeviceFolder>();
+        App::getQueries(patch.world()).artnetDeviceInPatch.set_var("parent", deviceFolder)
+        .each([fn](flecs::entity device, Is, Settings& settings){
+            fn(device, settings);
+        });
+    }
+
+    void select(flecs::entity patch, flecs::entity device){
+        patch.add<Patch::SelectedArtnetDevice>(device);
+    }
+    
+    flecs::entity getSelected(flecs::entity patch){
+        if(!patch.is_valid() || !patch.is_alive()) return flecs::entity::null();
+        return patch.target<Patch::SelectedArtnetDevice>();
+    }
+
+};
 
 
 namespace Patch{
@@ -303,6 +387,24 @@ namespace Shape{
         w.component<Line>();
         w.component<Circle>();
     }
+    void Line_setPixelPositions(const void* shapeProps, std::vector<glm::vec3>& positions){
+        Line* line = (Line*)shapeProps;
+        size_t count = positions.size();
+        for(int i = 0; i < count; i++){
+            float range = count > 1 ? (float)i / (float)(count - 1) : 0.0f;
+            positions[i] = line->start + range * (line->end - line->start);
+        }
+    }
+
+    void Circle_setPixelPositions(const void* shapeProps, std::vector<glm::vec3>& positions){
+        Circle* circle = (Circle*)shapeProps;
+        size_t count = positions.size();
+        for(int i = 0; i < count; i++){
+            float angle = float(i) / float(count) * M_PI * 2.0;
+            positions[i].x = circle->center.x + cosf(angle) * circle->radius;
+            positions[i].y = circle->center.y + sinf(angle) * circle->radius;
+        }
+    }
 }
 
 
@@ -323,6 +425,7 @@ void App::import(flecs::world& w){
     w.component<Fixture::WithShape>().add(flecs::Exclusive);
     w.component<Patch::SelectedFixture>().add(flecs::Exclusive);
     w.component<Patch::SelectedDmxUniverse>().add(flecs::Exclusive);
+    w.component<Patch::SelectedArtnetDevice>().add(flecs::Exclusive);
     w.component<SelectedPatch>().add(flecs::Exclusive);
 
     //———————————————————— TREE ROOT ——————————————————————
@@ -349,6 +452,9 @@ void App::import(flecs::world& w){
             .term().first(flecs::ChildOf).second("$parent")
             .build(),
         .dmxUniverseInPatch = w.query_builder<Artnet::Universe::Is, Artnet::Universe::Properties>()
+            .term().first(flecs::ChildOf).second("$parent")
+            .build(),
+        .artnetDeviceInPatch = w.query_builder<Artnet::Device::Is, Artnet::Device::Settings>()
             .term().first(flecs::ChildOf).second("$parent")
             .build()
     };
@@ -400,7 +506,8 @@ void App::import(flecs::world& w){
                 return glm::vec3(out.x, out.y, 0.0);
         });
         fixture.remove<Fixture::PixelPositionsDirty>();
-        Fixture::getPatch(fixture).add<Patch::RenderAreaDirty>();
+        flecs::entity patch = Fixture::getPatch(fixture);
+        patch.add<Patch::RenderAreaDirty>();
     });
 
 
@@ -446,6 +553,7 @@ void App::import(flecs::world& w){
             ra.max = max;
         }
         patch.remove<Patch::RenderAreaDirty>();
+        patch.add<Patch::ProgramDirty>();
     });
 
 
@@ -500,80 +608,147 @@ void App::import(flecs::world& w){
         }
 
         patch.remove<Patch::DmxMapDirty>();
+        patch.add<Patch::ProgramDirty>();
     });
 
-    w.system<>("TestRender")
+    w.system<Patch::Is>("PatchProgramCompile").with<Patch::ProgramDirty>()
     .kind(flecs::OnUpdate)
     .immediate()
-    .run([](flecs::iter& it){
-        flecs::entity app = get(it.world());
-        flecs::entity selectedPatch = Patch::getSelected(app);
-        const auto& renderArea = selectedPatch.get<Patch::RenderArea>();
-        glm::vec3 center = (renderArea.max + renderArea.min) * 0.5f;
-        float time = ImGui::GetTime();
-        Fixture::iterateWithPixelData(selectedPatch,
-            [&](flecs::entity fixture, Fixture::PixelData& pixelData){
-                if(pixelData.colors.size() != pixelData.positions.size()) return;
-                for(int i = 0; i < pixelData.positions.size(); i++){
-                    const auto& pos = pixelData.positions[i];
-                    float dist = glm::distance(pos, center);
-                    float br = std::sin((dist - time * 100.0) / 30.0);
-                    uint8_t out = br > 0 ? br * 255.0 : 0;
-                    pixelData.colors[i] = ColorRGBW{
-                        .r = out,
-                        .g = out,
-                        .b = out,
-                        .w = out
-                    };
-                }
-        });
+    .each([](flecs::entity patch, Patch::Is){
+        std::cout << "Compiling " << patch.name() << std::endl;
+        patch.remove<Patch::ProgramDirty>();
+        App::pushNewProgram(PatchProgram::compile(patch));
     });
 
-    w.system<>("WriteArtnetOutput")
-    .kind(flecs::OnValidate)
-    .immediate()
-    .run([](flecs::iter& it) {
-        flecs::entity app = get(it.world());
-        flecs::entity selectedPatch = Patch::getSelected(app);
-        Fixture::iterateWithDmx(selectedPatch,
-            [&](flecs::entity fixture, Fixture::Layout& l, Fixture::DmxAddress& a){
-                int startUniverse = a.universe;
-                int startAddress = a.address;
-                const auto& pixelData = fixture.get<Fixture::PixelData>();
-
-                fixture.each<Fixture::InUniverse>(
-                    [&](flecs::entity universe){
-                        auto* channels = universe.try_get_mut<Artnet::Universe::Channels>();
-                        const auto* props = universe.try_get<Artnet::Universe::Properties>();
-                        if(!channels || !props) return;
-                        Fixture::writeColorsToUniverse(
-                            pixelData.colors,
-                            channels->channels,
-                            props->universeId,
-                            startUniverse,
-                            startAddress,
-                            l.channelsPerPixel);
-                });
-        });
+    App::rtPatchRunner = std::thread([](){
+        App::runPatch();
     });
-
-    /*
-    w.system<>("PrintArtnetData")
-    .kind(flecs::PostUpdate)
-    .immediate()
-    .run([](flecs::iter& it){
-        flecs::entity app = get(it.world());
-        flecs::entity selectedPatch = Patch::getSelected(app);
-        Artnet::Universe::iterate(selectedPatch,
-            [](flecs::entity universe, const Artnet::Universe::Properties& props){
-                const auto& channels = universe.get<Artnet::Universe::Channels>();
-                std::cout << "Universe " << props.universeId << " :" << std::endl;
-                for(int i = 0; i < 512; i++) std::cout << std::setfill('0') << std::setw(3) << static_cast<int>(channels.channels[i]) << " ";
-                std::cout << std::endl;
-        });
-    });
-    */
 
 };//App::Import()
+
+
+
+
+PatchProgram* PatchProgram::compile(flecs::entity patch){
+    PatchProgram* program = new PatchProgram();
+
+    //prepare pixel buffers
+    program->pixelCount = 0;
+    Fixture::iterateWithDmx(patch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& addr){ program->pixelCount += layout.pixelCount; });
+    program->pixelColors = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
+    program->pixelPositions = (glm::vec3*)malloc(program->pixelCount * sizeof(glm::vec3));
+
+    //prepare universe buffers
+    program->universeCount = Artnet::Universe::getCount(patch);
+    program->universes = (PatchProgram::Universe*)malloc(program->universeCount * sizeof(PatchProgram::Universe));
+    std::unordered_map<uint16_t, int> universeIndexByID; //store the id of each universe for later retrieval
+    int universeIndex = 0;
+    Artnet::Universe::iterate(patch, [&](flecs::entity universe, Artnet::Universe::Properties& props){
+        universeIndexByID[props.universeId] = universeIndex;
+        program->universes[universeIndex].id = props.universeId;
+        universeIndex++;
+    });
+
+    
+    int pixelIndex = 0;
+    std::vector<PatchProgram::Pix2UniCopyInstr> p2us;
+    Fixture::iterateWithDmx(patch, [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress& addr){
+        int fixtureByteCount = layout.pixelCount * layout.channelsPerPixel;
+        int universeSpanSize = (addr.address + fixtureByteCount + 511) / 512;
+
+        if(const auto* pixelData = fixture.try_get<Fixture::PixelData>()){
+            memcpy(program->pixelPositions + pixelIndex, pixelData->positions.data(), pixelData->positions.size() * sizeof(glm::vec3));
+        }
+
+        int universeId = addr.universe;
+        int universeStartByte = addr.address;
+        int pixelStartByte = 0;
+        int remainingByteCount = fixtureByteCount;
+        int fixturePixelIndex = 0;
+        int fixturePixelByteIndex = 0;
+        while(remainingByteCount > 0){
+            int bytesInUniverse = std::min(512 - universeStartByte, remainingByteCount);
+
+            if(universeIndexByID.count(universeId)){
+                PatchProgram::Pix2UniCopyInstr p2u;
+                p2u.universeIndex = universeIndexByID[universeId];
+                p2u.universeOffset = universeStartByte;
+                p2u.byteCount = bytesInUniverse;
+                p2u.bytesPerPixel = layout.channelsPerPixel;
+                p2u.pixelIndex = pixelIndex + fixturePixelIndex;
+                p2u.pixelStartByte = fixturePixelByteIndex;
+                p2us.push_back(p2u);
+            }
+
+            universeId++;
+            universeStartByte = 0; //following universes always start at 0
+            remainingByteCount -= bytesInUniverse;
+            fixturePixelIndex += (fixturePixelByteIndex + bytesInUniverse) / layout.channelsPerPixel;
+            fixturePixelByteIndex = (fixturePixelByteIndex + bytesInUniverse) % layout.channelsPerPixel;
+        }
+
+        pixelIndex += layout.pixelCount;
+    });
+
+    program->p2uCount = p2us.size();
+    program->p2us = (PatchProgram::Pix2UniCopyInstr*)malloc(program->p2uCount * sizeof(PatchProgram::Pix2UniCopyInstr));
+    memcpy(program->p2us, p2us.data(), program->p2uCount * sizeof(PatchProgram::Pix2UniCopyInstr));
+
+    const auto& renderArea = patch.get<Patch::RenderArea>();
+    program->pixelPosMin = renderArea.min;
+    program->pixelPosMax = renderArea.max;
+
+    return program;
+}
+
+PatchProgram::~PatchProgram(){
+    free(p2us);
+    free(pixelColors);
+    free(pixelPositions);
+    free(universes);
+}
+
+void render(PatchProgram* program){
+    glm::vec3 center = (program->pixelPosMin + program->pixelPosMax) * 0.5f;
+    float time = ImGui::GetTime();
+    for(int i = 0; i < program->pixelCount; i++){
+        const auto& pos = program->pixelPositions[i];
+        auto& col = program->pixelColors[i];
+        float dist = glm::distance(pos, center);
+        float br = std::sin((dist - time * 100.0) / 30.0);
+        uint8_t out = br > 0 ? br * 255.0 : 0;
+        col.r = out;
+        col.g = out;
+        col.b = out;
+        col.w = out;
+    }
+}
+
+void encode(PatchProgram* program) {
+    for (int i = 0; i < program->p2uCount; i++) {
+        const PatchProgram::Pix2UniCopyInstr& map = program->p2us[i];
+        uint8_t* dest = program->universes[map.universeIndex].buffer + map.universeOffset;
+        int bytesWritten = 0;
+        
+        // Start with the first (potentially partial) pixel
+        int p = map.pixelIndex;
+        int pByte = map.pixelStartByte;
+        
+        while (bytesWritten < map.byteCount) {
+            const uint8_t* src = reinterpret_cast<const uint8_t*>(&program->pixelColors[p]);
+            
+            // How many bytes can we take from this pixel?
+            int availableInPixel = map.bytesPerPixel - pByte;
+            int remainingInMap = map.byteCount - bytesWritten;
+            int toCopy = std::min(availableInPixel, remainingInMap);
+            
+            std::memcpy(dest + bytesWritten, src + pByte, toCopy);
+            
+            bytesWritten += toCopy;
+            p++;      // Move to next pixel
+            pByte = 0; // Following pixels always start at byte 0
+        }
+    }
+}
 
 };//namespace PixelMapper

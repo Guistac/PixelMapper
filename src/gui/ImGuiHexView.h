@@ -6,6 +6,7 @@ struct MappedField {
     int Offset;
     int Count;
     ImU32 Color;
+    bool b_selected;
 };
 
 
