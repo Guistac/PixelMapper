@@ -3,6 +3,9 @@
 #include "Fixture.h"
 #include "Artnet.h"
 #include "Shape.h"
+#include "ArtnetSender.h"
+#include "CueList.h"
+#include "FileWatcher.h"
 #include "utils/FlecsUtils.h"
 
 #include <thread>
@@ -10,15 +13,24 @@
 #include <chrono>
 #include <iostream>
 #include <cstring>
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
 #include <algorithm>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 namespace PixelMapper {
 namespace App {
+
+    GLFWwindow* sharedContextWindow = nullptr;
+    PatchProgram* currentPatchProgram = nullptr;
+    std::mutex patchProgramLock;
+    bool b_rtPatchRunner = false;
+
+    std::atomic<float> rtFps{0.0f};
+    std::atomic<float> rtBitrateMbps{0.0f};
+    float pendingCrossfadeDuration = 0.0f;
 
     flecs::entity get(const flecs::world& w){
         return w.target<Is>();
@@ -29,13 +41,28 @@ namespace App {
     }
 
     std::thread rtPatchRunner;
-    PatchProgram* currentPatchProgram;
-    std::mutex patchProgramLock;
-    bool b_rtPatchRunner = false;
 
     void pushNewProgram(PatchProgram* newProg){
         patchProgramLock.lock();
         PatchProgram* oldProgram = currentPatchProgram;
+
+        // ── Crossfade handoff ──
+        float fade = pendingCrossfadeDuration;
+        pendingCrossfadeDuration = 0.0f;
+        if (newProg) {
+            if (fade > 0.0f && oldProgram && oldProgram->vfbPixels && newProg->vfbPixelsOld) {
+                // Copy the last rendered frame of the outgoing cue as the fade-from snapshot
+                int copyPixels = std::min(oldProgram->vfbWidth  * oldProgram->vfbHeight,
+                                          newProg->vfbWidth     * newProg->vfbHeight);
+                std::memcpy(newProg->vfbPixelsOld, oldProgram->vfbPixels,
+                            copyPixels * sizeof(ColorRGBW));
+                newProg->crossfadeDuration = fade;
+                newProg->crossfadeProgress = 0.0f;
+            } else {
+                newProg->crossfadeProgress = 1.0f; // no crossfade
+            }
+        }
+
         currentPatchProgram = newProg;
         patchProgramLock.unlock();
         delete oldProgram;
@@ -43,103 +70,91 @@ namespace App {
 
     void runPatch(){
         b_rtPatchRunner = true;
-        int socketFd = -1;
-        uint16_t activeSourcePort = 0;
+        if (sharedContextWindow) {
+            glfwMakeContextCurrent(sharedContextWindow);
+        }
+        ArtnetSender sender;
         auto lastSendTime = std::chrono::steady_clock::now();
+
+        // ── RT stats ──
+        int   rtFrameCount   = 0;
+        int   rtBytesThisSec = 0;
+        auto  rtStatsTimer   = std::chrono::steady_clock::now();
 
         while(b_rtPatchRunner){
             auto start = std::chrono::steady_clock::now();
             patchProgramLock.lock();
             if(currentPatchProgram){
-                render(App::currentPatchProgram);
-                encode(App::currentPatchProgram);
+                float intervalMs = 1000.0f / currentPatchProgram->refreshRate;
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(start - lastSendTime).count();
+                if (elapsedMs >= intervalMs) {
+                    lastSendTime = start;
 
-                if (currentPatchProgram->networkEnabled) {
-                    if (socketFd == -1 || activeSourcePort != currentPatchProgram->sourcePort) {
-                        if (socketFd != -1) {
-                            close(socketFd);
-                            socketFd = -1;
-                        }
+                    render(App::currentPatchProgram);
+                    encode(App::currentPatchProgram);
 
-                        socketFd = socket(AF_INET, SOCK_DGRAM, 0);
-                        if (socketFd >= 0) {
-                            int broadcastEnable = 1;
-                            setsockopt(socketFd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
-
-                            sockaddr_in localAddr{};
-                            localAddr.sin_family = AF_INET;
-                            localAddr.sin_port = htons(currentPatchProgram->sourcePort);
-                            localAddr.sin_addr.s_addr = INADDR_ANY;
-
-                            if (bind(socketFd, (struct sockaddr*)&localAddr, sizeof(localAddr)) < 0) {
-                                // Bind failed
-                            }
-                            activeSourcePort = currentPatchProgram->sourcePort;
-                        }
+                    // Increment crossfade progress
+                    if (currentPatchProgram->crossfadeDuration > 0.0f &&
+                        currentPatchProgram->crossfadeProgress < 1.0f)
+                    {
+                        float dt = intervalMs / 1000.0f;
+                        currentPatchProgram->crossfadeProgress = std::min(1.0f,
+                            currentPatchProgram->crossfadeProgress + dt / currentPatchProgram->crossfadeDuration);
                     }
 
-                    float intervalMs = 1000.0f / currentPatchProgram->refreshRate;
-                    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(start - lastSendTime).count();
-                    if (elapsedMs >= intervalMs && socketFd >= 0) {
-                        lastSendTime = start;
-
-#pragma pack(push, 1)
-                        struct ArtDmxHeader {
-                            char id[8] = {'A', 'r', 't', '-', 'N', 'e', 't', '\0'};
-                            uint16_t opCode = 0x5000;
-                            uint16_t protVer = htons(14);
-                            uint8_t sequence = 0x00;
-                            uint8_t physical = 0x00;
-                            uint16_t universe = 0;
-                            uint16_t length = htons(512);
-                        };
-#pragma pack(pop)
-
-                        for (uint32_t d = 0; d < currentPatchProgram->deviceCount; d++) {
-                            const auto& device = currentPatchProgram->devices[d];
-                            
-                            sockaddr_in destAddr{};
-                            destAddr.sin_family = AF_INET;
-                            destAddr.sin_port = htons(6454);
-                            destAddr.sin_addr.s_addr = device.ipAddress;
-
-                            for (uint32_t u = 0; u < currentPatchProgram->universeCount; u++) {
-                                const auto& universe = currentPatchProgram->universes[u];
-                                if (universe.id >= device.startUniverse && 
-                                    universe.id < device.startUniverse + device.universeCount) {
-                                    
-                                    ArtDmxHeader header;
-                                    header.universe = universe.id;
-
-                                    uint8_t packet[sizeof(ArtDmxHeader) + 512];
-                                    std::memcpy(packet, &header, sizeof(header));
-                                    std::memcpy(packet + sizeof(header), universe.buffer, 512);
-
-                                    sendto(socketFd, packet, sizeof(packet), 0, (struct sockaddr*)&destAddr, sizeof(destAddr));
-                                }
-                            }
-                        }
+                    if (currentPatchProgram->networkEnabled) {
+                        sender.send(currentPatchProgram);
+                        // Approximate ArtDmx packet size: 18 header + 512 data = 530 bytes/universe
+                        rtBytesThisSec += currentPatchProgram->universeCount * 530;
+                    } else {
+                        sender.closeSocket();
                     }
-                } else {
-                    if (socketFd != -1) {
-                        close(socketFd);
-                        socketFd = -1;
-                        activeSourcePort = 0;
-                    }
+
+                    rtFrameCount++;
                 }
             }
             patchProgramLock.unlock();
+
+            // Update RT stats once per second (outside lock)
+            {
+                auto now = std::chrono::steady_clock::now();
+                float elapsed = std::chrono::duration<float>(now - rtStatsTimer).count();
+                if (elapsed >= 1.0f) {
+                    rtFps.store(rtFrameCount / elapsed);
+                    rtBitrateMbps.store((rtBytesThisSec * 8.0f) / (elapsed * 1e6f));
+                    rtFrameCount   = 0;
+                    rtBytesThisSec = 0;
+                    rtStatsTimer   = now;
+                }
+            }
+
             std::this_thread::sleep_until(start + std::chrono::milliseconds(3));
         }
 
-        if (socketFd != -1) {
-            close(socketFd);
+        if (sharedContextWindow) {
+            glfwMakeContextCurrent(nullptr);
         }
     }
 
     void terminate(){
         b_rtPatchRunner = false;
         if(rtPatchRunner.joinable()) rtPatchRunner.join();
+    }
+
+    static int compareOrder(flecs::entity_t e1, const Fixture::Order* o1,
+                           flecs::entity_t e2, const Fixture::Order* o2) {
+        if (!o1 && !o2) return 0;
+        if (!o1) return 1;
+        if (!o2) return -1;
+        return (o1->index > o2->index) - (o1->index < o2->index);
+    }
+
+    static int compareUniverse(flecs::entity_t e1, const Artnet::Universe::Properties* p1,
+                              flecs::entity_t e2, const Artnet::Universe::Properties* p2) {
+        if (!p1 && !p2) return 0;
+        if (!p1) return 1;
+        if (!p2) return -1;
+        return (p1->universeId > p2->universeId) - (p1->universeId < p2->universeId);
     }
 
     void import(flecs::world& w){
@@ -151,6 +166,7 @@ namespace App {
         Fixture::import(w);
         Artnet::Universe::import(w);
         Artnet::Device::import(w); // Explicit registration!
+        CueList::import(w);        // Cue list + CueAdvancer system
 
         //————————————————— PAIR PROPERTIES ———————————————————
         w.component<Fixture::WithShape>().add(flecs::Exclusive);
@@ -170,18 +186,22 @@ namespace App {
             .patch = w.query_builder<Patch::Is>()
                 .term().first(flecs::ChildOf).second("$parent")
                 .build(),
-            .fixtureWithDmxInPatch = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress>()
+            .fixtureWithDmxInPatch = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress, Fixture::Order>()
                 .term().first(flecs::ChildOf).second("$parent")
+                .order_by<Fixture::Order>(compareOrder)
                 .build(),
-            .fixtureInDmxUniverse = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress>()
+            .fixtureInDmxUniverse = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress, Fixture::Order>()
                 .term().first(flecs::ChildOf).second("$parent")
                 .with<Fixture::InUniverse>().second("$universe")
+                .order_by<Fixture::Order>(compareOrder)
                 .build(),
-            .fixtureWithPixelDataInPatch = w.query_builder<Fixture::Is, Fixture::PixelData>()
+            .fixtureWithPixelDataInPatch = w.query_builder<Fixture::Is, Fixture::PixelData, Fixture::Order>()
                 .term().first(flecs::ChildOf).second("$parent")
+                .order_by<Fixture::Order>(compareOrder)
                 .build(),
             .dmxUniverseInPatch = w.query_builder<Artnet::Universe::Is, Artnet::Universe::Properties>()
                 .term().first(flecs::ChildOf).second("$parent")
+                .order_by<Artnet::Universe::Properties>(compareUniverse)
                 .build(),
             .artnetDeviceInPatch = w.query_builder<Artnet::Device::Is, Artnet::Device::Settings>()
                 .term().first(flecs::ChildOf).second("$parent")
@@ -288,7 +308,7 @@ namespace App {
             std::unordered_map<flecs::entity, std::vector<uint16_t>, EntityHasher> univsByFixture;
 
             Fixture::iterateWithDmx(patch,
-                [&](flecs::entity fixture, Fixture::Layout& layout, Fixture::DmxAddress dmxAddress){
+                [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress& dmxAddress){
                     int fixtureUniverseCount = 1;
                     int channels = dmxAddress.address + layout.pixelCount * layout.channelsPerPixel;
                     while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
@@ -331,9 +351,72 @@ namespace App {
         .kind(flecs::OnUpdate)
         .immediate()
         .each([](flecs::entity patch, Patch::Is){
+            // ── Debounce: skip if compiled very recently (breaks runaway compile loops) ──
+            static std::unordered_map<flecs::id_t, std::chrono::steady_clock::time_point> lastCompile;
+            auto now = std::chrono::steady_clock::now();
+            auto& last = lastCompile[patch.id()];
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last).count() < 50) {
+                patch.remove<Patch::ProgramDirty>(); // drop — too soon
+                return;
+            }
+            last = now;
+
             std::cout << "Compiling " << patch.name() << std::endl;
             patch.remove<Patch::ProgramDirty>();
             App::pushNewProgram(PatchProgram::compile(patch));
+        });
+
+        // ──────────────────────── FILE WATCH SYSTEM ──────────────────────────
+        // Runs in PreStore, once per second. Checks Lua + GLSL file timestamps.
+        // On change: reloads source into ScriptData, sets ProgramDirty.
+        w.system<Patch::Is, const Patch::Settings, Patch::ScriptData>("FileWatchSystem")
+        .kind(flecs::PreStore)
+        .each([](flecs::iter& it, size_t i,
+                 Patch::Is, const Patch::Settings& settings, Patch::ScriptData& sd)
+        {
+            static std::unordered_map<flecs::id_t, FileWatcher> luaWatchers;
+            static std::unordered_map<flecs::id_t, FileWatcher> glslWatchers;
+            static float accumulator = 0.0f;
+
+            accumulator += it.delta_time();
+            if (accumulator < 1.0f) return; // poll once per second
+            // Reset only after checking all patches (done in the first iteration index)
+            if (i == 0) accumulator = 0.0f;
+
+            flecs::id_t id = it.entity(i).id();
+
+            // Ensure watchers exist for this patch
+            auto& luaW  = luaWatchers[id];
+            auto& glslW = glslWatchers[id];
+            if (luaW.path != settings.luaScriptPath)   luaW.setPath(settings.luaScriptPath);
+            if (glslW.path != settings.shaderPath)      glslW.setPath(settings.shaderPath);
+
+            bool dirty = false;
+
+            if (luaW.check()) {
+                // Reload Lua
+                std::ifstream f(settings.luaScriptPath);
+                if (f.is_open()) {
+                    std::stringstream ss; ss << f.rdbuf();
+                    sd.luaSource = ss.str();
+                    dirty = true;
+                    std::cout << "[FileWatch] Reloaded " << settings.luaScriptPath << "\n";
+                }
+            }
+            if (glslW.check()) {
+                // Reload GLSL
+                std::ifstream f(settings.shaderPath);
+                if (f.is_open()) {
+                    std::stringstream ss; ss << f.rdbuf();
+                    sd.glslSource = ss.str();
+                    dirty = true;
+                    std::cout << "[FileWatch] Reloaded " << settings.shaderPath << "\n";
+                }
+            }
+
+            if (dirty) {
+                it.entity(i).add<Patch::ProgramDirty>();
+            }
         });
 
         App::rtPatchRunner = std::thread([](){

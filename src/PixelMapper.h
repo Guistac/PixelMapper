@@ -6,3 +6,7 @@
 #include "Artnet.h"
 #include "Patch.h"
 #include "App.h"
+#include "PatchSerializer.h"
+#include "CueList.h"
+#include "FileWatcher.h"
+#include "Presets.h"

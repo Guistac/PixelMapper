@@ -2,6 +2,10 @@
 #include <flecs.h>
 #include <glm/glm.hpp>
 #include <functional>
+#include <string>
+#include <memory>
+#include <unordered_set>
+#include <sol/sol.hpp>
 #include "Common.h"
 #include "Artnet.h"
 
@@ -21,11 +25,33 @@ namespace Patch {
     struct RenderAreaDirty {};
     struct ProgramDirty {};
 
+    /// Set of fixture IDs that are in the multi-selection.
+    struct MultiSelection {
+        std::unordered_set<flecs::id_t> ids;
+    };
+
+    enum class RenderMode {
+        CPP = 0,
+        LUA,
+        GLSL
+    };
+
     struct Settings {
         float refreshRate = 40.0f;
         bool networkEnabled = false;
         uint16_t sourcePort = 6454;
+        RenderMode renderMode = RenderMode::CPP;
+        int vfbResolution = 256;
+        char luaScriptPath[256] = "scripts/default_patch.lua";
+        char shaderPath[256] = "shaders/default_patch.frag";
     };
+
+    struct ScriptData {
+        std::string luaSource;
+        std::string glslSource;
+        std::string compilerLog;
+    };
+
     struct RenderArea {
         glm::vec3 min;
         glm::vec3 max;
@@ -73,6 +99,33 @@ struct PatchProgram {
 
     Universe* universes;
     uint32_t universeCount;
+
+    // Modular rendering fields
+    Patch::RenderMode renderMode = Patch::RenderMode::CPP;
+    int vfbWidth = 0;
+    int vfbHeight = 0;
+    ColorRGBW* vfbPixels = nullptr; // CPU-side Virtual Framebuffer
+
+    std::unique_ptr<sol::state> luaState;
+    sol::protected_function luaUpdateFn;
+
+    unsigned int glslProgram = 0;
+    unsigned int glslFbo = 0;
+    unsigned int glslFboTex = 0;
+    unsigned int glslVao = 0;
+    unsigned int glslVbo = 0;
+    unsigned int glslPbo[2] = {0, 0};  // double-buffered PBO for async readback
+    int pboFrameIndex = 0;
+    bool shaderCompiled = false;
+    bool vaoReady = false;            // VAO must be created on the RT thread (not shared between GL contexts)
+    std::string shaderSource;
+    std::string compilerLog;
+    float timeElapsed = 0.0f;
+
+    // ── Crossfade ──
+    ColorRGBW* vfbPixelsOld = nullptr; ///< Snapshot of outgoing cue's last VFB frame
+    float crossfadeProgress = 1.0f;    ///< 0 = full old, 1 = full new; RT thread increments this
+    float crossfadeDuration = 0.0f;    ///< Seconds; 0 = no crossfade
 };
 
 void render(PatchProgram* rtData);

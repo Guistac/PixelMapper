@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PixelMapper>
+    <Patch name="Patch 1">
+        <Settings refreshRate="120" networkEnabled="1" sourcePort="6454" renderMode="0" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
+        <LuaSource><![CDATA[-- Default PixelMapper Lua Script
+-- update(canvas, time) is called once per frame
+
+function update(canvas, time)
+    -- clear screen with black
+    canvas:clear(0, 0, 0, 0)
+    
+    local w = canvas:width()
+    local h = canvas:height()
+    
+    -- Draw a moving circle sweep
+    local cx = w * 0.5 + math.cos(time * 2.0) * (w * 0.3)
+    local cy = h * 0.5 + math.sin(time * 3.0) * (h * 0.3)
+    local radius = 15.0 + math.sin(time * 5.0) * 5.0
+    
+    -- Draw filled circle with color shifting over time
+    local r = math.floor((math.sin(time) * 0.5 + 0.5) * 255)
+    local g = math.floor((math.sin(time + 2.0) * 0.5 + 0.5) * 255)
+    local b = math.floor((math.sin(time + 4.0) * 0.5 + 0.5) * 255)
+    
+    canvas:draw_circle(math.floor(cx), math.floor(cy), math.floor(radius), r, g, b, 255, true)
+    
+    -- Draw some noise lines / points
+    for i = 0, 10 do
+        local nx = math.floor(w * 0.5 + (canvas:noise(i * 10.0, time * 0.5, 0.0)) * (w * 0.4))       
+        local ny = math.floor(h * 0.5 + (canvas:noise(0.0, i * 10.0, time * 0.5)) * (h * 0.4))
+        canvas:set_pixel(nx, ny, 255, 255, 255, 255)
+    end
+end
+]]></LuaSource>
+        <GlslSource><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
+
+uniform float time;
+uniform vec2 resolution;
+
+void main() {
+    float x = uv.x * 10.0;
+    float y = uv.y * 10.0;
+    
+    float v1 = sin(x + time);
+    float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);
+    
+    float cx = x + 5.0 * sin(time / 5.0);
+    float cy = y + 5.0 * cos(time / 3.0);
+    float v3 = sin(sqrt(cx*cx + cy*cy + 1.0) - time);
+    
+    float v = (v1 + v2 + v3) / 3.0;
+    
+    float r = sin(v * 3.1415) * 0.5 + 0.5;
+    float g = sin(v * 3.1415 + 2.094) * 0.5 + 0.5;
+    float b = sin(v * 3.1415 + 4.188) * 0.5 + 0.5;
+    
+    fragColor = vec4(r, g, b, 1.0);
+}
+]]></GlslSource>
+        <Fixtures>
+            <Fixture name="Line Fixture 6" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="125" startY="398" startZ="0" endX="225" endY="498" endZ="0"/>
+            <Fixture name="Line Fixture 7" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="64" shape="Line" startX="146" startY="70" startZ="0" endX="246" endY="170" endZ="0"/>
+            <Fixture name="Line Fixture 8" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="128" shape="Line" startX="91" startY="261" startZ="0" endX="191" endY="361" endZ="0"/>
+            <Fixture name="Line Fixture 9" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="192" shape="Line" startX="54" startY="430" startZ="0" endX="154" endY="530" endZ="0"/>
+            <Fixture name="Line Fixture 10" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="256" shape="Line" startX="152" startY="379" startZ="0" endX="252" endY="479" endZ="0"/>
+            <Fixture name="Circle Fixture 11" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="320" shape="Circle" centerX="21" centerY="106" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 12" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="384" shape="Circle" centerX="135" centerY="3" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 13" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="448" shape="Circle" centerX="301" centerY="198" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 14" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="0" shape="Circle" centerX="334" centerY="297" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 15" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Circle" centerX="148" centerY="150" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 16" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="128" shape="Circle" centerX="69" centerY="364" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 17" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="192" shape="Circle" centerX="243" centerY="367" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 18" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="256" shape="Circle" centerX="282" centerY="92" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 19" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="320" shape="Circle" centerX="85" centerY="231" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 20" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="384" shape="Circle" centerX="200" centerY="243" centerZ="0" radius="50"/>
+        </Fixtures>
+        <ArtNetDevices>
+            <Device name="Device 1" ip="16.115.47.33" startUniverse="1" universeCount="0"/>
+        </ArtNetDevices>
+    </Patch>
+</PixelMapper>

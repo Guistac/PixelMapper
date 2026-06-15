@@ -48,7 +48,7 @@ namespace Artnet::Universe {
     void import(flecs::world& w){
         w.component<Is>();
         w.component<SendTo>();
-        w.component<Properties>().add(flecs::Sparse);
+        w.component<Properties>();
         w.component<Channels>().add(flecs::Sparse);
     }
 

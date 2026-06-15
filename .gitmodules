@@ -19,3 +19,12 @@
 [submodule "deps/flecs"]
 	path = deps/flecs
 	url = https://github.com/SanderMertens/flecs.git
+[submodule "deps/sol2"]
+	path = deps/sol2
+	url = https://github.com/ThePhD/sol2.git
+[submodule "deps/ImGuiColorTextEdit"]
+	path = deps/ImGuiColorTextEdit
+	url = https://github.com/goossens/ImGuiColorTextEdit.git
+[submodule "deps/lua"]
+	path = deps/lua
+	url = https://github.com/lua/lua.git

@@ -34,12 +34,20 @@ set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/System)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/flecs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/tinyxml2.cmake)
 
+# Scripting & Editor
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/lua.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/sol2.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/imguitextedit.cmake)
+
 set(PixelMapperDeps
     dearimgui
     glm
 	glad
     tinyxml2
 	flecs
+	lua
+	sol2
+	imguitextedit
 )
 
 
@@ -55,12 +63,22 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/Shape.h
 	${PROJECT_SRC_DIR}/Fixture.h
 	${PROJECT_SRC_DIR}/Fixture.cpp
+	${PROJECT_SRC_DIR}/CanvasBinding.h
+	${PROJECT_SRC_DIR}/CanvasBinding.cpp
 	${PROJECT_SRC_DIR}/Artnet.h
 	${PROJECT_SRC_DIR}/Artnet.cpp
+	${PROJECT_SRC_DIR}/ArtnetSender.h
+	${PROJECT_SRC_DIR}/ArtnetSender.cpp
 	${PROJECT_SRC_DIR}/Patch.h
 	${PROJECT_SRC_DIR}/Patch.cpp
 	${PROJECT_SRC_DIR}/App.h
 	${PROJECT_SRC_DIR}/App.cpp
+	${PROJECT_SRC_DIR}/PatchSerializer.h
+	${PROJECT_SRC_DIR}/PatchSerializer.cpp
+	${PROJECT_SRC_DIR}/FileWatcher.h
+	${PROJECT_SRC_DIR}/Presets.h
+	${PROJECT_SRC_DIR}/CueList.h
+	${PROJECT_SRC_DIR}/CueList.cpp
 
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
 )

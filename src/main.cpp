@@ -33,11 +33,26 @@ int main(){
     //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 #endif
 
-    GLFWwindow* mainWindow = glfwCreateWindow(1280, 720, "PixelMapper", nullptr, nullptr);
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    int xpos = 0, ypos = 0, workWidth = 1280, workHeight = 720;
+    if (primaryMonitor) {
+        glfwGetMonitorWorkarea(primaryMonitor, &xpos, &ypos, &workWidth, &workHeight);
+    }
+
+    GLFWwindow* mainWindow = glfwCreateWindow(workWidth, workHeight, "PixelMapper", nullptr, nullptr);
+    if (primaryMonitor) {
+        glfwSetWindowPos(mainWindow, xpos, ypos);
+    }
     glfwMakeContextCurrent(mainWindow); //enable the opengl context
     glfwSwapInterval(1);    //enable vsync
 
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    GLFWwindow* sharedContextWindow = glfwCreateWindow(1, 1, "Shared Context Offscreen", nullptr, mainWindow);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+
     if(!gladLoadGL()) return 0;
+
+    PixelMapper::App::sharedContextWindow = sharedContextWindow;
 
     //initialize gui contexts
     IMGUI_CHECKVERSION();
@@ -61,26 +76,14 @@ int main(){
 
     //init our app
     auto pixelMapper = PixelMapper::App::get(world);
-    auto patch1 = PixelMapper::Patch::create(pixelMapper);
-    auto f1 = PixelMapper::Fixture::createLine(patch1, glm::vec3(100.0, 200.0, 0.0), glm::vec3(200.0, 100.0, 0.0), 16, 4);
-    auto f2 = PixelMapper::Fixture::createCircle(patch1, glm::vec3(100.0, 100.0, 0.0), 50.0, 32, 3);
-    PixelMapper::Fixture::setDmxProperties(f1, 0, 0);
-    PixelMapper::Fixture::setDmxProperties(f2, 0, 64);
-    auto patch2 = PixelMapper::Patch::create(pixelMapper);
-    PixelMapper::Patch::select(pixelMapper, patch2);
-    int bytes = 0;
-    int channelCount = 3;
-    int fixtureCount = 32;
-    for(int i = 0; i < fixtureCount; i++){
-        for(int j = 0; j < fixtureCount; j++){
-            int pixelCount = random() % 16 + 6;
-            int fixtureBytes = pixelCount * channelCount;
-            flecs::entity fixture = PixelMapper::Fixture::createCircle(patch2, glm::vec3(i*100.0 + 50.0, j*100.0 + 50, 0.0), 45.0, pixelCount, channelCount);
-            int universe = bytes / 512;
-            int startAddress = bytes % 512;
-            PixelMapper::Fixture::setDmxProperties(fixture, universe, startAddress);
-            bytes += fixtureBytes;
-        }
+
+    // ── Clean startup: load from disk, or create one empty patch on first run ──
+    const std::string defaultPatchPath = "patches/default.xml";
+    if (!PixelMapper::PatchSerializer::load(pixelMapper, defaultPatchPath)) {
+        // First run — create an empty default patch and save it
+        auto defaultPatch = PixelMapper::Patch::create(pixelMapper);
+        defaultPatch.set_name("Patch 1");
+        PixelMapper::PatchSerializer::save(pixelMapper, defaultPatchPath);
     }
 
     while(!glfwWindowShouldClose(mainWindow)){
