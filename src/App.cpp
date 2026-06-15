@@ -64,6 +64,10 @@ namespace App {
                 newProg->crossfadeProgress = 1.0f; // no crossfade
             }
         }
+        if (newProg && oldProgram) {
+            newProg->editingCueIndex = oldProgram->editingCueIndex;
+            newProg->editingBankIndex = oldProgram->editingBankIndex;
+        }
 
         currentPatchProgram = newProg;
         patchProgramLock.unlock();

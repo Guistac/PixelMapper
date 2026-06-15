@@ -36,11 +36,13 @@ void import(flecs::world& w) {
          }
          list.activeIndex = next;
 
-         // Push new GLSL source and recompile with crossfade
          const Cue& nextCue = list.cues[next];
-         sd.glslSource = nextCue.glslSource;
-         App::pendingCrossfadeDuration = nextCue.fadeSeconds;
-         it.entity(i).add<Patch::ProgramDirty>();
+         App::patchProgramLock.lock();
+         if (App::currentPatchProgram) {
+             App::currentPatchProgram->activeCueIndex = next;
+             App::currentPatchProgram->pendingCrossfadeDuration = nextCue.fadeSeconds;
+         }
+         App::patchProgramLock.unlock();
      });
 }
 

@@ -126,6 +126,34 @@ struct PatchProgram {
     ColorRGBW* vfbPixelsOld = nullptr; ///< Snapshot of outgoing cue's last VFB frame
     float crossfadeProgress = 1.0f;    ///< 0 = full old, 1 = full new; RT thread increments this
     float crossfadeDuration = 0.0f;    ///< Seconds; 0 = no crossfade
+
+    // ── Ahead-Of-Time Cue Compilation ──
+    struct CompiledCue {
+        unsigned int program = 0;
+        std::string compilerLog;
+    };
+    std::vector<CompiledCue> compiledCues;
+    std::string defaultCompilerLog;
+
+    int activeCueIndex = -1;
+    float pendingCrossfadeDuration = 0.0f;
+    int currentRenderedCueIndex = -2; // -1 = default patch shader, -2 = uninitialized
+    int previousCueIndex = -2;        // Cue index currently fading out (-1 = default shader, -2 = none/invalid)
+    int editingCueIndex = -1;         // Cue index currently open in shader editor (-1 = default shader)
+    int editingBankIndex = -1;        // Bank effect index currently open in shader editor (-1 = none)
+
+    // Editor offline preview FBO + texture
+    unsigned int glslEditorFbo = 0;
+    unsigned int glslEditorFboTex = 0;
+
+    // GPU-side Crossfading FBOs and textures
+    unsigned int glslFboOld = 0;
+    unsigned int glslFboTexOld = 0;
+    unsigned int glslFboBlend = 0;
+    unsigned int glslFboTexBlend = 0;
+    unsigned int glslBlendProgram = 0;
+
+    std::vector<CompiledCue> compiledBankEffects;
 };
 
 void render(PatchProgram* rtData);
