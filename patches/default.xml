@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
     <Patch name="Patch 1">
-        <Settings refreshRate="120" networkEnabled="1" sourcePort="6454" renderMode="0" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
+        <Settings refreshRate="120" networkEnabled="1" sourcePort="6454" renderMode="2" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -35,6 +35,43 @@ end
         <GlslSource><![CDATA[#version 150
 in vec2 uv;
 out vec4 fragColor;
+uniform float time;
+uniform vec2 resolution;
+
+void main() {
+    float speed = 0.5;
+    float sweep = mod(time * speed, 1.0);
+    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)
+                - smoothstep(sweep, sweep + 0.04, uv.y);
+    float bg = 0.05;
+    float brightness = bg + bar * (1.0 - bg);
+    fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
+}
+]]></GlslSource>
+        <Fixtures>
+            <Fixture name="Line Fixture 6" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="125" startY="398" startZ="0" endX="225" endY="498" endZ="0"/>
+            <Fixture name="Line Fixture 7" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="64" shape="Line" startX="146" startY="70" startZ="0" endX="246" endY="170" endZ="0"/>
+            <Fixture name="Line Fixture 8" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="128" shape="Line" startX="91" startY="261" startZ="0" endX="191" endY="361" endZ="0"/>
+            <Fixture name="Line Fixture 9" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="192" shape="Line" startX="54" startY="430" startZ="0" endX="154" endY="530" endZ="0"/>
+            <Fixture name="Line Fixture 10" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="256" shape="Line" startX="152" startY="379" startZ="0" endX="252" endY="479" endZ="0"/>
+            <Fixture name="Circle Fixture 11" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="320" shape="Circle" centerX="21" centerY="106" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 12" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="384" shape="Circle" centerX="135" centerY="3" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 13" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="448" shape="Circle" centerX="301" centerY="198" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 14" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="0" shape="Circle" centerX="334" centerY="297" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 15" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Circle" centerX="199" centerY="206" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 16" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="128" shape="Circle" centerX="69" centerY="364" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 17" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="192" shape="Circle" centerX="243" centerY="367" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 18" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="256" shape="Circle" centerX="282" centerY="92" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 19" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="320" shape="Circle" centerX="96" centerY="190" centerZ="0" radius="50"/>
+            <Fixture name="Circle Fixture 20" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="384" shape="Circle" centerX="200" centerY="243" centerZ="0" radius="50"/>
+        </Fixtures>
+        <ArtNetDevices>
+            <Device name="Device 1" ip="16.115.47.33" startUniverse="1" universeCount="0"/>
+        </ArtNetDevices>
+        <CueList autoAdvance="1" loop="1" activeIndex="1">
+            <Cue name="Cue 1" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
 
 uniform float time;
 uniform vec2 resolution;
@@ -58,26 +95,48 @@ void main() {
     
     fragColor = vec4(r, g, b, 1.0);
 }
-]]></GlslSource>
-        <Fixtures>
-            <Fixture name="Line Fixture 6" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="125" startY="398" startZ="0" endX="225" endY="498" endZ="0"/>
-            <Fixture name="Line Fixture 7" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="64" shape="Line" startX="146" startY="70" startZ="0" endX="246" endY="170" endZ="0"/>
-            <Fixture name="Line Fixture 8" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="128" shape="Line" startX="91" startY="261" startZ="0" endX="191" endY="361" endZ="0"/>
-            <Fixture name="Line Fixture 9" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="192" shape="Line" startX="54" startY="430" startZ="0" endX="154" endY="530" endZ="0"/>
-            <Fixture name="Line Fixture 10" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="256" shape="Line" startX="152" startY="379" startZ="0" endX="252" endY="479" endZ="0"/>
-            <Fixture name="Circle Fixture 11" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="320" shape="Circle" centerX="21" centerY="106" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 12" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="384" shape="Circle" centerX="135" centerY="3" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 13" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="448" shape="Circle" centerX="301" centerY="198" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 14" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="0" shape="Circle" centerX="334" centerY="297" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 15" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Circle" centerX="148" centerY="150" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 16" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="128" shape="Circle" centerX="69" centerY="364" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 17" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="192" shape="Circle" centerX="243" centerY="367" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 18" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="256" shape="Circle" centerX="282" centerY="92" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 19" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="320" shape="Circle" centerX="85" centerY="231" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 20" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="384" shape="Circle" centerX="200" centerY="243" centerZ="0" radius="50"/>
-        </Fixtures>
-        <ArtNetDevices>
-            <Device name="Device 1" ip="16.115.47.33" startUniverse="1" universeCount="0"/>
-        </ArtNetDevices>
+]]></Cue>
+            <Cue name="Cue 2" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
+uniform float time;
+uniform vec2 resolution;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i+vec2(1,0)), u.x),
+               mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);
+}
+void main() {
+    vec2 q = uv;
+    q.y = 1.0 - q.y;  // flame rises upward
+    float t = time * 1.5;
+    float f = noise(q * vec2(10.0, 5.0) + vec2(0.0, -t));
+    f += 0.5 * noise(q * vec2(60.0, 10.0) + vec2(0.0, -t * 1.3));
+    f = clamp(f - q.y * 1.1, 0.0, 1.0);
+    vec3 fire = mix(vec3(1.0, 0.0, 0.0), vec3(1.0, 0.9, 0.0), f);
+    fire = mix(vec3(0.0), fire, pow(f, 0.4));
+    fragColor = vec4(fire, 1.0);
+}
+]]></Cue>
+            <Cue name="Cue 3" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
+uniform float time;
+uniform vec2 resolution;
+
+void main() {
+    float speed = 0.5;
+    float sweep = mod(time * speed, 1.0);
+    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)
+                - smoothstep(sweep, sweep + 0.04, uv.y);
+    float bg = 0.05;
+    float brightness = bg + bar * (1.0 - bg);
+    fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
+}
+]]></Cue>
+        </CueList>
     </Patch>
 </PixelMapper>

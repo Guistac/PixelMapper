@@ -4,6 +4,9 @@
 #include "Fixture.h"
 #include "Artnet.h"
 #include "Shape.h"
+#include "CueList.h"
+#include "EffectBank.h"
+
 
 #include <tinyxml2.h>
 #include <filesystem>
@@ -153,6 +156,38 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             dEl->SetAttribute("universeCount",  (int)ds.universeCount);
             devicesEl->InsertEndChild(dEl);
         });
+
+        // ── Cue List ──
+        if (const auto* cueList = patch.try_get<CueList::List>()) {
+            XMLElement* clEl = doc.NewElement("CueList");
+            clEl->SetAttribute("autoAdvance", cueList->autoAdvance ? 1 : 0);
+            clEl->SetAttribute("loop",        cueList->loop ? 1 : 0);
+            clEl->SetAttribute("activeIndex", cueList->activeIndex);
+            patchEl->InsertEndChild(clEl);
+
+            for (const auto& cue : cueList->cues) {
+                XMLElement* cueEl = doc.NewElement("Cue");
+                cueEl->SetAttribute("name",        cue.name.c_str());
+                cueEl->SetAttribute("holdSeconds", cue.holdSeconds);
+                cueEl->SetAttribute("fadeSeconds", cue.fadeSeconds);
+                setElementText(doc, cueEl, cue.glslSource);
+                clEl->InsertEndChild(cueEl);
+            }
+        }
+
+        // ── Effect Bank ──
+        if (const auto* bank = patch.try_get<EffectBank::Bank>()) {
+            XMLElement* ebEl = doc.NewElement("EffectBank");
+            ebEl->SetAttribute("activeIndex", bank->activeIndex);
+            patchEl->InsertEndChild(ebEl);
+
+            for (const auto& fx : bank->effects) {
+                XMLElement* fxEl = doc.NewElement("Effect");
+                fxEl->SetAttribute("name", fx.name.c_str());
+                setElementText(doc, fxEl, fx.glslSource);
+                ebEl->InsertEndChild(fxEl);
+            }
+        }
     });
 
     // Ensure parent directory exists
@@ -304,6 +339,50 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                     s->universeCount = (uint16_t)uCount;
                 }
             }
+        }
+
+        // ── Cue List ──
+        if (XMLElement* clEl = patchEl->FirstChildElement("CueList")) {
+            CueList::List list;
+            int autoAdv = 0, loop = 1, actIdx = -1;
+            clEl->QueryIntAttribute("autoAdvance", &autoAdv);
+            clEl->QueryIntAttribute("loop",        &loop);
+            clEl->QueryIntAttribute("activeIndex", &actIdx);
+            list.autoAdvance = (autoAdv != 0);
+            list.loop        = (loop != 0);
+            list.activeIndex = actIdx;
+
+            for (XMLElement* cueEl = clEl->FirstChildElement("Cue");
+                 cueEl; cueEl = cueEl->NextSiblingElement("Cue"))
+            {
+                CueList::Cue cue;
+                const char* cueName = cueEl->Attribute("name");
+                if (cueName) cue.name = cueName;
+                cueEl->QueryFloatAttribute("holdSeconds", &cue.holdSeconds);
+                cueEl->QueryFloatAttribute("fadeSeconds", &cue.fadeSeconds);
+                cue.glslSource = getElementText(cueEl);
+                list.cues.push_back(cue);
+            }
+            patch.set<CueList::List>(list);
+        }
+
+        // ── Effect Bank ──
+        if (XMLElement* ebEl = patchEl->FirstChildElement("EffectBank")) {
+            EffectBank::Bank bank;
+            int actIdx = -1;
+            ebEl->QueryIntAttribute("activeIndex", &actIdx);
+            bank.activeIndex = actIdx;
+
+            for (XMLElement* fxEl = ebEl->FirstChildElement("Effect");
+                 fxEl; fxEl = fxEl->NextSiblingElement("Effect"))
+            {
+                EffectBank::Effect fx;
+                const char* fxName = fxEl->Attribute("name");
+                if (fxName) fx.name = fxName;
+                fx.glslSource = getElementText(fxEl);
+                bank.effects.push_back(fx);
+            }
+            patch.set<EffectBank::Bank>(bank);
         }
 
         // Trigger full recompile

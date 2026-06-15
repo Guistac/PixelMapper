@@ -79,6 +79,8 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/Presets.h
 	${PROJECT_SRC_DIR}/CueList.h
 	${PROJECT_SRC_DIR}/CueList.cpp
+	${PROJECT_SRC_DIR}/EffectBank.h
+	${PROJECT_SRC_DIR}/EffectBank.cpp
 
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
 )

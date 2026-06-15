@@ -5,8 +5,10 @@
 #include "Shape.h"
 #include "ArtnetSender.h"
 #include "CueList.h"
+#include "EffectBank.h"
 #include "FileWatcher.h"
 #include "utils/FlecsUtils.h"
+
 
 #include <thread>
 #include <mutex>
@@ -167,6 +169,7 @@ namespace App {
         Artnet::Universe::import(w);
         Artnet::Device::import(w); // Explicit registration!
         CueList::import(w);        // Cue list + CueAdvancer system
+        EffectBank::import(w);     // Experimental effect bank
 
         //————————————————— PAIR PROPERTIES ———————————————————
         w.component<Fixture::WithShape>().add(flecs::Exclusive);
