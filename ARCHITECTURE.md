@@ -193,11 +193,12 @@ The compilation phase creates a flat, cache-friendly representation `PatchProgra
 - **`whiteMode` (WhiteMode enum):** Dictates how raw RGB colors are mapped to RGBW outputs (Auto, Off, or Pass-through).
 - **`highlightFrequency` (float):** Flash frequency for identifying selected fixtures.
 
-### 6.1 GPU rendering & Async Readbacks
+### 6.1 GPU Point-Rendering & Previews
 When the active render mode is GLSL, the real-time thread executes the following operations:
-1. **GPU Viewport Rendering:** Binds the active FBO (`glslFbo`) and renders a fullscreen quad using the compiled fragment shader program.
-2. **Double-Buffered PBO Readback:** Employs double-buffered Pixel Buffer Objects (PBOs) to copy rendered pixels back to the CPU array (`vfbPixels`) asynchronously. While one PBO is being mapped for read access by the CPU, the other PBO receives the output of the current GPU render, avoiding GPU-CPU blocking syncs.
-3. **Offline Preview FBO:** Features a secondary offscreen FBO (`glslEditorFbo`) used to render and compile the shader currently active in the text editor without altering the primary output.
+1. **1D GPU Point-Rendering:** Binds the active 1D FBO (`glslFbo`) and configures the viewport to `(pixelCount, 1)`. It renders the pixels as a point list using `glDrawArrays(GL_POINTS, 0, pixelCount)`. The vertex shader assigns raw 3D positions (`vPixelPos3D`) and CPU-projected 2D coordinates (`vPixelPos2D`) to variables, mapping each point to exactly 1 fragment in the 1D viewport.
+2. **Double-Buffered PBO Readback:** Employs double-buffered Pixel Buffer Objects (PBOs) to copy the rendered 1D pixel buffer back to the CPU array (`vfbPixels`) asynchronously. Since the buffer size is extremely small (e.g. `pixelCount * sizeof(ColorRGBW)`), readback overhead is negligible.
+3. **2D Offline Preview FBO:** Renders a 2D quad of size `256 x 256` to the editor preview FBO (`glslEditorFbo`) using `glslPreviewProgram` and the current `zSlice` uniform value to allow layer-by-layer volumetric preview scans in the editor.
+4. **2D Playback Preview FBO:** Renders the active playback program into the `256 x 256` 2D playback preview FBO (`glslPlaybackPreviewFbo`) to display the live pattern as the canvas background.
 
 ### 6.2 Post-Rendering Filters
 After generating pixel colors via GPU or CPU (Lua/C++), the real-time thread runs post-processing steps:
@@ -213,10 +214,9 @@ During cue transitions in non-GLSL modes (Lua, C++), the real-time thread perfor
 - It interpolates the pixels using the transition's blend factors in memory before encoding them.
 
 ### 6.4 GPU-Side Crossfading
-During sequence transitions, the real-time thread performs GPU-side crossfading:
-- Outgoing and incoming cues are rendered to separate texture layers (`glslFboOld` and `glslFbo`).
-- A specialized mixing shader program (`glslBlendProgram`) blends both textures to a destination FBO (`glslFboBlend`) using a `mixFactor` derived from the active cue's `crossfadeProgress`.
-- Once blending finishes, the blended output is mapped to the output DMX buffers.
+During sequence transitions, the real-time thread performs GPU-side crossfading for both primary outputs and 2D playback previews:
+- **Primary 1D Outputs**: The outgoing and active cues are rendered to separate 1D textures (`glslFboTexOld` and `glslFboTex`), blended via `glslBlendProgram` into `glslFboTexBlend` using the active cue's transition `mixFactor`, and read back via PBOs.
+- **2D Playback Previews**: The outgoing and active 2D previews are rendered to separate `256 x 256` textures (`glslPlaybackPreviewFboTexOld` and `glslPlaybackPreviewFboTex`), blended via `glslBlendProgram` into `glslPlaybackPreviewFboTexBlend` using the transition progress, and bound as the background image in the GUI.
 
 ### 6.5 Encoding
 Copies pixel color channels to universe buffers using pre-compiled instructions:
@@ -259,23 +259,16 @@ Streaming DMX universes to external fixtures is handled by the **`ArtnetSender`*
 
 ---
 
-## 8. Modular Rendering: Lua Scripting & Virtual Framebuffer
+## 8. Modular Rendering: Lua Scripting & 1D Canvas
 
 To support runtime programmability without recompiling the application, PixelMapper implements a modular Lua scripting engine.
 
 ### 8.1 Architectural Paradigm
-To accommodate non-grid spatial configurations while preserving high-performance procedural rendering, PixelMapper uses a **Virtual Framebuffer + Bilinear Interpolation** architecture:
+To accommodate non-grid spatial configurations while preserving high performance, PixelMapper uses a **1D Canvas & Point-Mapping** architecture:
 
-1. **Virtual Framebuffer:** A 2D grid texture of configurable resolution. Rather than a hardcoded square, the resolution adapts to the aspect ratio of the active `Patch::RenderArea` to prevent squishing/stretching:
-   - Let the maximum size of the largest dimension be $R$ (configured in patch settings, e.g. $256$).
-   - The dimensions are calculated as:
-     $$\text{Width} = R, \quad \text{Height} = R \times \frac{dy}{dx} \quad (\text{if } dx \ge dy)$$
-     $$\text{Height} = R, \quad \text{Width} = R \times \frac{dx}{dy} \quad (\text{if } dy > dx)$$
-     where $dx = \text{max.x} - \text{min.x}$ and $dy = \text{max.y} - \text{min.y}$.
-2. **Lua Drawing Context:** The Lua script interacts with a C++ class bound via `Sol2` (representing a `Canvas` API), drawing vector shapes or noise patterns.
-3. **Bilinear Spatial Sampling:** During the C++ rendering phase, physical pixels are normalized into $(u, v)$ coordinates relative to the bounding box:
-   $$u = \frac{px - \text{min.x}}{dx}, \quad v = \frac{py - \text{min.y}}{dy}$$
-   The grid is then sampled at $(u \times (\text{Width}-1), v \times (\text{Height}-1))$ with bilinear filtering, and outputted to the DMX color bytes.
+1. **1D Framebuffer**: The C++ and Lua rendering pipelines execute directly against a 1D virtual framebuffer (`vfbPixels`) of dimensions `(pixelCount, 1)`. The $i$-th pixel in the canvas corresponds directly to the physical fixture pixel index.
+2. **Lua Drawing Context**: The Lua script interacts with a C++ class bound via `Sol2` (representing a `Canvas` API), drawing procedurally or reading pixel parameters.
+3. **Direct Mapping**: During the render phase, CPU-side bilinear spatial sampling has been replaced by a direct memory copy (`std::memcpy`) of the 1D virtual framebuffer to the final `pixelColors` array, eliminating PCI-e bandwidth bottlenecks and sampling stutters.
 
 ### 8.2 Execution & Thread Safety
 - **Isolate VMs:** To prevent concurrency race conditions, each `PatchProgram` owns a dedicated, self-contained `sol::state` (Lua VM).

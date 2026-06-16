@@ -115,14 +115,25 @@ namespace Patch {
             if (res.glslFboTexBlend) glDeleteTextures(1, &res.glslFboTexBlend);
             if (res.glslEditorFbo) glDeleteFramebuffers(1, &res.glslEditorFbo);
             if (res.glslEditorFboTex) glDeleteTextures(1, &res.glslEditorFboTex);
+            if (res.glslPlaybackPreviewFbo) glDeleteFramebuffers(1, &res.glslPlaybackPreviewFbo);
+            if (res.glslPlaybackPreviewFboTex) glDeleteTextures(1, &res.glslPlaybackPreviewFboTex);
+            if (res.glslPlaybackPreviewFboOld) glDeleteFramebuffers(1, &res.glslPlaybackPreviewFboOld);
+            if (res.glslPlaybackPreviewFboTexOld) glDeleteTextures(1, &res.glslPlaybackPreviewFboTexOld);
+            if (res.glslPlaybackPreviewFboBlend) glDeleteFramebuffers(1, &res.glslPlaybackPreviewFboBlend);
+            if (res.glslPlaybackPreviewFboTexBlend) glDeleteTextures(1, &res.glslPlaybackPreviewFboTexBlend);
             if (res.glslVao) glDeleteVertexArrays(1, &res.glslVao);
             if (res.glslVbo) glDeleteBuffers(1, &res.glslVbo);
+            if (res.glslPointVao) glDeleteVertexArrays(1, &res.glslPointVao);
+            if (res.glslPointVbo) glDeleteBuffers(1, &res.glslPointVbo);
+            if (res.glslQuadVao) glDeleteVertexArrays(1, &res.glslQuadVao);
+            if (res.glslQuadVbo) glDeleteBuffers(1, &res.glslQuadVbo);
             if (res.glslPbo[0]) glDeleteBuffers(2, res.glslPbo);
         });
 
         w.observer<GPUProgram>("CleanGPUProgram").event(flecs::OnRemove)
         .each([](flecs::entity e, GPUProgram& gp) {
             if (gp.program) glDeleteProgram(gp.program);
+            if (gp.previewProgram) glDeleteProgram(gp.previewProgram);
         });
     }
 
@@ -154,8 +165,38 @@ namespace {
         }
     }
 
+    bool compileStage(GLuint shader, const std::string& source, std::string& errorLog) {
+        const char* src = source.c_str();
+        glShaderSource(shader, 1, &src, nullptr);
+        glCompileShader(shader);
+        GLint success = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetShaderInfoLog(shader, 512, nullptr, infoLog);
+            errorLog = infoLog;
+            return false;
+        }
+        return true;
+    }
+
+    bool linkProgram(GLuint program, GLuint vs, GLuint fs, std::string& errorLog) {
+        glAttachShader(program, vs);
+        glAttachShader(program, fs);
+        glLinkProgram(program);
+        GLint success = 0;
+        glGetProgramiv(program, GL_LINK_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetProgramInfoLog(program, 512, nullptr, infoLog);
+            errorLog = infoLog;
+            return false;
+        }
+        return true;
+    }
+
     bool compileShaderIfNeeded(const std::string& fsSourceStr, Patch::GPUProgram& gp) {
-        if (gp.program != 0 && gp.glslSource == fsSourceStr) {
+        if (gp.program != 0 && gp.previewProgram != 0 && gp.glslSource == fsSourceStr) {
             return true;
         }
 
@@ -163,64 +204,188 @@ namespace {
             glDeleteProgram(gp.program);
             gp.program = 0;
         }
+        if (gp.previewProgram != 0) {
+            glDeleteProgram(gp.previewProgram);
+            gp.previewProgram = 0;
+        }
 
         gp.glslSource = fsSourceStr;
 
-        const char* vsSource =
+        bool isShadertoy = (fsSourceStr.find("mainImage") != std::string::npos);
+        std::string errLog;
+
+        // ─────────────────────────────────────────────────────────────────
+        // 1. COMPILE MAIN (POINT-RENDERING) PROGRAM
+        // ─────────────────────────────────────────────────────────────────
+        std::string pointVsSource =
             "#version 150\n"
-            "in vec2 position;\n"
-            "out vec2 uv;\n"
+            "in vec3 position3D;\n"
+            "in vec2 texCoord2D;\n"
+            "in float pixelIndex;\n"
+            "uniform float pixelCount;\n"
+            "out vec3 vPixelPos3D;\n"
+            "out vec2 vPixelPos2D;\n"
             "void main() {\n"
-            "    uv = vec2(position.x * 0.5 + 0.5, 1.0 - (position.y * 0.5 + 0.5));\n"
-            "    gl_Position = vec4(position, 0.0, 1.0);\n"
+            "    vPixelPos3D = position3D;\n"
+            "    vPixelPos2D = texCoord2D;\n"
+            "    float xNDC = ((pixelIndex + 0.5) / pixelCount) * 2.0 - 1.0;\n"
+            "    gl_Position = vec4(xNDC, 0.0, 0.0, 1.0);\n"
             "}\n";
 
-        GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vs, 1, &vsSource, nullptr);
-        glCompileShader(vs);
+        std::string pointFsSource;
+        if (isShadertoy) {
+            pointFsSource =
+                "#version 150\n"
+                "in vec3 vPixelPos3D;\n"
+                "in vec2 vPixelPos2D;\n"
+                "out vec4 FragColor;\n"
+                "#define iPixelPos3D vPixelPos3D\n"
+                "#define iPixelPos2D vPixelPos2D\n"
+                "uniform vec3      iResolution;\n"
+                "uniform float     iTime;\n"
+                "uniform float     iTimeDelta;\n"
+                "uniform float     iFrameRate;\n"
+                "uniform int       iFrame;\n"
+                "uniform vec4      iMouse;\n"
+                "uniform vec4      iDate;\n" +
+                fsSourceStr +
+                "\n"
+                "void main() {\n"
+                "    vec2 fakeFragCoord = iPixelPos2D * iResolution.xy;\n"
+                "    mainImage(FragColor, fakeFragCoord);\n"
+                "}\n";
+        } else {
+            // Check if #version is already in user code
+            if (fsSourceStr.find("#version") != std::string::npos) {
+                pointFsSource = fsSourceStr;
+            } else {
+                pointFsSource =
+                    "#version 150\n"
+                    "in vec3 vPixelPos3D;\n"
+                    "in vec2 vPixelPos2D;\n"
+                    "out vec4 fragColor;\n"
+                    "#define iPixelPos3D vPixelPos3D\n"
+                    "#define iPixelPos2D vPixelPos2D\n"
+                    "uniform float time;\n"
+                    "uniform vec2 resolution;\n" +
+                    fsSourceStr;
+            }
+        }
 
-        GLint success = 0;
-        glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
-        if (!success) {
-            char infoLog[512];
-            glGetShaderInfoLog(vs, 512, nullptr, infoLog);
-            gp.compilerLog = std::string("Vertex Shader compile error: ") + infoLog;
-            glDeleteShader(vs);
+        GLuint pointVs = glCreateShader(GL_VERTEX_SHADER);
+        if (!compileStage(pointVs, pointVsSource, errLog)) {
+            gp.compilerLog = "Point Vertex Shader error: " + errLog;
+            glDeleteShader(pointVs);
             return false;
         }
 
-        const char* fsSource = fsSourceStr.c_str();
-        GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fs, 1, &fsSource, nullptr);
-        glCompileShader(fs);
-
-        glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
-        if (!success) {
-            char infoLog[512];
-            glGetShaderInfoLog(fs, 512, nullptr, infoLog);
-            gp.compilerLog = std::string("Shader Compile Error:\n") + infoLog;
-            glDeleteShader(fs);
-            glDeleteShader(vs);
+        GLuint pointFs = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileStage(pointFs, pointFsSource, errLog)) {
+            gp.compilerLog = "Point Fragment Shader error: " + errLog;
+            glDeleteShader(pointFs);
+            glDeleteShader(pointVs);
             return false;
         }
 
         gp.program = glCreateProgram();
-        glAttachShader(gp.program, vs);
-        glAttachShader(gp.program, fs);
-        glBindAttribLocation(gp.program, 0, "position");
-        glLinkProgram(gp.program);
-        glDeleteShader(fs);
-        glDeleteShader(vs);
+        glBindAttribLocation(gp.program, 0, "position3D");
+        glBindAttribLocation(gp.program, 1, "texCoord2D");
+        glBindAttribLocation(gp.program, 2, "pixelIndex");
 
-        glGetProgramiv(gp.program, GL_LINK_STATUS, &success);
-        if (!success) {
-            char infoLog[512];
-            glGetProgramInfoLog(gp.program, 512, nullptr, infoLog);
-            gp.compilerLog = std::string("Shader Link Error:\n") + infoLog;
+        if (!linkProgram(gp.program, pointVs, pointFs, errLog)) {
+            gp.compilerLog = "Point Shader link error: " + errLog;
+            glDeleteShader(pointFs);
+            glDeleteShader(pointVs);
             glDeleteProgram(gp.program);
             gp.program = 0;
             return false;
         }
+        glDeleteShader(pointFs);
+        glDeleteShader(pointVs);
+
+        // ─────────────────────────────────────────────────────────────────
+        // 2. COMPILE PREVIEW (2D QUAD-RENDERING) PROGRAM
+        // ─────────────────────────────────────────────────────────────────
+        std::string quadVsSource =
+            "#version 150\n"
+            "in vec2 position;\n"
+            "out vec3 vPixelPos3D;\n"
+            "out vec2 vPixelPos2D;\n"
+            "uniform float zSlice;\n"
+            "void main() {\n"
+            "    vPixelPos2D = position * 0.5 + 0.5;\n"
+            "    vPixelPos3D = vec3(vPixelPos2D.x, vPixelPos2D.y, zSlice);\n"
+            "    gl_Position = vec4(position, 0.0, 1.0);\n"
+            "}\n";
+
+        std::string quadFsSource;
+        if (isShadertoy) {
+            quadFsSource =
+                "#version 150\n"
+                "in vec3 vPixelPos3D;\n"
+                "in vec2 vPixelPos2D;\n"
+                "out vec4 FragColor;\n"
+                "#define iPixelPos3D vPixelPos3D\n"
+                "#define iPixelPos2D vPixelPos2D\n"
+                "uniform vec3      iResolution;\n"
+                "uniform float     iTime;\n"
+                "uniform float     iTimeDelta;\n"
+                "uniform float     iFrameRate;\n"
+                "uniform int       iFrame;\n"
+                "uniform vec4      iMouse;\n"
+                "uniform vec4      iDate;\n"
+                "uniform float     zSlice;\n" +
+                fsSourceStr +
+                "\n"
+                "void main() {\n"
+                "    mainImage(FragColor, gl_FragCoord.xy);\n"
+                "}\n";
+        } else {
+            if (fsSourceStr.find("#version") != std::string::npos) {
+                quadFsSource = fsSourceStr;
+            } else {
+                quadFsSource =
+                    "#version 150\n"
+                    "in vec3 vPixelPos3D;\n"
+                    "in vec2 vPixelPos2D;\n"
+                    "out vec4 fragColor;\n"
+                    "#define iPixelPos3D vPixelPos3D\n"
+                    "#define iPixelPos2D vPixelPos2D\n"
+                    "uniform float time;\n"
+                    "uniform vec2 resolution;\n"
+                    "uniform float zSlice;\n" +
+                    fsSourceStr;
+            }
+        }
+
+        GLuint quadVs = glCreateShader(GL_VERTEX_SHADER);
+        if (!compileStage(quadVs, quadVsSource, errLog)) {
+            gp.compilerLog = "Preview Vertex Shader error: " + errLog;
+            glDeleteShader(quadVs);
+            return false;
+        }
+
+        GLuint quadFs = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileStage(quadFs, quadFsSource, errLog)) {
+            gp.compilerLog = "Preview Fragment Shader error: " + errLog;
+            glDeleteShader(quadFs);
+            glDeleteShader(quadVs);
+            return false;
+        }
+
+        gp.previewProgram = glCreateProgram();
+        glBindAttribLocation(gp.previewProgram, 0, "position");
+
+        if (!linkProgram(gp.previewProgram, quadVs, quadFs, errLog)) {
+            gp.compilerLog = "Preview Shader link error: " + errLog;
+            glDeleteShader(quadFs);
+            glDeleteShader(quadVs);
+            glDeleteProgram(gp.previewProgram);
+            gp.previewProgram = 0;
+            return false;
+        }
+        glDeleteShader(quadFs);
+        glDeleteShader(quadVs);
 
         gp.compilerLog = "Compile successful!";
         return true;
@@ -424,26 +589,49 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
     program->pixelPosMin = renderArea.min;
     program->pixelPosMax = renderArea.max;
 
-    // Calculate VFB resolution aspect ratio:
-    float dx = program->pixelPosMax.x - program->pixelPosMin.x;
-    float dy = program->pixelPosMax.y - program->pixelPosMin.y;
-    int vfbWidth = R;
-    int vfbHeight = R;
-    if (dx <= 0.001f && dy <= 0.001f) {
-        vfbWidth = R;
-        vfbHeight = R;
-    } else if (dx >= dy) {
-        vfbWidth = R;
-        vfbHeight = std::max(1, (int)std::round(R * dy / dx));
-    } else {
-        vfbHeight = R;
-        vfbWidth = std::max(1, (int)std::round(R * dx / dy));
+    // Calculate projected 2D coordinates on CPU for Point-Rendering
+    std::vector<glm::vec2> projectedPositions(program->pixelCount);
+    glm::vec2 pMin(FLT_MAX);
+    glm::vec2 pMax(-FLT_MAX);
+
+    Patch::ProjectionMode projMode = Patch::ProjectionMode::TOP_DOWN_XY;
+    program->projectionMode = projMode;
+
+    for (uint32_t i = 0; i < program->pixelCount; ++i) {
+        glm::vec3 pos3d = program->pixelPositions[i];
+        glm::vec2 projected(0.5f);
+        if (projMode == Patch::ProjectionMode::TOP_DOWN_XY) {
+            projected = glm::vec2(pos3d.x, pos3d.y);
+        } else if (projMode == Patch::ProjectionMode::FRONT_XZ) {
+            projected = glm::vec2(pos3d.x, pos3d.z);
+        } else if (projMode == Patch::ProjectionMode::SIDE_YZ) {
+            projected = glm::vec2(pos3d.y, pos3d.z);
+        }
+        projectedPositions[i] = projected;
+        pMin = glm::min(pMin, projected);
+        pMax = glm::max(pMax, projected);
     }
-    program->vfbWidth = vfbWidth;
-    program->vfbHeight = vfbHeight;
+
+    float pdx = pMax.x - pMin.x;
+    float pdy = pMax.y - pMin.y;
+
+    std::vector<glm::vec2> normalizedUVs(program->pixelCount, glm::vec2(0.5f));
+    for (uint32_t i = 0; i < program->pixelCount; ++i) {
+        glm::vec2 p = projectedPositions[i];
+        float u = 0.5f;
+        float v = 0.5f;
+        if (pdx > 0.001f) u = (p.x - pMin.x) / pdx;
+        if (pdy > 0.001f) v = (p.y - pMin.y) / pdy;
+        normalizedUVs[i] = glm::clamp(glm::vec2(u, v), 0.0f, 1.0f);
+    }
+
+    int mainVfbWidth = program->pixelCount > 0 ? program->pixelCount : 1;
+    int mainVfbHeight = 1;
+    program->vfbWidth = mainVfbWidth;
+    program->vfbHeight = mainVfbHeight;
 
     // Allocate VFB CPU pixels
-    int vfbSize = program->vfbWidth * program->vfbHeight;
+    int vfbSize = mainVfbWidth;
     program->vfbPixels    = (ColorRGBW*)malloc(vfbSize * sizeof(ColorRGBW));
     program->vfbPixelsOld = (ColorRGBW*)malloc(vfbSize * sizeof(ColorRGBW));
     std::memset(program->vfbPixels,    0, vfbSize * sizeof(ColorRGBW));
@@ -492,12 +680,18 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             auto* patchGp = &patch.get_mut<Patch::GPUProgram>();
 
             // Resize FBO if resolution changed
-            if (res->glslFbo == 0 || res->vfbWidth != vfbWidth || res->vfbHeight != vfbHeight) {
+            if (res->glslFbo == 0 || res->vfbWidth != mainVfbWidth) {
                 if (res->glslFbo) {
                     glDeleteFramebuffers(1, &res->glslFbo);
                     glDeleteTextures(1, &res->glslFboTex);
                     glDeleteFramebuffers(1, &res->glslEditorFbo);
                     glDeleteTextures(1, &res->glslEditorFboTex);
+                    glDeleteFramebuffers(1, &res->glslPlaybackPreviewFbo);
+                    glDeleteTextures(1, &res->glslPlaybackPreviewFboTex);
+                    glDeleteFramebuffers(1, &res->glslPlaybackPreviewFboOld);
+                    glDeleteTextures(1, &res->glslPlaybackPreviewFboTexOld);
+                    glDeleteFramebuffers(1, &res->glslPlaybackPreviewFboBlend);
+                    glDeleteTextures(1, &res->glslPlaybackPreviewFboTexBlend);
                     glDeleteFramebuffers(1, &res->glslFboOld);
                     glDeleteTextures(1, &res->glslFboTexOld);
                     glDeleteFramebuffers(1, &res->glslFboBlend);
@@ -506,24 +700,25 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                     res->glslFbo = 0;
                 }
 
-                res->vfbWidth = vfbWidth;
-                res->vfbHeight = vfbHeight;
+                res->vfbWidth = mainVfbWidth;
+                res->vfbHeight = 1;
 
                 glGenFramebuffers(1, &res->glslFbo);
                 glGenTextures(1, &res->glslFboTex);
                 glBindTexture(GL_TEXTURE_2D, res->glslFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mainVfbWidth, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslFbo);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTex, 0);
 
+                // Editor preview is always 256x256
                 glGenFramebuffers(1, &res->glslEditorFbo);
                 glGenTextures(1, &res->glslEditorFboTex);
                 glBindTexture(GL_TEXTURE_2D, res->glslEditorFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -531,32 +726,62 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslEditorFbo);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslEditorFboTex, 0);
 
-                glGenFramebuffers(1, &res->glslFboOld);
-                glGenTextures(1, &res->glslFboTexOld);
-                glBindTexture(GL_TEXTURE_2D, res->glslFboTexOld);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                // Playback 2D preview is always 256x256
+                glGenFramebuffers(1, &res->glslPlaybackPreviewFbo);
+                glGenTextures(1, &res->glslPlaybackPreviewFboTex);
+                glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslPlaybackPreviewFbo);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslPlaybackPreviewFboTex, 0);
+
+                glGenFramebuffers(1, &res->glslPlaybackPreviewFboOld);
+                glGenTextures(1, &res->glslPlaybackPreviewFboTexOld);
+                glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexOld);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslPlaybackPreviewFboOld);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexOld, 0);
+
+                glGenFramebuffers(1, &res->glslPlaybackPreviewFboBlend);
+                glGenTextures(1, &res->glslPlaybackPreviewFboTexBlend);
+                glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexBlend);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslPlaybackPreviewFboBlend);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexBlend, 0);
+
+                glGenFramebuffers(1, &res->glslFboOld);
+                glGenTextures(1, &res->glslFboTexOld);
+                glBindTexture(GL_TEXTURE_2D, res->glslFboTexOld);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mainVfbWidth, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslFboOld);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTexOld, 0);
 
                 glGenFramebuffers(1, &res->glslFboBlend);
                 glGenTextures(1, &res->glslFboTexBlend);
                 glBindTexture(GL_TEXTURE_2D, res->glslFboTexBlend);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mainVfbWidth, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslFboBlend);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTexBlend, 0);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 glBindTexture(GL_TEXTURE_2D, 0);
 
-                int pboSize = vfbWidth * vfbHeight * 4;
+                int pboSize = mainVfbWidth * 4;
                 glGenBuffers(2, res->glslPbo);
                 for (int pi = 0; pi < 2; pi++) {
                     glBindBuffer(GL_PIXEL_PACK_BUFFER, res->glslPbo[pi]);
@@ -609,17 +834,53 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glDeleteShader(blendFs);
             }
 
+            // Create and upload buffers for Point-Rendering (on compile thread)
+            if (res->glslPointVbo == 0) {
+                glGenBuffers(1, &res->glslPointVbo);
+            }
+            if (res->glslQuadVbo == 0) {
+                glGenBuffers(1, &res->glslQuadVbo);
+                float quadVertices[] = {
+                    -1.0f,-1.0f,  1.0f,-1.0f,  -1.0f, 1.0f,
+                    -1.0f, 1.0f,  1.0f,-1.0f,   1.0f, 1.0f,
+                };
+                glBindBuffer(GL_ARRAY_BUFFER, res->glslQuadVbo);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+
+            if (program->pixelCount > 0) {
+                struct PointVertex {
+                    glm::vec3 position3D;
+                    glm::vec2 texCoord2D;
+                    float pixelIndex;
+                };
+                std::vector<PointVertex> vertices(program->pixelCount);
+                for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                    vertices[i].position3D = program->pixelPositions[i];
+                    vertices[i].texCoord2D = normalizedUVs[i];
+                    vertices[i].pixelIndex = (float)i;
+                }
+                glBindBuffer(GL_ARRAY_BUFFER, res->glslPointVbo);
+                glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(PointVertex), vertices.data(), GL_STATIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+            res->vaoReady = false; // Trigger lazy VAO creation/setup on RT thread
+
             // Compile default patch shader
             compileShaderIfNeeded(scriptData->glslSource, *patchGp);
             program->compilerLog = patchGp->compilerLog;
             program->glslProgram = patchGp->program;
+            program->glslPreviewProgram = patchGp->previewProgram;
             program->defaultCompilerLog = patchGp->compilerLog;
 
             // Copy Handles to PatchProgram
             program->glslFbo = res->glslFbo;
             program->glslFboTex = res->glslFboTex;
-            program->glslVao = res->glslVao;
-            program->glslVbo = res->glslVbo;
+            program->glslPointVao = res->glslPointVao;
+            program->glslPointVbo = res->glslPointVbo;
+            program->glslQuadVao = res->glslQuadVao;
+            program->glslQuadVbo = res->glslQuadVbo;
             program->glslPbo[0] = res->glslPbo[0];
             program->glslPbo[1] = res->glslPbo[1];
             program->pboFrameIndex = res->pboFrameIndex;
@@ -628,6 +889,12 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             program->shaderSource = patchGp->glslSource;
             program->glslEditorFbo = res->glslEditorFbo;
             program->glslEditorFboTex = res->glslEditorFboTex;
+            program->glslPlaybackPreviewFbo = res->glslPlaybackPreviewFbo;
+            program->glslPlaybackPreviewFboTex = res->glslPlaybackPreviewFboTex;
+            program->glslPlaybackPreviewFboOld = res->glslPlaybackPreviewFboOld;
+            program->glslPlaybackPreviewFboTexOld = res->glslPlaybackPreviewFboTexOld;
+            program->glslPlaybackPreviewFboBlend = res->glslPlaybackPreviewFboBlend;
+            program->glslPlaybackPreviewFboTexBlend = res->glslPlaybackPreviewFboTexBlend;
             program->glslFboOld = res->glslFboOld;
             program->glslFboTexOld = res->glslFboTexOld;
             program->glslFboBlend = res->glslFboBlend;
@@ -661,6 +928,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 for (const auto& entry : sortedCues) {
                     PatchProgram::CompiledCue cc;
                     cc.program = 0;
+                    cc.previewProgram = 0;
 
                     flecs::entity targetEffect = entry.entity.target<CueList::Cue::TargetEffect>();
                     if (targetEffect.is_valid()) {
@@ -669,6 +937,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                             auto* fxGp = &targetEffect.get_mut<Patch::GPUProgram>();
                             compileShaderIfNeeded(glsl->value, *fxGp);
                             cc.program = fxGp->program;
+                            cc.previewProgram = fxGp->previewProgram;
                             cc.compilerLog = fxGp->compilerLog;
                         }
                     }
@@ -693,12 +962,14 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 for (const auto& fx : fxList) {
                     PatchProgram::CompiledCue cc;
                     cc.program = 0;
+                    cc.previewProgram = 0;
 
                     if (const auto* glsl = fx.try_get<EffectBank::Effect::GlslSource>()) {
                         if (!fx.has<Patch::GPUProgram>()) fx.set<Patch::GPUProgram>({});
                         auto* fxGp = &fx.get_mut<Patch::GPUProgram>();
                         compileShaderIfNeeded(glsl->value, *fxGp);
                         cc.program = fxGp->program;
+                        cc.previewProgram = fxGp->previewProgram;
                         cc.compilerLog = fxGp->compilerLog;
                     }
                     program->compiledBankEffects.push_back(cc);
@@ -736,10 +1007,8 @@ void render(PatchProgram* program){
             float fade = program->pendingCrossfadeDuration.load();
             program->pendingCrossfadeDuration.store(0.0f); // Consume
             if (fade > 0.0f && program->currentRenderedCueIndex != -2) {
-                if (program->renderMode != Patch::RenderMode::GLSL) {
-                    std::memcpy(program->vfbPixelsOld, program->vfbPixels,
-                                program->vfbWidth * program->vfbHeight * sizeof(ColorRGBW));
-                }
+                std::memcpy(program->vfbPixelsOld, program->vfbPixels,
+                            program->vfbWidth * sizeof(ColorRGBW));
                 program->previousCueIndex = program->currentRenderedCueIndex;
                 program->crossfadeDuration.store(fade);
                 program->crossfadeProgress.store(0.0f);
@@ -751,19 +1020,14 @@ void render(PatchProgram* program){
         }
     }
 
-    // 1. Populate Virtual Framebuffer
+    // 1. Populate Virtual Framebuffer (vfbPixels)
     if (program->renderMode == Patch::RenderMode::CPP) {
-        float cx = program->vfbWidth * 0.5f;
-        float cy = program->vfbHeight * 0.5f;
-        for (int y = 0; y < program->vfbHeight; y++) {
-            for (int x = 0; x < program->vfbWidth; x++) {
-                float dx = x - cx;
-                float dy = y - cy;
-                float dist = std::sqrt(dx*dx + dy*dy);
-                float br = std::sin((dist - program->timeElapsed * 20.0f) / 10.0f);
-                uint8_t out = br > 0 ? (uint8_t)(br * 255.0f) : 0;
-                program->vfbPixels[y * program->vfbWidth + x] = {out, out, out, out};
-            }
+        for (uint32_t i = 0; i < program->pixelCount; i++) {
+            const auto& pos = program->pixelPositions[i];
+            float dist = std::sqrt(pos.x*pos.x + pos.y*pos.y + pos.z*pos.z);
+            float br = std::sin((dist - program->timeElapsed * 20.0f) / 10.0f);
+            uint8_t out = br > 0 ? (uint8_t)(br * 255.0f) : 0;
+            program->vfbPixels[i] = {out, out, out, out};
         }
     } else if (program->renderMode == Patch::RenderMode::LUA) {
         if (program->luaUpdateFn.valid()) {
@@ -779,9 +1043,7 @@ void render(PatchProgram* program){
             }
         }
     } else if (program->renderMode == Patch::RenderMode::GLSL) {
-        // Shader compiled on main thread; VAO created here on first call (RT-thread context).
         if (program->glslFbo && program->shaderCompiled) {
-
             unsigned int activeProg = program->glslProgram;
             int actIdx = program->activeCueIndex.load();
             if (actIdx >= 0 && actIdx < (int)program->compiledCues.size()) {
@@ -790,26 +1052,42 @@ void render(PatchProgram* program){
                 }
             }
 
-            // ── Create VAO lazily on the RT thread (VAOs are NOT shared between GL contexts) ──
+            // ── Lazy create VAOs on RT thread (not shared between GL contexts) ──
             if (!program->vaoReady) {
-                float quadVertices[] = {
-                    -1.0f,-1.0f,  1.0f,-1.0f,  -1.0f, 1.0f,
-                    -1.0f, 1.0f,  1.0f,-1.0f,   1.0f, 1.0f,
-                };
-                glGenVertexArrays(1, &program->glslVao);
-                glGenBuffers(1, &program->glslVbo);
-                glBindVertexArray(program->glslVao);
-                glBindBuffer(GL_ARRAY_BUFFER, program->glslVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-                glEnableVertexAttribArray(0); // Position is always location 0
+                // Point-Rendering VAO
+                glGenVertexArrays(1, &program->glslPointVao);
+                glBindVertexArray(program->glslPointVao);
+                glBindBuffer(GL_ARRAY_BUFFER, program->glslPointVbo);
+                
+                // Stride is 6 floats: position3D (3), texCoord2D (2), pixelIndex (1)
+                GLsizei stride = 6 * sizeof(float);
+                glEnableVertexAttribArray(0); // position3D
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+                
+                glEnableVertexAttribArray(1); // texCoord2D
+                glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+                
+                glEnableVertexAttribArray(2); // pixelIndex
+                glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride, (void*)(5 * sizeof(float)));
+                
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                glBindVertexArray(0);
+
+                // Quad VAO (for editor previews and blend passes)
+                glGenVertexArrays(1, &program->glslQuadVao);
+                glBindVertexArray(program->glslQuadVao);
+                glBindBuffer(GL_ARRAY_BUFFER, program->glslQuadVbo);
+                glEnableVertexAttribArray(0); // position
                 glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
                 glBindBuffer(GL_ARRAY_BUFFER, 0);
                 glBindVertexArray(0);
+
                 program->vaoReady = true;
             }
 
-            // ── Draw Outgoing Program into glslFboOld (during crossfade) ──
             float progress = program->crossfadeProgress.load();
+
+            // ── Render Outgoing Cue to glslFboOld (during crossfade) ──
             if (progress < 1.0f && program->glslFboOld) {
                 unsigned int oldProg = program->glslProgram;
                 int oldIdx = program->previousCueIndex;
@@ -820,53 +1098,66 @@ void render(PatchProgram* program){
                 }
                 if (oldIdx >= -1 && oldProg != 0) {
                     glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboOld);
-                    glViewport(0, 0, program->vfbWidth, program->vfbHeight);
+                    glViewport(0, 0, program->vfbWidth, 1);
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                     glClear(GL_COLOR_BUFFER_BIT);
 
                     glUseProgram(oldProg);
-                    GLint timeLoc = glGetUniformLocation(oldProg, "time");
+                    GLint timeLoc = glGetUniformLocation(oldProg, "iTime");
                     if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                    GLint resLoc = glGetUniformLocation(oldProg, "resolution");
-                    if (resLoc >= 0) glUniform2f(resLoc, (float)program->vfbWidth, (float)program->vfbHeight);
+                    GLint timeLocLegacy = glGetUniformLocation(oldProg, "time");
+                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                    
+                    GLint resLoc = glGetUniformLocation(oldProg, "iResolution");
+                    if (resLoc >= 0) glUniform3f(resLoc, (float)program->pixelCount, 1.0f, 1.0f);
+                    GLint resLocLegacy = glGetUniformLocation(oldProg, "resolution");
+                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, (float)program->pixelCount, 1.0f);
+                    
+                    GLint pCountLoc = glGetUniformLocation(oldProg, "pixelCount");
+                    if (pCountLoc >= 0) glUniform1f(pCountLoc, (float)program->pixelCount);
 
-                    glBindVertexArray(program->glslVao);
-                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(program->glslPointVao);
+                    glDrawArrays(GL_POINTS, 0, program->pixelCount);
                     glBindVertexArray(0);
                     glUseProgram(0);
                 }
             }
 
-            // ── Draw Active Program into glslFbo ──
+            // ── Render Active Cue to glslFbo ──
             glBindFramebuffer(GL_FRAMEBUFFER, program->glslFbo);
-            glViewport(0, 0, program->vfbWidth, program->vfbHeight);
+            glViewport(0, 0, program->vfbWidth, 1);
             glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
-            
+
             if (activeProg != 0) {
                 glUseProgram(activeProg);
-
-                GLint timeLoc = glGetUniformLocation(activeProg, "time");
+                GLint timeLoc = glGetUniformLocation(activeProg, "iTime");
                 if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                GLint resLoc = glGetUniformLocation(activeProg, "resolution");
-                if (resLoc >= 0) glUniform2f(resLoc, (float)program->vfbWidth, (float)program->vfbHeight);
+                GLint timeLocLegacy = glGetUniformLocation(activeProg, "time");
+                if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                
+                GLint resLoc = glGetUniformLocation(activeProg, "iResolution");
+                if (resLoc >= 0) glUniform3f(resLoc, (float)program->pixelCount, 1.0f, 1.0f);
+                GLint resLocLegacy = glGetUniformLocation(activeProg, "resolution");
+                if (resLocLegacy >= 0) glUniform2f(resLocLegacy, (float)program->pixelCount, 1.0f);
 
-                glBindVertexArray(program->glslVao);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
+                GLint pCountLoc = glGetUniformLocation(activeProg, "pixelCount");
+                if (pCountLoc >= 0) glUniform1f(pCountLoc, (float)program->pixelCount);
+
+                glBindVertexArray(program->glslPointVao);
+                glDrawArrays(GL_POINTS, 0, program->pixelCount);
                 glBindVertexArray(0);
                 glUseProgram(0);
             }
 
-            // ── Draw Blended Program into glslFboBlend (during crossfade) ──
+            // ── Blend Outgoing and Active in glslFboBlend ──
             if (progress < 1.0f && program->glslFboBlend && program->glslBlendProgram) {
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboBlend);
-                glViewport(0, 0, program->vfbWidth, program->vfbHeight);
+                glViewport(0, 0, program->vfbWidth, 1);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
                 glUseProgram(program->glslBlendProgram);
-
-                // Bind texture attachments
                 glActiveTexture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, program->glslFboTex);
                 GLint activeTexLoc = glGetUniformLocation(program->glslBlendProgram, "texActive");
@@ -880,7 +1171,7 @@ void render(PatchProgram* program){
                 GLint mixLoc = glGetUniformLocation(program->glslBlendProgram, "mixFactor");
                 if (mixLoc >= 0) glUniform1f(mixLoc, progress);
 
-                glBindVertexArray(program->glslVao);
+                glBindVertexArray(program->glslQuadVao);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 glBindVertexArray(0);
                 glUseProgram(0);
@@ -891,7 +1182,7 @@ void render(PatchProgram* program){
                 glBindTexture(GL_TEXTURE_2D, 0);
             }
 
-            // ── PBO async readback ──
+            // ── Readback FBO to CPU vfbPixels (Async via PBO) ──
             GLuint readFbo = program->glslFbo;
             if (progress < 1.0f && program->glslFboBlend) {
                 readFbo = program->glslFboBlend;
@@ -902,14 +1193,12 @@ void render(PatchProgram* program){
 
             glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
             glBindBuffer(GL_PIXEL_PACK_BUFFER, program->glslPbo[writeIdx]);
-            glReadPixels(0, 0, program->vfbWidth, program->vfbHeight,
-                         GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glReadPixels(0, 0, program->vfbWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
             glBindBuffer(GL_PIXEL_PACK_BUFFER, program->glslPbo[readIdx]);
             void* ptr = glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
             if (ptr) {
-                std::memcpy(program->vfbPixels, ptr,
-                    program->vfbWidth * program->vfbHeight * 4);
+                std::memcpy(program->vfbPixels, ptr, program->vfbWidth * sizeof(ColorRGBW));
                 glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             }
             glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
@@ -917,52 +1206,167 @@ void render(PatchProgram* program){
 
             program->pboFrameIndex++;
 
-            // ── Draw Offline Editor Preview into glslEditorFbo ──
+            // ── Draw 2D Offline Preview into glslEditorFbo ──
             if (program->glslEditorFbo) {
-                unsigned int editProg = program->glslProgram;
+                unsigned int editProgPreview = program->glslPreviewProgram;
                 int editIdx = program->editingCueIndex.load();
                 int editBankIdx = program->editingBankIndex.load();
 
                 if (editIdx >= 0 && editIdx < (int)program->compiledCues.size()) {
-                    if (program->compiledCues[editIdx].program != 0) {
-                        editProg = program->compiledCues[editIdx].program;
+                    if (program->compiledCues[editIdx].previewProgram != 0) {
+                        editProgPreview = program->compiledCues[editIdx].previewProgram;
                     }
                 } else if (editIdx == -2 && editBankIdx >= 0 && editBankIdx < (int)program->compiledBankEffects.size()) {
-                    if (program->compiledBankEffects[editBankIdx].program != 0) {
-                        editProg = program->compiledBankEffects[editBankIdx].program;
+                    if (program->compiledBankEffects[editBankIdx].previewProgram != 0) {
+                        editProgPreview = program->compiledBankEffects[editBankIdx].previewProgram;
                     }
                 }
 
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslEditorFbo);
-                glViewport(0, 0, program->vfbWidth, program->vfbHeight);
+                glViewport(0, 0, 256, 256);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
-                if (editProg != 0) {
-                    glUseProgram(editProg);
-                    GLint timeLoc = glGetUniformLocation(editProg, "time");
+                if (editProgPreview != 0) {
+                    glUseProgram(editProgPreview);
+                    GLint timeLoc = glGetUniformLocation(editProgPreview, "iTime");
                     if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                    GLint resLoc = glGetUniformLocation(editProg, "resolution");
-                    if (resLoc >= 0) glUniform2f(resLoc, (float)program->vfbWidth, (float)program->vfbHeight);
+                    GLint timeLocLegacy = glGetUniformLocation(editProgPreview, "time");
+                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                    
+                    GLint resLoc = glGetUniformLocation(editProgPreview, "iResolution");
+                    if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
+                    GLint resLocLegacy = glGetUniformLocation(editProgPreview, "resolution");
+                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
 
-                    glBindVertexArray(program->glslVao);
+                    GLint sliceLoc = glGetUniformLocation(editProgPreview, "zSlice");
+                    if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
+
+                    glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
                     glUseProgram(0);
                 }
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
             }
+
+            // ── Draw 2D Playback Preview into glslPlaybackPreviewFbo ──
+            if (program->glslPlaybackPreviewFbo) {
+                float progress = program->crossfadeProgress.load();
+
+                // 1. Render Outgoing Cue's 2D Preview to glslPlaybackPreviewFboOld (if crossfading)
+                if (progress < 1.0f && program->glslPlaybackPreviewFboOld) {
+                    unsigned int oldProgPreview = program->glslPreviewProgram;
+                    int oldIdx = program->previousCueIndex;
+                    if (oldIdx >= 0 && oldIdx < (int)program->compiledCues.size()) {
+                        if (program->compiledCues[oldIdx].previewProgram != 0) {
+                            oldProgPreview = program->compiledCues[oldIdx].previewProgram;
+                        }
+                    }
+                    if (oldIdx >= -1 && oldProgPreview != 0) {
+                        glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboOld);
+                        glViewport(0, 0, 256, 256);
+                        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                        glClear(GL_COLOR_BUFFER_BIT);
+
+                        glUseProgram(oldProgPreview);
+                        GLint timeLoc = glGetUniformLocation(oldProgPreview, "iTime");
+                        if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
+                        GLint timeLocLegacy = glGetUniformLocation(oldProgPreview, "time");
+                        if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                        
+                        GLint resLoc = glGetUniformLocation(oldProgPreview, "iResolution");
+                        if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
+                        GLint resLocLegacy = glGetUniformLocation(oldProgPreview, "resolution");
+                        if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
+
+                        GLint sliceLoc = glGetUniformLocation(oldProgPreview, "zSlice");
+                        if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
+
+                        glBindVertexArray(program->glslQuadVao);
+                        glDrawArrays(GL_TRIANGLES, 0, 6);
+                        glBindVertexArray(0);
+                        glUseProgram(0);
+                    }
+                }
+
+                // 2. Render Active Cue's 2D Preview to glslPlaybackPreviewFbo
+                unsigned int activeProgPreview = program->glslPreviewProgram;
+                int actIdx = program->activeCueIndex.load();
+                if (actIdx >= 0 && actIdx < (int)program->compiledCues.size()) {
+                    if (program->compiledCues[actIdx].previewProgram != 0) {
+                        activeProgPreview = program->compiledCues[actIdx].previewProgram;
+                    }
+                }
+
+                glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFbo);
+                glViewport(0, 0, 256, 256);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+
+                if (activeProgPreview != 0) {
+                    glUseProgram(activeProgPreview);
+                    GLint timeLoc = glGetUniformLocation(activeProgPreview, "iTime");
+                    if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
+                    GLint timeLocLegacy = glGetUniformLocation(activeProgPreview, "time");
+                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                    
+                    GLint resLoc = glGetUniformLocation(activeProgPreview, "iResolution");
+                    if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
+                    GLint resLocLegacy = glGetUniformLocation(activeProgPreview, "resolution");
+                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
+
+                    GLint sliceLoc = glGetUniformLocation(activeProgPreview, "zSlice");
+                    if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
+
+                    glBindVertexArray(program->glslQuadVao);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(0);
+                    glUseProgram(0);
+                }
+
+                // 3. Blend Active and Outgoing Previews into glslPlaybackPreviewFboBlend (if crossfading)
+                if (progress < 1.0f && program->glslPlaybackPreviewFboBlend && program->glslBlendProgram) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboBlend);
+                    glViewport(0, 0, 256, 256);
+                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                    glClear(GL_COLOR_BUFFER_BIT);
+
+                    glUseProgram(program->glslBlendProgram);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, program->glslPlaybackPreviewFboTex);
+                    GLint activeTexLoc = glGetUniformLocation(program->glslBlendProgram, "texActive");
+                    if (activeTexLoc >= 0) glUniform1i(activeTexLoc, 0);
+
+                    glActiveTexture(GL_TEXTURE1);
+                    glBindTexture(GL_TEXTURE_2D, program->glslPlaybackPreviewFboTexOld);
+                    GLint oldTexLoc = glGetUniformLocation(program->glslBlendProgram, "texOld");
+                    if (oldTexLoc >= 0) glUniform1i(oldTexLoc, 1);
+
+                    GLint mixLoc = glGetUniformLocation(program->glslBlendProgram, "mixFactor");
+                    if (mixLoc >= 0) glUniform1f(mixLoc, progress);
+
+                    glBindVertexArray(program->glslQuadVao);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(0);
+                    glUseProgram(0);
+
+                    glActiveTexture(GL_TEXTURE1);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                }
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            }
         }
     }
 
-    // ── Crossfade blend (runs for all render modes) ──────────────────────────
-    // vfbPixels contains the NEW cue; vfbPixelsOld contains the OUTGOING cue.
-    // crossfadeProgress goes from 0 → 1 over crossfadeDuration seconds.
+    // ── CPU Blended Crossfade (For CPP/LUA modes) ──
     float progressBlend = program->crossfadeProgress.load();
     if (program->renderMode != Patch::RenderMode::GLSL && progressBlend < 1.0f && program->vfbPixelsOld) {
         float t = progressBlend;
         float it = 1.0f - t;
-        int n = program->vfbWidth * program->vfbHeight;
+        int n = program->vfbWidth;
         for (int i = 0; i < n; i++) {
             ColorRGBW& n_ = program->vfbPixels[i];
             const ColorRGBW& o = program->vfbPixelsOld[i];
@@ -973,54 +1377,9 @@ void render(PatchProgram* program){
         }
     }
 
-    // 2. Perform Bilinear Spatial Sampling to populate physical pixelColors
-    float dx = program->pixelPosMax.x - program->pixelPosMin.x;
-    float dy = program->pixelPosMax.y - program->pixelPosMin.y;
-    
-    auto interp = [](float tx, float ty, uint8_t a00, uint8_t a10, uint8_t a01, uint8_t a11) -> uint8_t {
-        float r1 = (1.0f - tx) * a00 + tx * a10;
-        float r2 = (1.0f - tx) * a01 + tx * a11;
-        float val = (1.0f - ty) * r1 + ty * r2;
-        return (uint8_t)std::clamp(val, 0.0f, 255.0f);
-    };
-
-    for(int i = 0; i < program->pixelCount; i++){
-        const auto& pos = program->pixelPositions[i];
-        
-        float u = 0.5f;
-        float v = 0.5f;
-        if (dx > 0.001f) {
-            u = (pos.x - program->pixelPosMin.x) / dx;
-        }
-        if (dy > 0.001f) {
-            v = (pos.y - program->pixelPosMin.y) / dy;
-        }
-        u = std::clamp(u, 0.0f, 1.0f);
-        v = std::clamp(v, 0.0f, 1.0f);
-
-        float x = u * (program->vfbWidth - 1);
-        float y = v * (program->vfbHeight - 1);
-        
-        int x0 = (int)std::floor(x);
-        int y0 = (int)std::floor(y);
-        int x1 = std::min(x0 + 1, program->vfbWidth - 1);
-        int y1 = std::min(y0 + 1, program->vfbHeight - 1);
-        
-        float tx = x - x0;
-        float ty = y - y0;
-        
-        ColorRGBW c00 = program->vfbPixels[y0 * program->vfbWidth + x0];
-        ColorRGBW c10 = program->vfbPixels[y0 * program->vfbWidth + x1];
-        ColorRGBW c01 = program->vfbPixels[y1 * program->vfbWidth + x0];
-        ColorRGBW c11 = program->vfbPixels[y1 * program->vfbWidth + x1];
-        
-        ColorRGBW finalColor;
-        finalColor.r = interp(tx, ty, c00.r, c10.r, c01.r, c11.r);
-        finalColor.g = interp(tx, ty, c00.g, c10.g, c01.g, c11.g);
-        finalColor.b = interp(tx, ty, c00.b, c10.b, c01.b, c11.b);
-        finalColor.w = interp(tx, ty, c00.w, c10.w, c01.w, c11.w);
-        
-        program->pixelColors[i] = finalColor;
+    // 2. Direct mapping: copy vfbPixels to pixelColors (no interpolation needed!)
+    if (program->pixelCount > 0 && program->vfbPixels) {
+        std::memcpy(program->pixelColors, program->vfbPixels, program->pixelCount * sizeof(ColorRGBW));
     }
 
     // 3. Highlight/Flash selected pixels for "Find" feature

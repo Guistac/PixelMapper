@@ -44,6 +44,9 @@ namespace App {
         bool showFrame = true;
         bool autoZoom = false;
         float pixelSize = 4.0f;
+        bool canvas3dMode = false;
+        float canvasRotationX = 0.0f;
+        float canvasRotationY = 0.0f;
     };
 
     struct Queries {

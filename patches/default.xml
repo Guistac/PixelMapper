@@ -34,16 +34,19 @@ function update(canvas, time)
 end
 ]]></LuaSource>
         <GlslSource><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
 void main() {
     float speed = 0.5;
     float sweep = mod(time * speed, 1.0);
-    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)
-                - smoothstep(sweep, sweep + 0.04, uv.y);
+    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.y)
+                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.y);
     float bg = 0.05;
     float brightness = bg + bar * (1.0 - bg);
     fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
@@ -113,15 +116,17 @@ void main() {
         </CueList>
         <EffectBank activeIndex="-1">
             <Effect name="Rainbow pattern spin" id="0"><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
-
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
 void main() {
-    float x = uv.x * 10.0;
-    float y = uv.y * 10.0;
+    float x = iPixelPos2D.x * 10.0;
+    float y = iPixelPos2D.y * 10.0;
     
     float v1 = sin(x + time);
     float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);
@@ -140,8 +145,11 @@ void main() {
 }
 ]]></Effect>
             <Effect name="Fire" id="1"><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
@@ -153,7 +161,7 @@ float noise(vec2 p) {
                mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);
 }
 void main() {
-    vec2 q = uv;
+    vec2 q = iPixelPos2D;
     q.y = 1.0 - q.y;  // flame rises upward
     float t = time * 1.5;
     float f = noise(q * vec2(10.0, 5.0) + vec2(0.0, -t));
@@ -165,26 +173,30 @@ void main() {
 }
 ]]></Effect>
             <Effect name="Scanline" id="2"><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
 void main() {
     float speed = 0.5;
     float sweep = mod(time * speed, 1.0);
-    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)
-                - smoothstep(sweep, sweep + 0.04, uv.y);
+    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.y)
+                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.y);
     float bg = 0.05;
     float brightness = bg + bar * (1.0 - bg);
     fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
 }
 ]]></Effect>
             <Effect name="Protean Clouds" id="3"><![CDATA[#version 150
-
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
-
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
@@ -282,9 +294,9 @@ vec3 iLerp(in vec3 a, in vec3 b, in float x)
 
 void main() 
 {   
-    // Using your 'uv' input instead of calculating from gl_FragCoord
-    vec2 q = uv;
-    vec2 p = (uv - 0.5) * (resolution.xy / resolution.y);
+    // Using your 'iPixelPos2D' input instead of calculating from gl_FragCoord
+    vec2 q = iPixelPos2D;
+    vec2 p = (iPixelPos2D - 0.5) * (resolution.xy / resolution.y);
     
     // Fallback for iMouse
     bsMo = vec2(0.0);
@@ -320,22 +332,28 @@ void main()
     fragColor = vec4( col, 1.0 );
 }]]></Effect>
             <Effect name="Sparkle" id="4"><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
-    vec2 cell = floor(uv * 20.0);
+    vec2 cell = floor(iPixelPos2D * 20.0);
     float rnd  = hash(cell + floor(time * 12.0));
     float spark = step(0.94, rnd);
     fragColor = vec4(vec3(spark), 1.0);
 }
 ]]></Effect>
             <Effect name="Solid Color Cycle" id="5"><![CDATA[#version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
 

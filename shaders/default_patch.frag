@@ -1,13 +1,16 @@
 #version 150
-in vec2 uv;
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
 out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
 
 uniform float time;
 uniform vec2 resolution;
 
 void main() {
-    float x = uv.x * 10.0;
-    float y = uv.y * 10.0;
+    float x = iPixelPos2D.x * 10.0;
+    float y = iPixelPos2D.y * 10.0;
     
     float v1 = sin(x + time);
     float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);

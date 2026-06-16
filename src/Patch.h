@@ -43,12 +43,19 @@ namespace Patch {
         PASSTHROUGH // No conversion, raw shader output
     };
 
+    enum class ProjectionMode {
+        TOP_DOWN_XY = 0,
+        FRONT_XZ,
+        SIDE_YZ
+    };
+
     struct Settings {
         float refreshRate = 40.0f;
         bool networkEnabled = false;
         uint16_t sourcePort = 6454;
         RenderMode renderMode = RenderMode::CPP;
         WhiteMode whiteMode = WhiteMode::AUTO;
+        ProjectionMode projectionMode = ProjectionMode::TOP_DOWN_XY;
         int vfbResolution = 256;
         char luaScriptPath[256] = "scripts/default_patch.lua";
         char shaderPath[256] = "shaders/default_patch.frag";
@@ -69,6 +76,7 @@ namespace Patch {
 
     struct GPUProgram {
         unsigned int program = 0;
+        unsigned int previewProgram = 0;
         std::string glslSource;
         std::string compilerLog;
     };
@@ -77,8 +85,12 @@ namespace Patch {
         unsigned int glslProgram = 0;
         unsigned int glslFbo = 0;
         unsigned int glslFboTex = 0;
-        unsigned int glslVao = 0;
-        unsigned int glslVbo = 0;
+        unsigned int glslVao = 0; // Unused but kept for structure
+        unsigned int glslVbo = 0; // Unused but kept for structure
+        unsigned int glslPointVao = 0;
+        unsigned int glslPointVbo = 0;
+        unsigned int glslQuadVao = 0;
+        unsigned int glslQuadVbo = 0;
         unsigned int glslPbo[2] = {0, 0};
         int pboFrameIndex = 0;
         bool vaoReady = false;
@@ -86,6 +98,12 @@ namespace Patch {
         // Preview editor FBOs
         unsigned int glslEditorFbo = 0;
         unsigned int glslEditorFboTex = 0;
+        unsigned int glslPlaybackPreviewFbo = 0;
+        unsigned int glslPlaybackPreviewFboTex = 0;
+        unsigned int glslPlaybackPreviewFboOld = 0;
+        unsigned int glslPlaybackPreviewFboTexOld = 0;
+        unsigned int glslPlaybackPreviewFboBlend = 0;
+        unsigned int glslPlaybackPreviewFboTexBlend = 0;
 
         // Crossfading FBOs
         unsigned int glslFboOld = 0;
@@ -155,6 +173,8 @@ struct PatchProgram {
     // Modular rendering fields
     Patch::RenderMode renderMode = Patch::RenderMode::CPP;
     Patch::WhiteMode whiteMode = Patch::WhiteMode::AUTO;
+    Patch::ProjectionMode projectionMode = Patch::ProjectionMode::TOP_DOWN_XY;
+    std::atomic<float> zSlice{0.5f};
     int vfbWidth = 0;
     int vfbHeight = 0;
     ColorRGBW* vfbPixels = nullptr; // CPU-side Virtual Framebuffer
@@ -163,10 +183,15 @@ struct PatchProgram {
     sol::protected_function luaUpdateFn;
 
     unsigned int glslProgram = 0;
+    unsigned int glslPreviewProgram = 0;
     unsigned int glslFbo = 0;
     unsigned int glslFboTex = 0;
-    unsigned int glslVao = 0;
-    unsigned int glslVbo = 0;
+    unsigned int glslVao = 0; // Unused but kept for structure
+    unsigned int glslVbo = 0; // Unused but kept for structure
+    unsigned int glslPointVao = 0;
+    unsigned int glslPointVbo = 0;
+    unsigned int glslQuadVao = 0;
+    unsigned int glslQuadVbo = 0;
     unsigned int glslPbo[2] = {0, 0};  // double-buffered PBO for async readback
     int pboFrameIndex = 0;
     bool shaderCompiled = false;
@@ -183,6 +208,7 @@ struct PatchProgram {
     // ── Ahead-Of-Time Cue Compilation ──
     struct CompiledCue {
         unsigned int program = 0;
+        unsigned int previewProgram = 0;
         std::string compilerLog;
     };
     std::vector<CompiledCue> compiledCues;
@@ -198,6 +224,12 @@ struct PatchProgram {
     // Editor offline preview FBO + texture
     unsigned int glslEditorFbo = 0;
     unsigned int glslEditorFboTex = 0;
+    unsigned int glslPlaybackPreviewFbo = 0;
+    unsigned int glslPlaybackPreviewFboTex = 0;
+    unsigned int glslPlaybackPreviewFboOld = 0;
+    unsigned int glslPlaybackPreviewFboTexOld = 0;
+    unsigned int glslPlaybackPreviewFboBlend = 0;
+    unsigned int glslPlaybackPreviewFboTexBlend = 0;
 
     // GPU-side Crossfading FBOs and textures
     unsigned int glslFboOld = 0;

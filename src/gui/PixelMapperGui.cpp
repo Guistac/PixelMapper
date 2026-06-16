@@ -490,6 +490,77 @@ void import(flecs::world& w){
         auto selectedPatch   = Patch::getSelected(app);
         auto selectedFixture = Fixture::getSelected(selectedPatch);
 
+        // 3D rotation projection helper
+        auto projectPoint = [&](glm::vec3 pos) -> glm::vec2 {
+            if (ui->canvas3dMode) {
+                float rx = glm::radians(ui->canvasRotationX);
+                float ry = glm::radians(ui->canvasRotationY);
+
+                // Rotate Y (yaw)
+                float cy = std::cos(ry);
+                float sy = std::sin(ry);
+                glm::vec3 rotY = glm::vec3(
+                    pos.x * cy + pos.z * sy,
+                    pos.y,
+                    -pos.x * sy + pos.z * cy
+                );
+
+                // Rotate X (pitch)
+                float cx = std::cos(rx);
+                float sx = std::sin(rx);
+                glm::vec3 rotXY = glm::vec3(
+                    rotY.x,
+                    rotY.y * cx - rotY.z * sx,
+                    rotY.y * sx + rotY.z * cx
+                );
+
+                return glm::vec2(rotXY.x, rotXY.y);
+            } else {
+                return glm::vec2(pos.x, pos.y);
+            }
+        };
+
+        auto zoomToFit3D = [&]() {
+            if (!selectedPatch.is_valid()) return;
+            glm::vec2 pMin(FLT_MAX);
+            glm::vec2 pMax(-FLT_MAX);
+            bool hasPoints = false;
+            Fixture::iterateWithPixelData(selectedPatch, std::function<void(flecs::entity, const Fixture::PixelData&)>(
+                [&](flecs::entity, const Fixture::PixelData& pd) {
+                    for (const auto& pos : pd.positions) {
+                        glm::vec2 proj = projectPoint(pos);
+                        pMin = glm::min(pMin, proj);
+                        pMax = glm::max(pMax, proj);
+                        hasPoints = true;
+                    }
+                }
+            ));
+            if (hasPoints) {
+                canvas.zoomToFit(pMin, pMax, {15, 15});
+            } else if (const auto* ra = selectedPatch.try_get<Patch::RenderArea>()) {
+                if (ui->canvas3dMode) {
+                    glm::vec3 corners[8] = {
+                        {ra->min.x, ra->min.y, ra->min.z},
+                        {ra->max.x, ra->min.y, ra->min.z},
+                        {ra->min.x, ra->max.y, ra->min.z},
+                        {ra->max.x, ra->max.y, ra->min.z},
+                        {ra->min.x, ra->min.y, ra->max.z},
+                        {ra->max.x, ra->min.y, ra->max.z},
+                        {ra->min.x, ra->max.y, ra->max.z},
+                        {ra->max.x, ra->max.y, ra->max.z}
+                    };
+                    for (int i = 0; i < 8; ++i) {
+                        glm::vec2 proj = projectPoint(corners[i]);
+                        pMin = glm::min(pMin, proj);
+                        pMax = glm::max(pMax, proj);
+                    }
+                    canvas.zoomToFit(pMin, pMax, {15, 15});
+                } else {
+                    canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {15, 15});
+                }
+            }
+        };
+
         // Marquee state
         static bool      marqueeActive = false;
         static glm::vec2 marqueeStart{0}, marqueeEnd{0};
@@ -524,17 +595,23 @@ void import(flecs::world& w){
                     ImGui::SameLine();
                 }
             }
+            ImGui::Checkbox("3D Canvas", &ui->canvas3dMode); ImGui::SameLine();
+            if (ui->canvas3dMode) {
+                ImGui::Text("Rot: %.0f, %.0f", ui->canvasRotationX, ui->canvasRotationY); ImGui::SameLine();
+                if (ImGui::Button("Reset View")) {
+                    ui->canvasRotationX = 0.0f;
+                    ui->canvasRotationY = 0.0f;
+                }
+                ImGui::SameLine();
+            }
             ImGui::Checkbox("Auto Zoom", &ui->autoZoom); ImGui::SameLine();
             if(ImGui::Button("Zoom to Fit") && selectedPatch.is_valid()){
-                if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>())
-                    canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {15,15});
+                zoomToFit3D();
             }
 
             if(ImDrawList* drawing = canvas.begin("Canvas", ImGui::GetContentRegionAvail())){
                 if (ui->autoZoom && selectedPatch.is_valid()) {
-                    if (const auto* ra = selectedPatch.try_get<Patch::RenderArea>()) {
-                        canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {15,15});
-                    }
+                    zoomToFit3D();
                 }
                 // ── Capture canvas interaction state BEFORE any child widgets ──
                 bool canvasHovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(canvas.frameMin, canvas.frameMax) && !ImGui::IsAnyItemHovered();
@@ -542,6 +619,29 @@ void import(flecs::world& w){
                 bool canvasActive  = ImGui::IsMouseDown(ImGuiMouseButton_Left) && canvasHovered;
                 glm::vec2 mCanvas  = canvas.getMouseCanvasPos();
                 bool shiftHeld     = ImGui::GetIO().KeyShift;
+
+                static bool isRotating = false;
+                if (ui->canvas3dMode) {
+                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && canvasHovered && !canvas.isPanning) {
+                            isRotating = true;
+                        }
+                        if (isRotating) {
+                            ImVec2 delta = ImGui::GetIO().MouseDelta;
+                            ui->canvasRotationX += delta.y * 0.5f; // pitch
+                            ui->canvasRotationY += delta.x * 0.5f; // yaw
+                            
+                            // clamp pitch to avoid flipping
+                            ui->canvasRotationX = std::clamp(ui->canvasRotationX, -89.0f, 89.0f);
+                            
+                            // keep yaw within [0, 360)
+                            ui->canvasRotationY = fmodf(ui->canvasRotationY, 360.0f);
+                            if (ui->canvasRotationY < 0.0f) ui->canvasRotationY += 360.0f;
+                        }
+                    } else {
+                        isRotating = false;
+                    }
+                }
 
                 if (ui->showGrid) {
                     canvas.drawGrid(100.0, 0xFF333333, 0xFF000000);
@@ -551,18 +651,19 @@ void import(flecs::world& w){
 
                 if(selectedPatch.is_valid()){
 
-                    // ── VFB preview texture ──
-                    if(ui->showFrame){
+                    // ── VFB preview texture (only in 2D mode) ──
+                    if(ui->showFrame && !ui->canvas3dMode){
                         auto prog = std::atomic_load(&App::currentPatchProgram);
                         if(prog){
                             int tw = prog->vfbWidth;
                             int th = prog->vfbHeight;
                             GLuint texID = 0;
                             if(prog->renderMode == Patch::RenderMode::GLSL){
-                                if (prog->crossfadeProgress < 1.0f && prog->glslFboTexBlend != 0) {
-                                    texID = prog->glslFboTexBlend;
+                                float progress = prog->crossfadeProgress.load();
+                                if (progress < 1.0f && prog->glslPlaybackPreviewFboTexBlend != 0) {
+                                    texID = prog->glslPlaybackPreviewFboTexBlend;
                                 } else {
-                                    texID = prog->glslFboTex;
+                                    texID = prog->glslPlaybackPreviewFboTex;
                                 }
                             } else if(prog->vfbPixels){
                                 if(vfbPreviewTexId == 0) glGenTextures(1, &vfbPreviewTexId);
@@ -589,8 +690,10 @@ void import(flecs::world& w){
                             }
                         }
                     } else if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>()){
-                        drawing->AddRectFilled(canvas.canvasToScreen(glm::vec2(ra->min)),
-                                               canvas.canvasToScreen(glm::vec2(ra->max)), IM_COL32(0, 0, 0, (int)(ui->previewOpacity * 0.27f * 255)));
+                        if (!ui->canvas3dMode) {
+                            drawing->AddRectFilled(canvas.canvasToScreen(glm::vec2(ra->min)),
+                                                   canvas.canvasToScreen(glm::vec2(ra->max)), IM_COL32(0, 0, 0, (int)(ui->previewOpacity * 0.27f * 255)));
+                        }
                     }
 
                     // ── Draw fixtures ──
@@ -604,11 +707,29 @@ void import(flecs::world& w){
                             auto st = f.target<Fixture::WithShape>();
                             if(st == f.world().id<Shape::Line>()){
                                 const Shape::Line& l = f.get<Fixture::WithShape, Shape::Line>();
-                                drawing->AddLine(canvas.canvasToScreen(l.start), canvas.canvasToScreen(l.end), col, 5.f);
+                                glm::vec2 pStart = projectPoint(l.start);
+                                glm::vec2 pEnd = projectPoint(l.end);
+                                drawing->AddLine(canvas.canvasToScreen(pStart), canvas.canvasToScreen(pEnd), col, 5.f);
                             } else if(st == f.world().id<Shape::Circle>()){
                                 const Shape::Circle& c = f.get<Fixture::WithShape, Shape::Circle>();
-                                drawing->AddCircle(canvas.canvasToScreen(c.center),
-                                                   canvas.canvasSizeToScreenSize(c.radius), col, layout.pixelCount, 5.f);
+                                if (ui->canvas3dMode) {
+                                    std::vector<ImVec2> pts;
+                                    for(int i = 0; i <= layout.pixelCount; i++) {
+                                        float angle = (i % layout.pixelCount) * 2.0f * 3.14159265f / layout.pixelCount;
+                                        glm::vec3 pos(
+                                            c.center.x + std::cos(angle) * c.radius,
+                                            c.center.y + std::sin(angle) * c.radius,
+                                            c.center.z
+                                        );
+                                        glm::vec2 proj = projectPoint(pos);
+                                        glm::vec2 scr = canvas.canvasToScreen(proj);
+                                        pts.push_back({scr.x, scr.y});
+                                    }
+                                    drawing->AddPolyline(pts.data(), pts.size(), col, 0, 5.f);
+                                } else {
+                                    drawing->AddCircle(canvas.canvasToScreen(c.center),
+                                                       canvas.canvasSizeToScreenSize(c.radius), col, layout.pixelCount, 5.f);
+                                }
                             }
                         });
                     }
@@ -631,14 +752,18 @@ void import(flecs::world& w){
                                     float hsz = ui->pixelSize * 0.5f;
                                     glm::vec2 sz(hsz);
                                     for(int i = 0; i < (int)pd->positions.size(); i++){
-                                        auto p = canvas.canvasToScreen(pd->positions[i]);
+                                        glm::vec2 projected = projectPoint(pd->positions[i]);
+                                        auto p = canvas.canvasToScreen(projected);
                                         ColorRGBW c{0, 0, 0, 255};
                                         if (hasColors && (pixelIndex + i < (int)tempColors.size())) {
                                             c = tempColors[pixelIndex + i];
                                         } else if (i < (int)pd->colors.size()) {
                                             c = pd->colors[i];
                                         }
-                                        drawing->AddRectFilled(p-sz, p+sz, IM_COL32(c.r, c.g, c.b, 255));
+                                        uint8_t displayR = (uint8_t)std::min(255, (int)c.r + (int)c.w);
+                                        uint8_t displayG = (uint8_t)std::min(255, (int)c.g + (int)c.w);
+                                        uint8_t displayB = (uint8_t)std::min(255, (int)c.b + (int)c.w);
+                                        drawing->AddRectFilled(p-sz, p+sz, IM_COL32(displayR, displayG, displayB, 255));
                                     }
                                 }
                                 pixelIndex += layout.pixelCount;
@@ -646,7 +771,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Double-click to add fixture ──
-                    if (!ui->patchLocked) {
+                    if (!ui->patchLocked && !ui->canvas3dMode) {
                         glm::vec2 clickPos;
                         if(canvas.isDoubleClicked(clickPos)){
                             Fixture::createLine(selectedPatch, {clickPos, 0}, {clickPos + glm::vec2(100,100), 0});
@@ -662,7 +787,7 @@ void import(flecs::world& w){
                     static glm::vec3 prevDragAnchor{0};
                     static bool wasDragging = false;
 
-                    if(!ui->patchLocked && selectedFixture.is_valid() && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
+                    if(!ui->patchLocked && !ui->canvas3dMode && selectedFixture.is_valid() && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
                         ImGui::PushStyleColor(ImGuiCol_Button,        {0.2f, 0.6f, 1.0f, 0.8f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1.0f, 1.0f, 1.0f, 1.0f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.2f, 1.0f, 0.4f, 1.0f});
@@ -727,7 +852,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Click-to-select and Drag Start ──
-                    if(canvasClicked && !handleDragged && !handleActive && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space)){
+                    if(!ui->canvas3dMode && canvasClicked && !handleDragged && !handleActive && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space)){
                         float threshSq = canvas.screenSizeToCanvasSize(8.f);
                         threshSq *= threshSq;
 
@@ -778,7 +903,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Handle Fixture Dragging ──
-                    if(fixtureDragging){
+                    if(!ui->canvas3dMode && fixtureDragging){
                         if(ImGui::IsMouseDown(ImGuiMouseButton_Left)){
                             glm::vec2 delta2d = mCanvas - lastDragMouseCanvas;
                             if(glm::length(delta2d) > 0.001f){
@@ -843,7 +968,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Marquee rubber-band ──
-                    if(marqueeActive){
+                    if(!ui->canvas3dMode && marqueeActive){
                         if(canvasActive || ImGui::IsMouseDown(ImGuiMouseButton_Left)){
                             marqueeEnd = mCanvas;
                         }
@@ -1044,6 +1169,8 @@ void import(flecs::world& w){
                     } else {
                         ImGui::TextWrapped("Shader alpha -> White channel");
                     }
+
+                    
                     
                     ImGui::SeparatorText("Virtual Framebuffer");
                     int vfbRes = s->vfbResolution;
@@ -1328,10 +1455,24 @@ void import(flecs::world& w){
 
             const float kLogHeight = 100.f;
             const float kSepHeight = ImGui::GetStyle().ItemSpacing.y + 1.f;
-            float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f - ImGui::GetTextLineHeightWithSpacing();
+            float extraSpacing = ImGui::GetTextLineHeightWithSpacing();
+            auto pProg = std::atomic_load(&App::currentPatchProgram);
+            bool showZSlice = (pProg && settings && settings->renderMode == Patch::RenderMode::GLSL);
+            if (showZSlice) {
+                extraSpacing += ImGui::GetTextLineHeightWithSpacing() + kSepHeight;
+            }
+            float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f - extraSpacing;
             if(editorHeight < 80.f) editorHeight = 80.f;
 
             glslEditor->Render("GlslEd", ImVec2(0, editorHeight));
+
+            if (showZSlice) {
+                ImGui::Separator();
+                float slice = pProg->zSlice.load();
+                if (ImGui::SliderFloat("Z-Slice (Depth)", &slice, 0.0f, 1.0f, "%.3f")) {
+                    pProg->zSlice.store(slice);
+                }
+            }
 
             ImGui::Separator();
             if (hasUncompiledChanges) {
@@ -1859,8 +2000,8 @@ void import(flecs::world& w){
             auto prog = std::atomic_load(&App::currentPatchProgram);
             if(prog && prog->glslEditorFboTex != 0){
                 GLuint tex = prog->glslEditorFboTex;
-                float tw = prog->vfbWidth;
-                float th = prog->vfbHeight;
+                float tw = 256.0f;
+                float th = 256.0f;
 
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 float scale = std::min(avail.x / tw, avail.y / th);

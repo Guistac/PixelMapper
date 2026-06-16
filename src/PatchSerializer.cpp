@@ -97,6 +97,9 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
         uiEl->SetAttribute("showFrame", config->showFrame ? 1 : 0);
         uiEl->SetAttribute("autoZoom", config->autoZoom ? 1 : 0);
         uiEl->SetAttribute("pixelSize", config->pixelSize);
+        uiEl->SetAttribute("canvas3dMode", config->canvas3dMode ? 1 : 0);
+        uiEl->SetAttribute("canvasRotationX", config->canvasRotationX);
+        uiEl->SetAttribute("canvasRotationY", config->canvasRotationY);
         uiEl->SetAttribute("editingCueIndex", config->editingCueIndex);
         uiEl->SetAttribute("editingBankIndex", config->editingBankIndex);
         root->InsertEndChild(uiEl);
@@ -115,6 +118,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             sEl->SetAttribute("sourcePort",     (int)settings->sourcePort);
             sEl->SetAttribute("renderMode",     (int)settings->renderMode);
             sEl->SetAttribute("whiteMode",      (int)settings->whiteMode);
+            sEl->SetAttribute("projectionMode", (int)settings->projectionMode);
             sEl->SetAttribute("vfbResolution",  settings->vfbResolution);
             sEl->SetAttribute("luaScriptPath",  settings->luaScriptPath);
             sEl->SetAttribute("shaderPath",     settings->shaderPath);
@@ -306,7 +310,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
         if (config) {
             uiEl->QueryIntAttribute("currentLayout", &config->currentLayout);
             int sf=1, sp=1, sd=1, sn=1, sdev=1, sse=0, sc=0, sop=0, seb=0, pl=0, sg=1;
-            int sfix=1, spix=1, sfrm=1, sazm=0;
+            int sfix=1, spix=1, sfrm=1, sazm=0, sc3d=0;
             uiEl->QueryIntAttribute("showFixturesWindow", &sf);
             uiEl->QueryIntAttribute("showPatchEditor", &sp);
             uiEl->QueryIntAttribute("showArtnetData", &sd);
@@ -322,6 +326,9 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             uiEl->QueryIntAttribute("showPixels", &spix);
             uiEl->QueryIntAttribute("showFrame", &sfrm);
             uiEl->QueryIntAttribute("autoZoom", &sazm);
+            uiEl->QueryIntAttribute("canvas3dMode", &sc3d);
+            uiEl->QueryFloatAttribute("canvasRotationX", &config->canvasRotationX);
+            uiEl->QueryFloatAttribute("canvasRotationY", &config->canvasRotationY);
             uiEl->QueryFloatAttribute("pixelSize", &config->pixelSize);
             uiEl->QueryFloatAttribute("previewOpacity", &config->previewOpacity);
             uiEl->QueryIntAttribute("editingCueIndex", &config->editingCueIndex);
@@ -341,6 +348,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             config->showPixels = (spix != 0);
             config->showFrame = (sfrm != 0);
             config->autoZoom = (sazm != 0);
+            config->canvas3dMode = (sc3d != 0);
         }
     }
 
@@ -362,17 +370,19 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             auto* settings = patch.try_get_mut<Patch::Settings>();
             if (settings) {
                 sEl->QueryFloatAttribute("refreshRate",   &settings->refreshRate);
-                int netEn = 0, rm = 0, wm = 0, vfbRes = 256, hlSel = 1;
+                int netEn = 0, rm = 0, wm = 0, pm = 0, vfbRes = 256, hlSel = 1;
                 float hlFreq = 1.0f;
                 sEl->QueryIntAttribute("networkEnabled",  &netEn);
                 sEl->QueryIntAttribute("renderMode",      &rm);
                 sEl->QueryIntAttribute("whiteMode",       &wm);
+                sEl->QueryIntAttribute("projectionMode",  &pm);
                 sEl->QueryIntAttribute("vfbResolution",   &vfbRes);
                 sEl->QueryIntAttribute("highlightSelected", &hlSel);
                 sEl->QueryFloatAttribute("highlightFrequency", &hlFreq);
                 settings->networkEnabled = (netEn != 0);
                 settings->renderMode     = (Patch::RenderMode)rm;
                 settings->whiteMode      = (Patch::WhiteMode)wm;
+                settings->projectionMode = (Patch::ProjectionMode)pm;
                 settings->vfbResolution  = vfbRes;
                 settings->highlightSelected = (hlSel != 0);
                 settings->highlightFrequency = hlFreq;

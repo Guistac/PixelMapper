@@ -12,26 +12,33 @@ struct Preset {
 // All shaders expect:
 //   uniform float time;
 //   uniform vec2  resolution;
-//   in vec2 uv;          // [0,1] × [0,1]
+//   in vec3 vPixelPos3D;
+//   in vec2 vPixelPos2D;
 //   out vec4 fragColor;
 
 static constexpr const char* GLSL_HEADER =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n\n";
 
 static constexpr const char* GLSL_PLASMA =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
     "void main() {\n"
-    "    float x = uv.x * 10.0;\n"
-    "    float y = uv.y * 10.0;\n"
+    "    float x = iPixelPos2D.x * 10.0;\n"
+    "    float y = iPixelPos2D.y * 10.0;\n"
     "    float v1 = sin(x + time);\n"
     "    float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);\n"
     "    float cx = x + 5.0 * sin(time / 5.0);\n"
@@ -46,16 +53,19 @@ static constexpr const char* GLSL_PLASMA =
 
 static constexpr const char* GLSL_HORIZONTAL_SWEEP =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
     "void main() {\n"
     "    float speed = 0.5;\n"
     "    float sweep = mod(time * speed, 1.0);\n"
-    "    float bar   = smoothstep(sweep - 0.04, sweep, uv.x)\n"
-    "                - smoothstep(sweep, sweep + 0.04, uv.x);\n"
+    "    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.x)\n"
+    "                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.x);\n"
     "    float bg = 0.05;\n"
     "    float brightness = bg + bar * (1.0 - bg);\n"
     "    fragColor = vec4(brightness, brightness, brightness * 0.8, 1.0);\n"
@@ -63,16 +73,19 @@ static constexpr const char* GLSL_HORIZONTAL_SWEEP =
 
 static constexpr const char* GLSL_VERTICAL_CHASE =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
     "void main() {\n"
     "    float speed = 0.5;\n"
     "    float sweep = mod(time * speed, 1.0);\n"
-    "    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)\n"
-    "                - smoothstep(sweep, sweep + 0.04, uv.y);\n"
+    "    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.y)\n"
+    "                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.y);\n"
     "    float bg = 0.05;\n"
     "    float brightness = bg + bar * (1.0 - bg);\n"
     "    fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);\n"
@@ -80,8 +93,11 @@ static constexpr const char* GLSL_VERTICAL_CHASE =
 
 static constexpr const char* GLSL_RAINBOW_WAVE =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
@@ -91,15 +107,18 @@ static constexpr const char* GLSL_RAINBOW_WAVE =
     "    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);\n"
     "}\n"
     "void main() {\n"
-    "    float hue = uv.x + time * 0.1;\n"
+    "    float hue = iPixelPos2D.x + time * 0.1;\n"
     "    vec3 col = hsv2rgb(vec3(mod(hue, 1.0), 1.0, 1.0));\n"
     "    fragColor = vec4(col, 1.0);\n"
     "}\n";
 
 static constexpr const char* GLSL_FIRE =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
@@ -111,7 +130,7 @@ static constexpr const char* GLSL_FIRE =
     "               mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);\n"
     "}\n"
     "void main() {\n"
-    "    vec2 q = uv;\n"
+    "    vec2 q = iPixelPos2D;\n"
     "    q.y = 1.0 - q.y;  // flame rises upward\n"
     "    float t = time * 1.5;\n"
     "    float f = noise(q * vec2(3.0, 5.0) + vec2(0.0, -t));\n"
@@ -124,14 +143,17 @@ static constexpr const char* GLSL_FIRE =
 
 static constexpr const char* GLSL_SPARKLE =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
     "float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
     "void main() {\n"
-    "    vec2 cell = floor(uv * 20.0);\n"
+    "    vec2 cell = floor(iPixelPos2D * 20.0);\n"
     "    float rnd  = hash(cell + floor(time * 12.0));\n"
     "    float spark = step(0.94, rnd);\n"
     "    fragColor = vec4(vec3(spark), 1.0);\n"
@@ -139,8 +161,11 @@ static constexpr const char* GLSL_SPARKLE =
 
 static constexpr const char* GLSL_COLOR_SOLID =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
@@ -157,8 +182,11 @@ static constexpr const char* GLSL_COLOR_SOLID =
 
 static constexpr const char* GLSL_BREATHING =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
@@ -170,8 +198,11 @@ static constexpr const char* GLSL_BREATHING =
 
 static constexpr const char* GLSL_STROBE =
     "#version 150\n"
-    "in vec2 uv;\n"
+    "in vec3 vPixelPos3D;\n"
+    "in vec2 vPixelPos2D;\n"
     "out vec4 fragColor;\n"
+    "#define iPixelPos3D vPixelPos3D\n"
+    "#define iPixelPos2D vPixelPos2D\n"
     "uniform float time;\n"
     "uniform vec2 resolution;\n"
     "\n"
