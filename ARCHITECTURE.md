@@ -20,6 +20,7 @@ Welcome to **PixelMapper** (internal working name: *Nique Madrix*). This documen
 - **Build System:** CMake (configured with `CMakeLists.txt`)
 - **Entity Component System (ECS):** [Flecs](https://github.com/SanderMertens/flecs) (used for managing scene graph state, layout observers, systems, and UI configuration)
 - **GUI Frame & Context:** GLFW, OpenGL 3.x, and [Dear ImGui](https://github.com/ocornut/imgui) (configured with Docking and Viewports)
+- **Asynchronous Networking:** [Asio](https://think-async.com/Asio/) (header-only network library handling low-latency UDP operations)
 - **Scripting Integration:** Sol2 (for running Lua scripting contexts)
 - **Text Editor:** [goossens/ImGuiColorTextEdit](https://github.com/goossens/ImGuiColorTextEdit) (embedded in the shader and script editors)
 - **Math Library:** GLM (OpenGL Mathematics)
@@ -31,7 +32,7 @@ Welcome to **PixelMapper** (internal working name: *Nique Madrix*). This documen
 
 To maintain high visual responsiveness without causing GUI micro-stutters, the application isolates user interaction from the high-frequency DMX rendering and networking engine. 
 
-The main thread runs the UI loop and the ECS world update cycle, while a detached real-time execution thread renders patterns and streams DMX data.
+The main thread runs the UI loop and the ECS world update cycle, a detached real-time execution thread renders patterns, and an asynchronous network worker thread handles UDP packet transmission.
 
 ```mermaid
 graph TD
@@ -49,10 +50,15 @@ graph TD
         I --> J[render: Execute C++/Lua/GLSL on GPU]
         J --> K[Async GPU Readback via Double-Buffered PBOs]
         K --> L[encode: Map Pixel Colors to Universe Buffers]
-        L --> M[ArtnetSender: UDP Broadcast / Unicast to Devices]
+        L --> M[ArtnetSender: send via Network::UdpSocket]
+    end
+
+    subgraph Network Thread [ASIO Network Thread]
+        N[ASIO io_context loop] -->|async_send_to| O[UDP IP Broadcast / Unicast to Devices]
     end
 
     G -.->|Atomic Swap| I
+    M -->|asio::post / send| N
 ```
 
 ### 3.1 The Main/GUI Thread
@@ -65,7 +71,11 @@ graph TD
 - Spawns as a detached worker thread executing `App::runPatch()`.
 - Runs continuously with a target cycle time of ~3ms (~330 Hz output capability) to ensure low latency.
 - **Lock-Free Execution:** Thread synchronization is achieved via `std::atomic<std::shared_ptr<PatchProgram>>`. The real-time thread retrieves the active program using `std::atomic_load` and processes it without acquiring global mutex locks.
-- Performs pattern rendering (`render`), async PBO readbacks, channel mapping (`encode`), and network streaming (`ArtnetSender`).
+- Performs pattern rendering (`render`), async PBO readbacks, channel mapping (`encode`), and delegates sending to the network socket.
+
+### 3.3 The ASIO Network Thread
+- Spawns at initialization (`Network::init()`) running `asio::io_context::run()`.
+- Processes asynchronous UDP socket output queue entries to prevent networking I/O latency from blocking the time-critical real-time rendering loop.
 
 ---
 
@@ -101,7 +111,9 @@ PixelMapper represents its data hierarchies and logical states through **Flecs**
 | `CueList::Cue::IndexOrder` | Cue | Integer index used to sort and reorder cues in the sequencer. |
 | `EffectBank::Effect::Is` | Effect | Tag component specifying that the entity is a bank effect shader. |
 | `EffectBank::Effect::GlslSource` | Effect | String storing the GLSL fragment shader code for the effect. |
-| `App::UIConfig` | App | Stores visible windows, layout choices, grid toggles, editor selections, and editor target cues/banks. |
+| `Patch::Settings` | Patch | Stores patch configurations like refresh rate, network settings, white mode, highlight settings, and file paths. |
+| `Patch::MultiSelection` | Patch | Holds a list of entity IDs representing the currently multi-selected fixtures in the patch. |
+| `App::UIConfig` | App | Stores visible windows, layout choices, grid settings, viewport toggles (show fixtures, pixels, bounds), auto-zoom configurations, pixel size, and active editor indexes. |
 
 ### 4.3 Relationship Pairs & Exclusive Tags
 Flecs relationship pairs specify routing, connections, and selection states:
@@ -124,7 +136,10 @@ Observers and systems recalculate spatial layouts and patch maps in response to 
 2. **`ObserveFixtureDmxAddress` (OnSet dmxAddress):** Clamps universe/address bounds and flags the parent patch as `DmxMapDirty`.
 3. **`CleanGPUResources` / `CleanGPUProgram` (OnRemove observers):** Registered in `Patch.cpp`, these observers automatically delete OpenGL framebuffers, textures, and linked programs on the main GUI thread (possessing the OpenGL context) when a patch or effect entity is destructed, preventing resource leaks.
 
-### 5.2 Systems & Compilation Sequence
+### 5.2 Dynamic Selection Tracking
+- **`UpdateRtSelectionFlags` System:** Runs during the `PreStore` phase on each frame. It reads the active `SelectedFixture` and the `MultiSelection` components on the patch. It maps these IDs against the `CompiledFixture` array in the active `PatchProgram` and updates the `pixelSelected` atomic array. This relays selection changes to the real-time runner thread on-the-fly, avoiding costly program recompilations.
+
+### 5.3 Systems & Compilation Sequence
 
 ```
 [Layout Changed] -> UpdateFixtureLayout System
@@ -157,7 +172,7 @@ Observers and systems recalculate spatial layouts and patch maps in response to 
                     • Pushes flat PatchProgram pointer to rtPatchRunner via atomic swap
 ```
 
-### 5.3 Fine-Grained OpenGL Compilation
+### 5.4 Fine-Grained OpenGL Compilation
 To keep compilation times low (typically under 2ms for topology changes), `PatchProgram::compile` uses a fine-grained strategy:
 1. **FBO Recycling:** Resizes the framebuffers (`GPUResources` component) only if the Virtual Framebuffer (VFB) resolution changes.
 2. **Shader Link Recycling:** Checks if the GLSL source code stored in `GPUProgram` has actually changed before recompiling and relinking. If the code matches, it recycles the compiled OpenGL shader program.
@@ -173,6 +188,10 @@ The compilation phase creates a flat, cache-friendly representation `PatchProgra
 - **`pixelColors` (Array of ColorRGBW):** Shared array where rendering outputs write.
 - **`universes` (Array of Universe structs):** Contains final 512-byte buffers.
 - **`p2us` (Array of Pix2UniCopyInstr):** Pre-compiled instructions mapping contiguous byte ranges from the pixel colors array directly to destination universe buffers.
+- **`fixtures` (Array of CompiledFixture):** Pre-compiled fixture information containing `entityId`, `pixelStart`, and `pixelCount`.
+- **`pixelSelected` (Array of std::atomic<bool>):** Indicators signaling which pixels are currently selected in the GUI.
+- **`whiteMode` (WhiteMode enum):** Dictates how raw RGB colors are mapped to RGBW outputs (Auto, Off, or Pass-through).
+- **`highlightFrequency` (float):** Flash frequency for identifying selected fixtures.
 
 ### 6.1 GPU rendering & Async Readbacks
 When the active render mode is GLSL, the real-time thread executes the following operations:
@@ -180,13 +199,26 @@ When the active render mode is GLSL, the real-time thread executes the following
 2. **Double-Buffered PBO Readback:** Employs double-buffered Pixel Buffer Objects (PBOs) to copy rendered pixels back to the CPU array (`vfbPixels`) asynchronously. While one PBO is being mapped for read access by the CPU, the other PBO receives the output of the current GPU render, avoiding GPU-CPU blocking syncs.
 3. **Offline Preview FBO:** Features a secondary offscreen FBO (`glslEditorFbo`) used to render and compile the shader currently active in the text editor without altering the primary output.
 
-### 6.2 GPU-Side Crossfading
+### 6.2 Post-Rendering Filters
+After generating pixel colors via GPU or CPU (Lua/C++), the real-time thread runs post-processing steps:
+1. **Selection Flashing (Find):** Pixels with their atomic select flags set to `true` are flashed white (RGBW: `255, 255, 255, 255`) at the speed defined by `highlightFrequency`.
+2. **RGB to RGBW White Extraction:** Matches the `whiteMode` settings:
+   - **`AUTO`:** Extracts white from the RGB channels: $W = \min(R,G,B)$, then subtracts $W$ from the RGB channels and assigns it to $W$.
+   - **`OFF`:** Enforces $W = 0$ for all pixel outputs.
+   - **`PASSTHROUGH`:** Bypasses conversion, using the raw $W$ channel outputted by shaders or canvas renderers.
+
+### 6.3 CPU-Side Crossfading
+During cue transitions in non-GLSL modes (Lua, C++), the real-time thread performs CPU-side crossfading:
+- Prior to the transition, it captures the current state by copying `vfbPixels` into `vfbPixelsOld` using a fast `std::memcpy`.
+- It interpolates the pixels using the transition's blend factors in memory before encoding them.
+
+### 6.4 GPU-Side Crossfading
 During sequence transitions, the real-time thread performs GPU-side crossfading:
 - Outgoing and incoming cues are rendered to separate texture layers (`glslFboOld` and `glslFbo`).
 - A specialized mixing shader program (`glslBlendProgram`) blends both textures to a destination FBO (`glslFboBlend`) using a `mixFactor` derived from the active cue's `crossfadeProgress`.
 - Once blending finishes, the blended output is mapped to the output DMX buffers.
 
-### 6.3 Encoding
+### 6.5 Encoding
 Copies pixel color channels to universe buffers using pre-compiled instructions:
 ```cpp
 void encode(PatchProgram* program) {
@@ -216,11 +248,14 @@ Streaming DMX universes to external fixtures is handled by the **`ArtnetSender`*
    - Length: Payload length (512 bytes, Big Endian, 2 bytes)
    - Data: Raw channel data (512 bytes)
 
-2. **Socket Management:**
-   Uses standard POSIX sockets (`sys/socket.h`). The socket is bound to the source port configured in the patch settings (default `6454`) and is re-bound automatically if the port is changed. Broadcast capability (`SO_BROADCAST`) is enabled by default.
+2. **Socket Management & Asio Integration:**
+   Instead of direct blocking POSIX sockets, `ArtnetSender` delegates operations to a `Network::UdpSocket` instance running on top of **Asio**. Sockets are opened and bound asynchronously inside Asio's I/O thread. Broadcast options (`SO_BROADCAST`) and address reuse (`SO_REUSEPORT` / `SO_REUSEADDR`) are managed natively by the Asio layer to prevent binding issues, especially on macOS.
 
 3. **Multi-Device IP Routing:**
-   Iterates over all devices registered under the `ArtnetDeviceFolder`. Matches the active universes to each device's start universe and universe count, then routes packets to the target device's IP.
+   Iterates over all devices registered under the `ArtnetDeviceFolder`. Matches the active universes to each device's start universe and universe count, then routes packets to the target device's IP address (translated from network byte order to host byte order for the Asio wrapper).
+
+4. **Thread-Safe Status Reporting:**
+   Asynchronous socket error callbacks update the network status string. This string is stored thread-safely in `App::rtNetworkStatus` under `App::rtNetworkStatusMutex`, enabling the GUI main thread to render connection health updates in the Settings window.
 
 ---
 
