@@ -26,8 +26,7 @@ namespace PixelMapper {
 namespace App {
 
     GLFWwindow* sharedContextWindow = nullptr;
-    PatchProgram* currentPatchProgram = nullptr;
-    std::mutex patchProgramLock;
+    std::shared_ptr<PatchProgram> currentPatchProgram{nullptr};
     bool b_rtPatchRunner = false;
 
     std::atomic<float> rtFps{0.0f};
@@ -45,33 +44,31 @@ namespace App {
     std::thread rtPatchRunner;
 
     void pushNewProgram(PatchProgram* newProg){
-        patchProgramLock.lock();
-        PatchProgram* oldProgram = currentPatchProgram;
+        std::shared_ptr<PatchProgram> newProgShared(newProg);
+        std::shared_ptr<PatchProgram> oldProgram = std::atomic_load(&currentPatchProgram);
 
         // ── Crossfade handoff ──
         float fade = pendingCrossfadeDuration;
         pendingCrossfadeDuration = 0.0f;
-        if (newProg) {
-            if (fade > 0.0f && oldProgram && oldProgram->vfbPixels && newProg->vfbPixelsOld) {
+        if (newProgShared) {
+            if (fade > 0.0f && oldProgram && oldProgram->vfbPixels && newProgShared->vfbPixelsOld) {
                 // Copy the last rendered frame of the outgoing cue as the fade-from snapshot
                 int copyPixels = std::min(oldProgram->vfbWidth  * oldProgram->vfbHeight,
-                                          newProg->vfbWidth     * newProg->vfbHeight);
-                std::memcpy(newProg->vfbPixelsOld, oldProgram->vfbPixels,
+                                          newProgShared->vfbWidth     * newProgShared->vfbHeight);
+                std::memcpy(newProgShared->vfbPixelsOld, oldProgram->vfbPixels,
                             copyPixels * sizeof(ColorRGBW));
-                newProg->crossfadeDuration = fade;
-                newProg->crossfadeProgress = 0.0f;
+                newProgShared->crossfadeDuration.store(fade);
+                newProgShared->crossfadeProgress.store(0.0f);
             } else {
-                newProg->crossfadeProgress = 1.0f; // no crossfade
+                newProgShared->crossfadeProgress.store(1.0f); // no crossfade
             }
         }
-        if (newProg && oldProgram) {
-            newProg->editingCueIndex = oldProgram->editingCueIndex;
-            newProg->editingBankIndex = oldProgram->editingBankIndex;
+        if (newProgShared && oldProgram) {
+            newProgShared->editingCueIndex.store(oldProgram->editingCueIndex.load());
+            newProgShared->editingBankIndex.store(oldProgram->editingBankIndex.load());
         }
 
-        currentPatchProgram = newProg;
-        patchProgramLock.unlock();
-        delete oldProgram;
+        std::atomic_store(&currentPatchProgram, newProgShared);
     }
 
     void runPatch(){
@@ -89,29 +86,29 @@ namespace App {
 
         while(b_rtPatchRunner){
             auto start = std::chrono::steady_clock::now();
-            patchProgramLock.lock();
-            if(currentPatchProgram){
-                float intervalMs = 1000.0f / currentPatchProgram->refreshRate;
+            std::shared_ptr<PatchProgram> program = std::atomic_load(&currentPatchProgram);
+            if(program){
+                float intervalMs = 1000.0f / program->refreshRate;
                 auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(start - lastSendTime).count();
                 if (elapsedMs >= intervalMs) {
                     lastSendTime = start;
 
-                    render(App::currentPatchProgram);
-                    encode(App::currentPatchProgram);
+                    render(program.get());
+                    encode(program.get());
 
                     // Increment crossfade progress
-                    if (currentPatchProgram->crossfadeDuration > 0.0f &&
-                        currentPatchProgram->crossfadeProgress < 1.0f)
+                    float progress = program->crossfadeProgress.load();
+                    float duration = program->crossfadeDuration.load();
+                    if (duration > 0.0f && progress < 1.0f)
                     {
                         float dt = intervalMs / 1000.0f;
-                        currentPatchProgram->crossfadeProgress = std::min(1.0f,
-                            currentPatchProgram->crossfadeProgress + dt / currentPatchProgram->crossfadeDuration);
+                        program->crossfadeProgress.store(std::min(1.0f, progress + dt / duration));
                     }
 
-                    if (currentPatchProgram->networkEnabled) {
-                        sender.send(currentPatchProgram);
+                    if (program->networkEnabled) {
+                        sender.send(program.get());
                         // Approximate ArtDmx packet size: 18 header + 512 data = 530 bytes/universe
-                        rtBytesThisSec += currentPatchProgram->universeCount * 530;
+                        rtBytesThisSec += program->universeCount * 530;
                     } else {
                         sender.closeSocket();
                     }
@@ -119,7 +116,6 @@ namespace App {
                     rtFrameCount++;
                 }
             }
-            patchProgramLock.unlock();
 
             // Update RT stats once per second (outside lock)
             {
@@ -168,6 +164,7 @@ namespace App {
         w.component<Is>();
         w.component<PatchFolder>();
         w.component<SelectedPatch>();
+        w.component<UIConfig>();
         Patch::import(w);
         Fixture::import(w);
         Artnet::Universe::import(w);
@@ -185,6 +182,7 @@ namespace App {
         //———————————————————— TREE ROOT ——————————————————————
         auto pixelMapper = w.entity("PixelMapperApp");
         w.add<Is>(pixelMapper);
+        pixelMapper.set<UIConfig>({});
         auto patchFolder = w.entity("Patches").child_of(pixelMapper);
         pixelMapper.add<PatchFolder>(patchFolder);
 

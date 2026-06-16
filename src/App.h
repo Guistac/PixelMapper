@@ -2,6 +2,7 @@
 #include <flecs.h>
 #include <mutex>
 #include <atomic>
+#include <memory>
 #include "Patch.h"
 #include "Fixture.h"
 #include "Artnet.h"
@@ -17,11 +18,28 @@ namespace Gui {
 
 namespace App {
     extern GLFWwindow* sharedContextWindow;
-    extern PatchProgram* currentPatchProgram;
-    extern std::mutex patchProgramLock;
+    extern std::shared_ptr<PatchProgram> currentPatchProgram;
     struct Is {};
     struct PatchFolder {};
     struct SelectedPatch {};
+
+    struct UIConfig {
+        int currentLayout = 0; // GuiLayout: PatchEditing = 0, EffectsControl = 1
+        bool showFixturesWindow = true;
+        bool showPatchEditor = true;
+        bool showArtnetData = true;
+        bool showNetworkSettings = true;
+        bool showArtnetDevices = true;
+        bool showScriptEditor = false;
+        bool showCuesWindow = false;
+        bool showOfflinePreviewWindow = false;
+        bool showEffectBankWindow = false;
+        bool patchLocked = false;
+        float previewOpacity = 1.0f;
+        bool showGrid = true;
+        int editingCueIndex = -1;
+        int editingBankIndex = -1;
+    };
 
     struct Queries {
         flecs::query<Patch::Is> patch;
