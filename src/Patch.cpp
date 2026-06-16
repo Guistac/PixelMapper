@@ -34,6 +34,8 @@ namespace Patch {
             .set<Patch::Settings>({})
             .set<Patch::ScriptData>({})
             .add<Patch::RenderArea>()
+            .set<Patch::GPUResources>({})
+            .set<Patch::GPUProgram>({})
             .child_of(patchFolder);
 
         newPatch.set_name(patchName.c_str());
@@ -45,6 +47,17 @@ namespace Patch {
         newPatch.add<Patch::FixtureFolder>(fixtureFolder);
         newPatch.add<Patch::DmxUniverseFolder>(dmxOutputFolder);
         newPatch.add<Patch::ArtnetDeviceFolder>(artnetDeviceFolder);
+
+        auto cueListFolder = world.entity("CueListFolder").child_of(newPatch);
+        cueListFolder.add<CueList::Is>();
+        cueListFolder.set<CueList::SessionState>({});
+
+        auto effectBankFolder = world.entity("EffectBankFolder").child_of(newPatch);
+        effectBankFolder.add<EffectBank::Is>();
+        effectBankFolder.set<EffectBank::SessionState>({});
+
+        newPatch.add<CueList::CueFolder>(cueListFolder);
+        newPatch.add<EffectBank::EffectFolder>(effectBankFolder);
 
         select(pixelMapper, newPatch);
         
@@ -86,11 +99,34 @@ namespace Patch {
         w.component<ScriptData>();
         w.component<RenderArea>();
         w.component<MultiSelection>();
+
+        w.component<GPUProgram>();
+        w.component<GPUResources>();
+
+        w.observer<GPUResources>("CleanGPUResources").event(flecs::OnRemove)
+        .each([](flecs::entity e, GPUResources& res) {
+            if (res.glslProgram) glDeleteProgram(res.glslProgram);
+            if (res.glslBlendProgram) glDeleteProgram(res.glslBlendProgram);
+            if (res.glslFbo) glDeleteFramebuffers(1, &res.glslFbo);
+            if (res.glslFboTex) glDeleteTextures(1, &res.glslFboTex);
+            if (res.glslFboOld) glDeleteFramebuffers(1, &res.glslFboOld);
+            if (res.glslFboTexOld) glDeleteTextures(1, &res.glslFboTexOld);
+            if (res.glslFboBlend) glDeleteFramebuffers(1, &res.glslFboBlend);
+            if (res.glslFboTexBlend) glDeleteTextures(1, &res.glslFboTexBlend);
+            if (res.glslEditorFbo) glDeleteFramebuffers(1, &res.glslEditorFbo);
+            if (res.glslEditorFboTex) glDeleteTextures(1, &res.glslEditorFboTex);
+            if (res.glslVao) glDeleteVertexArrays(1, &res.glslVao);
+            if (res.glslVbo) glDeleteBuffers(1, &res.glslVbo);
+            if (res.glslPbo[0]) glDeleteBuffers(2, res.glslPbo);
+        });
+
+        w.observer<GPUProgram>("CleanGPUProgram").event(flecs::OnRemove)
+        .each([](flecs::entity e, GPUProgram& gp) {
+            if (gp.program) glDeleteProgram(gp.program);
+        });
     }
 
 } // namespace Patch
-
-
 
 
 namespace {
@@ -116,6 +152,78 @@ namespace {
         } catch (...) {
             return defaultContent;
         }
+    }
+
+    bool compileShaderIfNeeded(const std::string& fsSourceStr, Patch::GPUProgram& gp) {
+        if (gp.program != 0 && gp.glslSource == fsSourceStr) {
+            return true;
+        }
+
+        if (gp.program != 0) {
+            glDeleteProgram(gp.program);
+            gp.program = 0;
+        }
+
+        gp.glslSource = fsSourceStr;
+
+        const char* vsSource =
+            "#version 150\n"
+            "in vec2 position;\n"
+            "out vec2 uv;\n"
+            "void main() {\n"
+            "    uv = position * 0.5 + 0.5;\n"
+            "    gl_Position = vec4(position, 0.0, 1.0);\n"
+            "}\n";
+
+        GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vs, 1, &vsSource, nullptr);
+        glCompileShader(vs);
+
+        GLint success = 0;
+        glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetShaderInfoLog(vs, 512, nullptr, infoLog);
+            gp.compilerLog = std::string("Vertex Shader compile error: ") + infoLog;
+            glDeleteShader(vs);
+            return false;
+        }
+
+        const char* fsSource = fsSourceStr.c_str();
+        GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fs, 1, &fsSource, nullptr);
+        glCompileShader(fs);
+
+        glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetShaderInfoLog(fs, 512, nullptr, infoLog);
+            gp.compilerLog = std::string("Shader Compile Error:\n") + infoLog;
+            glDeleteShader(fs);
+            glDeleteShader(vs);
+            return false;
+        }
+
+        gp.program = glCreateProgram();
+        glAttachShader(gp.program, vs);
+        glAttachShader(gp.program, fs);
+        glBindAttribLocation(gp.program, 0, "position");
+        glLinkProgram(gp.program);
+        glDeleteShader(fs);
+        glDeleteShader(vs);
+
+        glGetProgramiv(gp.program, GL_LINK_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetProgramInfoLog(gp.program, 512, nullptr, infoLog);
+            gp.compilerLog = std::string("Shader Link Error:\n") + infoLog;
+            glDeleteProgram(gp.program);
+            gp.program = 0;
+            return false;
+        }
+
+        gp.compilerLog = "Compile successful!";
+        return true;
     }
 }
 
@@ -288,16 +396,20 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
     // Calculate VFB resolution aspect ratio:
     float dx = program->pixelPosMax.x - program->pixelPosMin.x;
     float dy = program->pixelPosMax.y - program->pixelPosMin.y;
+    int vfbWidth = R;
+    int vfbHeight = R;
     if (dx <= 0.001f && dy <= 0.001f) {
-        program->vfbWidth = R;
-        program->vfbHeight = R;
+        vfbWidth = R;
+        vfbHeight = R;
     } else if (dx >= dy) {
-        program->vfbWidth = R;
-        program->vfbHeight = std::max(1, (int)std::round(R * dy / dx));
+        vfbWidth = R;
+        vfbHeight = std::max(1, (int)std::round(R * dy / dx));
     } else {
-        program->vfbHeight = R;
-        program->vfbWidth = std::max(1, (int)std::round(R * dx / dy));
+        vfbHeight = R;
+        vfbWidth = std::max(1, (int)std::round(R * dx / dy));
     }
+    program->vfbWidth = vfbWidth;
+    program->vfbHeight = vfbHeight;
 
     // Allocate VFB CPU pixels
     int vfbSize = program->vfbWidth * program->vfbHeight;
@@ -342,270 +454,224 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         }
     } else if (program->renderMode == Patch::RenderMode::GLSL) {
         if (const auto* scriptData = patch.try_get<Patch::ScriptData>()) {
-            // ── Compile shaders on the main thread (safe, owns main GL context) ──
-            const std::string& src = scriptData->glslSource;
-            program->shaderSource = src;
+            // Retrieve or create persistent GPU resources and programs
+            if (!patch.has<Patch::GPUResources>()) patch.set<Patch::GPUResources>({});
+            if (!patch.has<Patch::GPUProgram>()) patch.set<Patch::GPUProgram>({});
+            auto* res = &patch.get_mut<Patch::GPUResources>();
+            auto* patchGp = &patch.get_mut<Patch::GPUProgram>();
 
-            const char* vsSource =
-                "#version 150\n"
-                "in vec2 position;\n"
-                "out vec2 uv;\n"
-                "void main() {\n"
-                "    uv = position * 0.5 + 0.5;\n"
-                "    gl_Position = vec4(position, 0.0, 1.0);\n"
-                "}\n";
-
-            GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-            glShaderSource(vs, 1, &vsSource, nullptr);
-            glCompileShader(vs);
-
-            GLint success = 0;
-            glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
-            if (!success) {
-                char infoLog[512];
-                glGetShaderInfoLog(vs, 512, nullptr, infoLog);
-                program->compilerLog = std::string("Vertex Shader compile error: ") + infoLog;
-                glDeleteShader(vs);
-                program->shaderCompiled = true;
-            } else {
-                // 1. Compile default fragment shader (if any)
-                const char* fsSource = src.c_str();
-                GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-                glShaderSource(fs, 1, &fsSource, nullptr);
-                glCompileShader(fs);
-
-                glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
-                if (!success) {
-                    char infoLog[512];
-                    glGetShaderInfoLog(fs, 512, nullptr, infoLog);
-                    program->compilerLog = std::string("Shader Compile Error:\n") + infoLog;
-                    glDeleteShader(fs);
-                    program->glslProgram = 0;
-                } else {
-                    program->glslProgram = glCreateProgram();
-                    glAttachShader(program->glslProgram, vs);
-                    glAttachShader(program->glslProgram, fs);
-                    glBindAttribLocation(program->glslProgram, 0, "position"); // Force location 0
-                    glLinkProgram(program->glslProgram);
-                    glDeleteShader(fs);
-
-                    glGetProgramiv(program->glslProgram, GL_LINK_STATUS, &success);
-                    if (!success) {
-                        char infoLog[512];
-                        glGetProgramInfoLog(program->glslProgram, 512, nullptr, infoLog);
-                        program->compilerLog = std::string("Shader Link Error:\n") + infoLog;
-                        glDeleteProgram(program->glslProgram);
-                        program->glslProgram = 0;
-                    } else {
-                        program->compilerLog = "Compile successful!";
-                    }
-                }
-                program->defaultCompilerLog = program->compilerLog;
-
-                // 2. Generate FBO and PBOs (always, so cue shaders can render even if default shader failed)
-                glGenFramebuffers(1, &program->glslFbo);
-                glGenTextures(1, &program->glslFboTex);
-                glBindTexture(GL_TEXTURE_2D, program->glslFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                    program->vfbWidth, program->vfbHeight,
-                    0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glBindFramebuffer(GL_FRAMEBUFFER, program->glslFbo);
-                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, program->glslFboTex, 0);
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glBindTexture(GL_TEXTURE_2D, 0);
-
-                // Generate editor offline preview FBO + texture
-                glGenFramebuffers(1, &program->glslEditorFbo);
-                glGenTextures(1, &program->glslEditorFboTex);
-                glBindTexture(GL_TEXTURE_2D, program->glslEditorFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                    program->vfbWidth, program->vfbHeight,
-                    0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glBindFramebuffer(GL_FRAMEBUFFER, program->glslEditorFbo);
-                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, program->glslEditorFboTex, 0);
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glBindTexture(GL_TEXTURE_2D, 0);
-
-                // Generate FBO for Old (outgoing) cue
-                glGenFramebuffers(1, &program->glslFboOld);
-                glGenTextures(1, &program->glslFboTexOld);
-                glBindTexture(GL_TEXTURE_2D, program->glslFboTexOld);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                    program->vfbWidth, program->vfbHeight,
-                    0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboOld);
-                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, program->glslFboTexOld, 0);
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glBindTexture(GL_TEXTURE_2D, 0);
-
-                // Generate FBO for Blend result
-                glGenFramebuffers(1, &program->glslFboBlend);
-                glGenTextures(1, &program->glslFboTexBlend);
-                glBindTexture(GL_TEXTURE_2D, program->glslFboTexBlend);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                    program->vfbWidth, program->vfbHeight,
-                    0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboBlend);
-                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                    GL_TEXTURE_2D, program->glslFboTexBlend, 0);
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glBindTexture(GL_TEXTURE_2D, 0);
-
-                // Compile built-in mix/blend shader program
-                {
-                    const char* blendVsSource =
-                        "#version 150\n"
-                        "in vec2 position;\n"
-                        "out vec2 uv;\n"
-                        "void main() {\n"
-                        "    uv = position * 0.5 + 0.5;\n"
-                        "    gl_Position = vec4(position, 0.0, 1.0);\n"
-                        "}\n";
-
-                    const char* blendFsSource =
-                        "#version 150\n"
-                        "in vec2 uv;\n"
-                        "out vec4 fragColor;\n"
-                        "uniform sampler2D texActive;\n"
-                        "uniform sampler2D texOld;\n"
-                        "uniform float mixFactor;\n"
-                        "void main() {\n"
-                        "    vec4 cActive = texture(texActive, uv);\n"
-                        "    vec4 cOld = texture(texOld, uv);\n"
-                        "    fragColor = mix(cOld, cActive, mixFactor);\n"
-                        "}\n";
-
-                    GLuint blendVs = glCreateShader(GL_VERTEX_SHADER);
-                    glShaderSource(blendVs, 1, &blendVsSource, nullptr);
-                    glCompileShader(blendVs);
-
-                    GLuint blendFs = glCreateShader(GL_FRAGMENT_SHADER);
-                    glShaderSource(blendFs, 1, &blendFsSource, nullptr);
-                    glCompileShader(blendFs);
-
-                    program->glslBlendProgram = glCreateProgram();
-                    glAttachShader(program->glslBlendProgram, blendVs);
-                    glAttachShader(program->glslBlendProgram, blendFs);
-                    glBindAttribLocation(program->glslBlendProgram, 0, "position"); // Force location 0
-                    glLinkProgram(program->glslBlendProgram);
-
-                    glDeleteShader(blendVs);
-                    glDeleteShader(blendFs);
+            // Resize FBO if resolution changed
+            if (res->glslFbo == 0 || res->vfbWidth != vfbWidth || res->vfbHeight != vfbHeight) {
+                if (res->glslFbo) {
+                    glDeleteFramebuffers(1, &res->glslFbo);
+                    glDeleteTextures(1, &res->glslFboTex);
+                    glDeleteFramebuffers(1, &res->glslEditorFbo);
+                    glDeleteTextures(1, &res->glslEditorFboTex);
+                    glDeleteFramebuffers(1, &res->glslFboOld);
+                    glDeleteTextures(1, &res->glslFboTexOld);
+                    glDeleteFramebuffers(1, &res->glslFboBlend);
+                    glDeleteTextures(1, &res->glslFboTexBlend);
+                    glDeleteBuffers(2, res->glslPbo);
+                    res->glslFbo = 0;
                 }
 
-                // PBOs for double-buffered async readback
-                int pboSize = program->vfbWidth * program->vfbHeight * 4;
-                glGenBuffers(2, program->glslPbo);
+                res->vfbWidth = vfbWidth;
+                res->vfbHeight = vfbHeight;
+
+                glGenFramebuffers(1, &res->glslFbo);
+                glGenTextures(1, &res->glslFboTex);
+                glBindTexture(GL_TEXTURE_2D, res->glslFboTex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslFbo);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTex, 0);
+
+                glGenFramebuffers(1, &res->glslEditorFbo);
+                glGenTextures(1, &res->glslEditorFboTex);
+                glBindTexture(GL_TEXTURE_2D, res->glslEditorFboTex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslEditorFbo);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslEditorFboTex, 0);
+
+                glGenFramebuffers(1, &res->glslFboOld);
+                glGenTextures(1, &res->glslFboTexOld);
+                glBindTexture(GL_TEXTURE_2D, res->glslFboTexOld);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslFboOld);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTexOld, 0);
+
+                glGenFramebuffers(1, &res->glslFboBlend);
+                glGenTextures(1, &res->glslFboTexBlend);
+                glBindTexture(GL_TEXTURE_2D, res->glslFboTexBlend);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vfbWidth, vfbHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                glBindFramebuffer(GL_FRAMEBUFFER, res->glslFboBlend);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTexBlend, 0);
+
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+
+                int pboSize = vfbWidth * vfbHeight * 4;
+                glGenBuffers(2, res->glslPbo);
                 for (int pi = 0; pi < 2; pi++) {
-                    glBindBuffer(GL_PIXEL_PACK_BUFFER, program->glslPbo[pi]);
+                    glBindBuffer(GL_PIXEL_PACK_BUFFER, res->glslPbo[pi]);
                     glBufferData(GL_PIXEL_PACK_BUFFER, pboSize, nullptr, GL_STREAM_READ);
                 }
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                res->pboFrameIndex = 0;
+                res->vaoReady = false;
+            }
 
-                program->shaderCompiled = true;
+            // Compile blend shader if not done
+            if (res->glslBlendProgram == 0) {
+                const char* blendVsSource =
+                    "#version 150\n"
+                    "in vec2 position;\n"
+                    "out vec2 uv;\n"
+                    "void main() {\n"
+                    "    uv = position * 0.5 + 0.5;\n"
+                    "    gl_Position = vec4(position, 0.0, 1.0);\n"
+                    "}\n";
 
-                // 3. Compile cue shaders ahead of time
-                if (const auto* cueList = patch.try_get<CueList::List>()) {
-                    program->activeCueIndex = cueList->activeIndex;
-                    for (const auto& cue : cueList->cues) {
-                        PatchProgram::CompiledCue cc;
-                        cc.program = 0;
+                const char* blendFsSource =
+                    "#version 150\n"
+                    "in vec2 uv;\n"
+                    "out vec4 fragColor;\n"
+                    "uniform sampler2D texActive;\n"
+                    "uniform sampler2D texOld;\n"
+                    "uniform float mixFactor;\n"
+                    "void main() {\n"
+                    "    vec4 cActive = texture(texActive, uv);\n"
+                    "    vec4 cOld = texture(texOld, uv);\n"
+                    "    fragColor = mix(cOld, cActive, mixFactor);\n"
+                    "}\n";
 
-                        const char* cueFsSource = cue.glslSource.c_str();
-                        GLuint cueFs = glCreateShader(GL_FRAGMENT_SHADER);
-                        glShaderSource(cueFs, 1, &cueFsSource, nullptr);
-                        glCompileShader(cueFs);
+                GLuint blendVs = glCreateShader(GL_VERTEX_SHADER);
+                glShaderSource(blendVs, 1, &blendVsSource, nullptr);
+                glCompileShader(blendVs);
 
-                        glGetShaderiv(cueFs, GL_COMPILE_STATUS, &success);
-                        if (!success) {
-                            char infoLog[512];
-                            glGetShaderInfoLog(cueFs, 512, nullptr, infoLog);
-                            cc.compilerLog = std::string("Shader Compile Error:\n") + infoLog;
-                            glDeleteShader(cueFs);
-                        } else {
-                            cc.program = glCreateProgram();
-                            glAttachShader(cc.program, vs);
-                            glAttachShader(cc.program, cueFs);
-                            glBindAttribLocation(cc.program, 0, "position"); // Force location 0
-                            glLinkProgram(cc.program);
-                            glDeleteShader(cueFs);
+                GLuint blendFs = glCreateShader(GL_FRAGMENT_SHADER);
+                glShaderSource(blendFs, 1, &blendFsSource, nullptr);
+                glCompileShader(blendFs);
 
-                            glGetProgramiv(cc.program, GL_LINK_STATUS, &success);
-                            if (!success) {
-                                char infoLog[512];
-                                glGetProgramInfoLog(cc.program, 512, nullptr, infoLog);
-                                cc.compilerLog = std::string("Shader Link Error:\n") + infoLog;
-                                glDeleteProgram(cc.program);
-                                cc.program = 0;
-                            } else {
-                                cc.compilerLog = "Compile successful!";
-                            }
-                        }
-                        program->compiledCues.push_back(cc);
-                    }
+                res->glslBlendProgram = glCreateProgram();
+                glAttachShader(res->glslBlendProgram, blendVs);
+                glAttachShader(res->glslBlendProgram, blendFs);
+                glBindAttribLocation(res->glslBlendProgram, 0, "position");
+                glLinkProgram(res->glslBlendProgram);
+
+                glDeleteShader(blendVs);
+                glDeleteShader(blendFs);
+            }
+
+            // Compile default patch shader
+            compileShaderIfNeeded(scriptData->glslSource, *patchGp);
+            program->compilerLog = patchGp->compilerLog;
+            program->glslProgram = patchGp->program;
+            program->defaultCompilerLog = patchGp->compilerLog;
+
+            // Copy Handles to PatchProgram
+            program->glslFbo = res->glslFbo;
+            program->glslFboTex = res->glslFboTex;
+            program->glslVao = res->glslVao;
+            program->glslVbo = res->glslVbo;
+            program->glslPbo[0] = res->glslPbo[0];
+            program->glslPbo[1] = res->glslPbo[1];
+            program->pboFrameIndex = res->pboFrameIndex;
+            program->shaderCompiled = (program->glslProgram != 0);
+            program->vaoReady = res->vaoReady;
+            program->shaderSource = patchGp->glslSource;
+            program->glslEditorFbo = res->glslEditorFbo;
+            program->glslEditorFboTex = res->glslEditorFboTex;
+            program->glslFboOld = res->glslFboOld;
+            program->glslFboTexOld = res->glslFboTexOld;
+            program->glslFboBlend = res->glslFboBlend;
+            program->glslFboTexBlend = res->glslFboTexBlend;
+            program->glslBlendProgram = res->glslBlendProgram;
+
+            // Compile Cue Shaders
+            flecs::entity cueFolder = patch.target<CueList::CueFolder>();
+            if (cueFolder.is_valid()) {
+                if (const auto* session = cueFolder.try_get<CueList::SessionState>()) {
+                    program->activeCueIndex.store(session->activeIndex);
                 }
 
-                // Compile bank effects ahead of time
-                if (const auto* bank = patch.try_get<EffectBank::Bank>()) {
-                    program->editingBankIndex = bank->activeIndex;
-                    for (const auto& fx : bank->effects) {
-                        PatchProgram::CompiledCue cc;
-                        cc.program = 0;
-
-                        const char* fxFsSource = fx.glslSource.c_str();
-                        GLuint fxFs = glCreateShader(GL_FRAGMENT_SHADER);
-                        glShaderSource(fxFs, 1, &fxFsSource, nullptr);
-                        glCompileShader(fxFs);
-
-                        glGetShaderiv(fxFs, GL_COMPILE_STATUS, &success);
-                        if (!success) {
-                            char infoLog[512];
-                            glGetShaderInfoLog(fxFs, 512, nullptr, infoLog);
-                            cc.compilerLog = std::string("Shader Compile Error:\n") + infoLog;
-                            glDeleteShader(fxFs);
-                        } else {
-                            cc.program = glCreateProgram();
-                            glAttachShader(cc.program, vs);
-                            glAttachShader(cc.program, fxFs);
-                            glBindAttribLocation(cc.program, 0, "position"); // Force location 0
-                            glLinkProgram(cc.program);
-                            glDeleteShader(fxFs);
-
-                            glGetProgramiv(cc.program, GL_LINK_STATUS, &success);
-                            if (!success) {
-                                char infoLog[512];
-                                glGetProgramInfoLog(cc.program, 512, nullptr, infoLog);
-                                cc.compilerLog = std::string("Shader Link Error:\n") + infoLog;
-                                glDeleteProgram(cc.program);
-                                cc.program = 0;
-                            } else {
-                                cc.compilerLog = "Compile successful!";
-                            }
-                        }
-                        program->compiledBankEffects.push_back(cc);
+                struct SortEntry {
+                    flecs::entity entity;
+                    int order = 0;
+                };
+                std::vector<SortEntry> sortedCues;
+                cueFolder.children([&](flecs::entity child) {
+                    if (child.has<CueList::Cue::Is>()) {
+                        SortEntry entry;
+                        entry.entity = child;
+                        if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+                        sortedCues.push_back(entry);
                     }
+                });
+                std::sort(sortedCues.begin(), sortedCues.end(), [](const SortEntry& a, const SortEntry& b) {
+                    return a.order < b.order;
+                });
+
+                for (const auto& entry : sortedCues) {
+                    PatchProgram::CompiledCue cc;
+                    cc.program = 0;
+
+                    flecs::entity targetEffect = entry.entity.target<CueList::Cue::TargetEffect>();
+                    if (targetEffect.is_valid()) {
+                        if (const auto* glsl = targetEffect.try_get<EffectBank::Effect::GlslSource>()) {
+                            if (!targetEffect.has<Patch::GPUProgram>()) targetEffect.set<Patch::GPUProgram>({});
+                            auto* fxGp = &targetEffect.get_mut<Patch::GPUProgram>();
+                            compileShaderIfNeeded(glsl->value, *fxGp);
+                            cc.program = fxGp->program;
+                            cc.compilerLog = fxGp->compilerLog;
+                        }
+                    }
+                    program->compiledCues.push_back(cc);
+                }
+            }
+
+            // Compile Bank Effects
+            flecs::entity bankFolder = patch.target<EffectBank::EffectFolder>();
+            if (bankFolder.is_valid()) {
+                if (const auto* session = bankFolder.try_get<EffectBank::SessionState>()) {
+                    program->editingBankIndex.store(session->activeIndex);
                 }
 
-                glDeleteShader(vs);
+                std::vector<flecs::entity> fxList;
+                bankFolder.children([&](flecs::entity child) {
+                    if (child.has<EffectBank::Effect::Is>()) {
+                        fxList.push_back(child);
+                    }
+                });
+
+                for (const auto& fx : fxList) {
+                    PatchProgram::CompiledCue cc;
+                    cc.program = 0;
+
+                    if (const auto* glsl = fx.try_get<EffectBank::Effect::GlslSource>()) {
+                        if (!fx.has<Patch::GPUProgram>()) fx.set<Patch::GPUProgram>({});
+                        auto* fxGp = &fx.get_mut<Patch::GPUProgram>();
+                        compileShaderIfNeeded(glsl->value, *fxGp);
+                        cc.program = fxGp->program;
+                        cc.compilerLog = fxGp->compilerLog;
+                    }
+                    program->compiledBankEffects.push_back(cc);
+                }
             }
         }
     }
@@ -625,26 +691,6 @@ PatchProgram::~PatchProgram(){
     free(universes);
     free(vfbPixels);
     free(vfbPixelsOld);
-
-    if (glslProgram) glDeleteProgram(glslProgram);
-    if (glslBlendProgram) glDeleteProgram(glslBlendProgram);
-    for (auto& cc : compiledCues) {
-        if (cc.program) glDeleteProgram(cc.program);
-    }
-    for (auto& cc : compiledBankEffects) {
-        if (cc.program) glDeleteProgram(cc.program);
-    }
-    if (glslFbo) glDeleteFramebuffers(1, &glslFbo);
-    if (glslFboTex) glDeleteTextures(1, &glslFboTex);
-    if (glslFboOld) glDeleteFramebuffers(1, &glslFboOld);
-    if (glslFboTexOld) glDeleteTextures(1, &glslFboTexOld);
-    if (glslFboBlend) glDeleteFramebuffers(1, &glslFboBlend);
-    if (glslFboTexBlend) glDeleteTextures(1, &glslFboTexBlend);
-    if (glslEditorFbo) glDeleteFramebuffers(1, &glslEditorFbo);
-    if (glslEditorFboTex) glDeleteTextures(1, &glslEditorFboTex);
-    if (glslVao) glDeleteVertexArrays(1, &glslVao);
-    if (glslVbo) glDeleteBuffers(1, &glslVbo);
-    if (glslPbo[0]) glDeleteBuffers(2, glslPbo);
 }
 
 void render(PatchProgram* program){
@@ -652,17 +698,17 @@ void render(PatchProgram* program){
 
     // ── Cue Switch Detection & Crossfade Triggering ──
     if (program->renderMode == Patch::RenderMode::GLSL && program->vfbPixels && program->vfbPixelsOld) {
-        int targetCue = program->activeCueIndex;
+        int targetCue = program->activeCueIndex.load();
         if (program->currentRenderedCueIndex != targetCue) {
-            float fade = program->pendingCrossfadeDuration;
-            program->pendingCrossfadeDuration = 0.0f; // Consume
+            float fade = program->pendingCrossfadeDuration.load();
+            program->pendingCrossfadeDuration.store(0.0f); // Consume
             if (fade > 0.0f && program->currentRenderedCueIndex != -2) {
                 program->previousCueIndex = program->currentRenderedCueIndex;
-                program->crossfadeDuration = fade;
-                program->crossfadeProgress = 0.0f;
+                program->crossfadeDuration.store(fade);
+                program->crossfadeProgress.store(0.0f);
             } else {
                 program->previousCueIndex = -2;
-                program->crossfadeProgress = 1.0f;
+                program->crossfadeProgress.store(1.0f);
             }
             program->currentRenderedCueIndex = targetCue;
         }
@@ -700,7 +746,7 @@ void render(PatchProgram* program){
         if (program->glslFbo && program->shaderCompiled) {
 
             unsigned int activeProg = program->glslProgram;
-            int actIdx = program->activeCueIndex;
+            int actIdx = program->activeCueIndex.load();
             if (actIdx >= 0 && actIdx < (int)program->compiledCues.size()) {
                 if (program->compiledCues[actIdx].program != 0) {
                     activeProg = program->compiledCues[actIdx].program;
@@ -726,7 +772,8 @@ void render(PatchProgram* program){
             }
 
             // ── Draw Outgoing Program into glslFboOld (during crossfade) ──
-            if (program->crossfadeProgress < 1.0f && program->glslFboOld) {
+            float progress = program->crossfadeProgress.load();
+            if (progress < 1.0f && program->glslFboOld) {
                 unsigned int oldProg = program->glslProgram;
                 int oldIdx = program->previousCueIndex;
                 if (oldIdx >= 0 && oldIdx < (int)program->compiledCues.size()) {
@@ -774,7 +821,7 @@ void render(PatchProgram* program){
             }
 
             // ── Draw Blended Program into glslFboBlend (during crossfade) ──
-            if (program->crossfadeProgress < 1.0f && program->glslFboBlend && program->glslBlendProgram) {
+            if (progress < 1.0f && program->glslFboBlend && program->glslBlendProgram) {
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboBlend);
                 glViewport(0, 0, program->vfbWidth, program->vfbHeight);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -794,7 +841,7 @@ void render(PatchProgram* program){
                 if (oldTexLoc >= 0) glUniform1i(oldTexLoc, 1);
 
                 GLint mixLoc = glGetUniformLocation(program->glslBlendProgram, "mixFactor");
-                if (mixLoc >= 0) glUniform1f(mixLoc, program->crossfadeProgress);
+                if (mixLoc >= 0) glUniform1f(mixLoc, progress);
 
                 glBindVertexArray(program->glslVao);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -809,7 +856,7 @@ void render(PatchProgram* program){
 
             // ── PBO async readback ──
             GLuint readFbo = program->glslFbo;
-            if (program->crossfadeProgress < 1.0f && program->glslFboBlend) {
+            if (progress < 1.0f && program->glslFboBlend) {
                 readFbo = program->glslFboBlend;
             }
 
@@ -836,8 +883,8 @@ void render(PatchProgram* program){
             // ── Draw Offline Editor Preview into glslEditorFbo ──
             if (program->glslEditorFbo) {
                 unsigned int editProg = program->glslProgram;
-                int editIdx = program->editingCueIndex;
-                int editBankIdx = program->editingBankIndex;
+                int editIdx = program->editingCueIndex.load();
+                int editBankIdx = program->editingBankIndex.load();
 
                 if (editIdx >= 0 && editIdx < (int)program->compiledCues.size()) {
                     if (program->compiledCues[editIdx].program != 0) {
@@ -874,8 +921,9 @@ void render(PatchProgram* program){
     // ── Crossfade blend (runs for all render modes) ──────────────────────────
     // vfbPixels contains the NEW cue; vfbPixelsOld contains the OUTGOING cue.
     // crossfadeProgress goes from 0 → 1 over crossfadeDuration seconds.
-    if (program->renderMode != Patch::RenderMode::GLSL && program->crossfadeProgress < 1.0f && program->vfbPixelsOld) {
-        float t = program->crossfadeProgress;
+    float progressBlend = program->crossfadeProgress.load();
+    if (program->renderMode != Patch::RenderMode::GLSL && progressBlend < 1.0f && program->vfbPixelsOld) {
+        float t = progressBlend;
         float it = 1.0f - t;
         int n = program->vfbWidth * program->vfbHeight;
         for (int i = 0; i < n; i++) {

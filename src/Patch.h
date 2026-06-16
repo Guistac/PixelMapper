@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <unordered_set>
+#include <atomic>
 #include <sol/sol.hpp>
 #include "Common.h"
 #include "Artnet.h"
@@ -55,6 +56,38 @@ namespace Patch {
     struct RenderArea {
         glm::vec3 min;
         glm::vec3 max;
+    };
+
+    struct GPUProgram {
+        unsigned int program = 0;
+        std::string glslSource;
+        std::string compilerLog;
+    };
+
+    struct GPUResources {
+        unsigned int glslProgram = 0;
+        unsigned int glslFbo = 0;
+        unsigned int glslFboTex = 0;
+        unsigned int glslVao = 0;
+        unsigned int glslVbo = 0;
+        unsigned int glslPbo[2] = {0, 0};
+        int pboFrameIndex = 0;
+        bool vaoReady = false;
+
+        // Preview editor FBOs
+        unsigned int glslEditorFbo = 0;
+        unsigned int glslEditorFboTex = 0;
+
+        // Crossfading FBOs
+        unsigned int glslFboOld = 0;
+        unsigned int glslFboTexOld = 0;
+        unsigned int glslFboBlend = 0;
+        unsigned int glslFboTexBlend = 0;
+        unsigned int glslBlendProgram = 0;
+
+        // Framebuffer size cache
+        int vfbWidth = 0;
+        int vfbHeight = 0;
     };
 
     flecs::entity create(flecs::entity pixelMapper);
@@ -124,8 +157,8 @@ struct PatchProgram {
 
     // ── Crossfade ──
     ColorRGBW* vfbPixelsOld = nullptr; ///< Snapshot of outgoing cue's last VFB frame
-    float crossfadeProgress = 1.0f;    ///< 0 = full old, 1 = full new; RT thread increments this
-    float crossfadeDuration = 0.0f;    ///< Seconds; 0 = no crossfade
+    std::atomic<float> crossfadeProgress{1.0f};    ///< 0 = full old, 1 = full new; RT thread increments this
+    std::atomic<float> crossfadeDuration{0.0f};    ///< Seconds; 0 = no crossfade
 
     // ── Ahead-Of-Time Cue Compilation ──
     struct CompiledCue {
@@ -135,12 +168,12 @@ struct PatchProgram {
     std::vector<CompiledCue> compiledCues;
     std::string defaultCompilerLog;
 
-    int activeCueIndex = -1;
-    float pendingCrossfadeDuration = 0.0f;
+    std::atomic<int> activeCueIndex{-1};
+    std::atomic<float> pendingCrossfadeDuration{0.0f};
     int currentRenderedCueIndex = -2; // -1 = default patch shader, -2 = uninitialized
     int previousCueIndex = -2;        // Cue index currently fading out (-1 = default shader, -2 = none/invalid)
-    int editingCueIndex = -1;         // Cue index currently open in shader editor (-1 = default shader)
-    int editingBankIndex = -1;        // Bank effect index currently open in shader editor (-1 = none)
+    std::atomic<int> editingCueIndex{-1};         // Cue index currently open in shader editor (-1 = default shader)
+    std::atomic<int> editingBankIndex{-1};        // Bank effect index currently open in shader editor (-1 = none)
 
     // Editor offline preview FBO + texture
     unsigned int glslEditorFbo = 0;
