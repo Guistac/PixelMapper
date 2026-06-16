@@ -111,10 +111,13 @@ namespace Patch {
         unsigned int glslFboBlend = 0;
         unsigned int glslFboTexBlend = 0;
         unsigned int glslBlendProgram = 0;
+        unsigned int glslNoiseTex = 0;
 
         // Framebuffer size cache
         int vfbWidth = 0;
         int vfbHeight = 0;
+        int previewWidth = 0;
+        int previewHeight = 0;
     };
 
     flecs::entity create(flecs::entity pixelMapper);
@@ -162,6 +165,7 @@ struct PatchProgram {
 
     glm::vec3* pixelPositions;
     ColorRGBW* pixelColors;
+    ColorRGBW* pixelColorsTemp = nullptr;
     uint32_t pixelCount;
 
     Pix2UniCopyInstr* p2us;
@@ -177,6 +181,8 @@ struct PatchProgram {
     std::atomic<float> zSlice{0.5f};
     int vfbWidth = 0;
     int vfbHeight = 0;
+    int previewWidth = 256;
+    int previewHeight = 256;
     ColorRGBW* vfbPixels = nullptr; // CPU-side Virtual Framebuffer
 
     std::unique_ptr<sol::state> luaState;
@@ -237,8 +243,10 @@ struct PatchProgram {
     unsigned int glslFboBlend = 0;
     unsigned int glslFboTexBlend = 0;
     unsigned int glslBlendProgram = 0;
+    unsigned int glslNoiseTex = 0;
 
     std::vector<CompiledCue> compiledBankEffects;
+    std::atomic<bool> showPlaybackPreview{false};
 };
 
 void render(PatchProgram* rtData);

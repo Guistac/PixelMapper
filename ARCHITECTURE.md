@@ -197,8 +197,8 @@ The compilation phase creates a flat, cache-friendly representation `PatchProgra
 When the active render mode is GLSL, the real-time thread executes the following operations:
 1. **1D GPU Point-Rendering:** Binds the active 1D FBO (`glslFbo`) and configures the viewport to `(pixelCount, 1)`. It renders the pixels as a point list using `glDrawArrays(GL_POINTS, 0, pixelCount)`. The vertex shader assigns raw 3D positions (`vPixelPos3D`) and CPU-projected 2D coordinates (`vPixelPos2D`) to variables, mapping each point to exactly 1 fragment in the 1D viewport.
 2. **Double-Buffered PBO Readback:** Employs double-buffered Pixel Buffer Objects (PBOs) to copy the rendered 1D pixel buffer back to the CPU array (`vfbPixels`) asynchronously. Since the buffer size is extremely small (e.g. `pixelCount * sizeof(ColorRGBW)`), readback overhead is negligible.
-3. **2D Offline Preview FBO:** Renders a 2D quad of size `256 x 256` to the editor preview FBO (`glslEditorFbo`) using `glslPreviewProgram` and the current `zSlice` uniform value to allow layer-by-layer volumetric preview scans in the editor.
-4. **2D Playback Preview FBO:** Renders the active playback program into the `256 x 256` 2D playback preview FBO (`glslPlaybackPreviewFbo`) to display the live pattern as the canvas background.
+3. **2D Offline Preview FBO:** Renders a 2D quad of size `previewWidth x previewHeight` to the editor preview FBO (`glslEditorFbo`) using `glslPreviewProgram` and the current `zSlice` uniform value. This is displayed in the **Effect Preview** window, and its dimensions are configured via the "Preview Resolution" slider, matching the aspect ratio of the RenderArea.
+4. **2D Playback Preview FBO:** Renders the active playback program into the `previewWidth x previewHeight` 2D playback preview FBO (`glslPlaybackPreviewFbo`) to display the live pattern as the canvas background. To optimize GPU performance, it is only rendered when the "Rendered" checkbox is enabled, the canvas is in 2D mode, and the Patch Editor window is open.
 
 ### 6.2 Post-Rendering Filters
 After generating pixel colors via GPU or CPU (Lua/C++), the real-time thread runs post-processing steps:
@@ -216,7 +216,7 @@ During cue transitions in non-GLSL modes (Lua, C++), the real-time thread perfor
 ### 6.4 GPU-Side Crossfading
 During sequence transitions, the real-time thread performs GPU-side crossfading for both primary outputs and 2D playback previews:
 - **Primary 1D Outputs**: The outgoing and active cues are rendered to separate 1D textures (`glslFboTexOld` and `glslFboTex`), blended via `glslBlendProgram` into `glslFboTexBlend` using the active cue's transition `mixFactor`, and read back via PBOs.
-- **2D Playback Previews**: The outgoing and active 2D previews are rendered to separate `256 x 256` textures (`glslPlaybackPreviewFboTexOld` and `glslPlaybackPreviewFboTex`), blended via `glslBlendProgram` into `glslPlaybackPreviewFboTexBlend` using the transition progress, and bound as the background image in the GUI.
+- **2D Playback Previews**: The outgoing and active 2D previews are rendered to separate `previewWidth x previewHeight` textures (`glslPlaybackPreviewFboTexOld` and `glslPlaybackPreviewFboTex`), blended via `glslBlendProgram` into `glslPlaybackPreviewFboTexBlend` using the transition progress, and bound as the background image in the GUI.
 
 ### 6.5 Encoding
 Copies pixel color channels to universe buffers using pre-compiled instructions:

@@ -252,6 +252,11 @@ void import(flecs::world& w){
     .run([&](flecs::iter& it){
         auto app = App::get(it.world());
         auto* ui = &app.get_mut<App::UIConfig>();
+        auto prog = std::atomic_load(&App::currentPatchProgram);
+        if (prog) {
+            bool shouldRender = ui->showFrame && !ui->canvas3dMode && ui->showPatchEditor;
+            prog->showPlaybackPreview.store(shouldRender);
+        }
         if(ImGui::BeginMainMenuBar()){
 
             if(ImGui::BeginMenu("File")){
@@ -295,7 +300,7 @@ void import(flecs::world& w){
                 ImGui::MenuItem("Artnet Devices",          nullptr, &ui->showArtnetDevices);
                 ImGui::MenuItem("Effect Editor",           nullptr, &ui->showScriptEditor);
                 ImGui::MenuItem("Cue List",                nullptr, &ui->showCuesWindow);
-                ImGui::MenuItem("Offline Preview",         nullptr, &ui->showOfflinePreviewWindow);
+                ImGui::MenuItem("Effect Preview",          nullptr, &ui->showOfflinePreviewWindow);
                 ImGui::MenuItem("Effect Bank",             nullptr, &ui->showEffectBankWindow);
                 ImGui::EndMenu();
             }
@@ -305,7 +310,7 @@ void import(flecs::world& w){
             float rtMbps   = App::rtBitrateMbps.load();
             char statusBuf[96];
             snprintf(statusBuf, sizeof(statusBuf),
-                     "RT: %.0f fps   |   ArtNet: %.2f Mbit/s", rtFps, rtMbps);
+                     "RT: %.1f fps   |   ArtNet: %.2f Mbit/s", rtFps, rtMbps);
             float w2 = ImGui::CalcTextSize(statusBuf).x + 24.0f;
             ImGui::SetCursorPosX(ImGui::GetWindowWidth() - w2);
             ImGui::TextDisabled("%s", statusBuf);
@@ -428,6 +433,55 @@ void import(flecs::world& w){
                 ImGui::TableSetColumnIndex(1);
                 if(msCount(selectedPatch) > 1){
                     ImGui::TextDisabled("%d fixtures selected.", msCount(selectedPatch));
+                    ImGui::Separator();
+                    if (ImGui::Button("Reset Z to 0 for All Selected")) {
+                        const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
+                        if(ms) {
+                            for(auto fid : ms->ids) {
+                                flecs::entity mf(selectedPatch.world(), fid);
+                                if(!mf.is_valid() || !mf.is_alive()) continue;
+                                auto mst = mf.target<Fixture::WithShape>();
+                                if(mst == mf.world().id<Shape::Line>()){
+                                    auto l = mf.get<Fixture::WithShape, Shape::Line>();
+                                    float avgZ = (l.start.z + l.end.z) * 0.5f;
+                                    l.start.z -= avgZ;
+                                    l.end.z -= avgZ;
+                                    mf.set<Fixture::WithShape, Shape::Line>(l);
+                                    mf.add<Fixture::PixelPositionsDirty>();
+                                } else if(mst == mf.world().id<Shape::Circle>()){
+                                    auto c = mf.get<Fixture::WithShape, Shape::Circle>();
+                                    c.center.z = 0.0f;
+                                    mf.set<Fixture::WithShape, Shape::Circle>(c);
+                                    mf.add<Fixture::PixelPositionsDirty>();
+                                }
+                            }
+                        }
+                    }
+                    static float multiZ = 0.0f;
+                    if (ImGui::SliderFloat("Z Height Shift All", &multiZ, -500.0f, 500.0f, "%.1fmm")) {
+                        const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
+                        if(ms) {
+                            for(auto fid : ms->ids) {
+                                flecs::entity mf(selectedPatch.world(), fid);
+                                if(!mf.is_valid() || !mf.is_alive()) continue;
+                                auto mst = mf.target<Fixture::WithShape>();
+                                if(mst == mf.world().id<Shape::Line>()){
+                                    auto l = mf.get<Fixture::WithShape, Shape::Line>();
+                                    float avgZ = (l.start.z + l.end.z) * 0.5f;
+                                    float deltaZ = multiZ - avgZ;
+                                    l.start.z += deltaZ;
+                                    l.end.z += deltaZ;
+                                    mf.set<Fixture::WithShape, Shape::Line>(l);
+                                    mf.add<Fixture::PixelPositionsDirty>();
+                                } else if(mst == mf.world().id<Shape::Circle>()){
+                                    auto c = mf.get<Fixture::WithShape, Shape::Circle>();
+                                    c.center.z = multiZ;
+                                    mf.set<Fixture::WithShape, Shape::Circle>(c);
+                                    mf.add<Fixture::PixelPositionsDirty>();
+                                }
+                            }
+                        }
+                    }
                 } else if(hasSel){
                     ImGui::Text("Properties: %s", selectedFixture.name().c_str());
                     ImGui::Separator();
@@ -461,15 +515,28 @@ void import(flecs::world& w){
                         Shape::Line l = selectedFixture.get<Fixture::WithShape, Shape::Line>();
                         bool e = false;
                         ImGui::SeparatorText("Line Segment");
-                        e |= ImGui::InputFloat2("Start", &l.start.x, "%.1fmm");
-                        e |= ImGui::InputFloat2("End",   &l.end.x,   "%.1fmm");
+                        e |= ImGui::InputFloat3("Start", &l.start.x, "%.1fmm");
+                        e |= ImGui::InputFloat3("End",   &l.end.x,   "%.1fmm");
+                        
+                        float avgZ = (l.start.z + l.end.z) * 0.5f;
+                        float curAvgZ = avgZ;
+                        if (ImGui::SliderFloat("Z Height", &avgZ, -500.0f, 500.0f, "%.1fmm")) {
+                            float deltaZ = avgZ - curAvgZ;
+                            l.start.z += deltaZ;
+                            l.end.z += deltaZ;
+                            e = true;
+                        }
+                        
                         if(e){ selectedFixture.get_mut<Fixture::WithShape, Shape::Line>() = l; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
                     } else if(shapeType == selectedFixture.world().id<Shape::Circle>()){
                         Shape::Circle c = selectedFixture.get<Fixture::WithShape, Shape::Circle>();
                         bool e = false;
                         ImGui::SeparatorText("Circle");
-                        e |= ImGui::InputFloat2("Center", &c.center.x, "%.1fmm");
+                        e |= ImGui::InputFloat3("Center", &c.center.x, "%.1fmm");
                         e |= ImGui::InputFloat("Radius",  &c.radius,   0, 0, "%.1fmm");
+                        
+                        e |= ImGui::SliderFloat("Z Height", &c.center.z, -500.0f, 500.0f, "%.1fmm");
+                        
                         if(e){ selectedFixture.get_mut<Fixture::WithShape, Shape::Circle>() = c; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
                     }
                 } else {
@@ -1172,9 +1239,9 @@ void import(flecs::world& w){
 
                     
                     
-                    ImGui::SeparatorText("Virtual Framebuffer");
+                    ImGui::SeparatorText("Offline Preview");
                     int vfbRes = s->vfbResolution;
-                    if (ImGui::SliderInt("Resolution", &vfbRes, 16, 2048)) {
+                    if (ImGui::SliderInt("Preview Resolution", &vfbRes, 16, 2048)) {
                         s->vfbResolution = vfbRes;
                         e = true;
                     }
@@ -1383,8 +1450,8 @@ void import(flecs::world& w){
                     selectedPatch.add<Patch::ProgramDirty>(); 
                 }
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(75);
-                if(ImGui::InputInt("Res", &settings->vfbResolution)) {
+                ImGui::SetNextItemWidth(110);
+                if(ImGui::InputInt("Preview Res", &settings->vfbResolution)) {
                     settings->vfbResolution = std::clamp(settings->vfbResolution, 16, 2048);
                     selectedPatch.add<Patch::ProgramDirty>();
                 }
@@ -1451,6 +1518,12 @@ void import(flecs::world& w){
                 hasUncompiledChanges = false;
             }
 
+            ImGui::SameLine();
+            static bool showShaderHelp = false;
+            if (ImGui::Button("Help")) {
+                showShaderHelp = !showShaderHelp;
+            }
+
             ImGui::Separator();
 
             const float kLogHeight = 100.f;
@@ -1502,6 +1575,73 @@ void import(flecs::world& w){
             else
                 ImGui::TextDisabled("No log yet.");
             ImGui::EndChild();
+
+            if (showShaderHelp) {
+                ImGui::SetNextWindowSize(ImVec2(600, 450), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Shader Documentation & Guides", &showShaderHelp)) {
+                    ImGui::TextWrapped("This reference guide covers the shader APIs and parameters available in PixelMapper.");
+                    ImGui::Separator();
+                    
+                    if (ImGui::CollapsingHeader("1. Coordinate Systems (vPixelPos2D / vPixelPos3D)")) {
+                        ImGui::BulletText("vPixelPos2D (or iPixelPos2D): vec2");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Normalized [0.0, 1.0] coordinates across the XY projection canvas of all active fixtures. "
+                                           "Calculated by projecting the coordinates to 2D and dividing by the layout width/height. "
+                                           "Shaders using this automatically scale to fill the layout regardless of its physical size.");
+                        ImGui::Unindent();
+                        
+                        ImGui::BulletText("vPixelPos3D (or iPixelPos3D): vec3");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Raw, unscaled physical 3D coordinates (in millimeters, e.g. [-500.0, 500.0]). "
+                                           "Sizing, bounding, and distances are specified in real-world dimensions. "
+                                           "In 2D offline preview mode, the physical coordinate is reconstructed dynamically using pixelPosMin/Max and the zSlice.");
+                        ImGui::Unindent();
+                    }
+                    
+                    if (ImGui::CollapsingHeader("2. Input Uniforms")) {
+                        ImGui::Text("The following uniforms are automatically populated per frame:");
+                        ImGui::BulletText("time / iTime (float) - Playback time in seconds.");
+                        ImGui::BulletText("resolution / iResolution (vec2/vec3) - Viewport dimensions.");
+                        ImGui::BulletText("pixelCount (float) - Total number of physical output pixels.");
+                        ImGui::BulletText("pixelPosMin (vec3) - Minimum XYZ bounding box of the active fixtures.");
+                        ImGui::BulletText("pixelPosMax (vec3) - Maximum XYZ bounding box of the active fixtures.");
+                        ImGui::BulletText("zSlice (float) - Depth slider value [0, 1] during editor preview.");
+                    }
+                    
+                    if (ImGui::CollapsingHeader("3. Shadertoy Local Runner")) {
+                        ImGui::TextWrapped("PixelMapper compiles unmodified Shadertoy fragment shaders automatically. Copy-paste code directly from shadertoy.com. The editor wraps the mainImage function:");
+                        ImGui::TextDisabled("void mainImage(out vec4 fragColor, in vec2 fragCoord)");
+                        ImGui::TextWrapped("Mouse coordinates are bound to iMouse (xy: drag, zw: click).");
+                    }
+                    
+                    if (ImGui::CollapsingHeader("4. Volumetric Code Example")) {
+                        ImGui::Text("Here is a boilerplate volumetric shader template:");
+                        ImGui::Separator();
+                        ImGui::TextDisabled(
+                            "#version 150\n"
+                            "in vec3 vPixelPos3D;\n"
+                            "in vec2 vPixelPos2D;\n"
+                            "out vec4 fragColor;\n"
+                            "#define iPixelPos3D vPixelPos3D\n"
+                            "#define iPixelPos2D vPixelPos2D\n"
+                            "uniform float time;\n"
+                            "uniform vec3 pixelPosMin;\n"
+                            "uniform vec3 pixelPosMax;\n"
+                            "\n"
+                            "void main() {\n"
+                            "    // Create a wave that sweeps physical Z coords\n"
+                            "    float zMin = pixelPosMin.z;\n"
+                            "    float zMax = pixelPosMax.z;\n"
+                            "    float centerZ = mix(zMin, zMax, 0.5 + 0.5 * sin(time * 2.0));\n"
+                            "    \n"
+                            "    float edge = smoothstep(30.0, 0.0, abs(iPixelPos3D.z - centerZ));\n"
+                            "    fragColor = vec4(edge * 0.1, edge * 0.8, edge, 1.0);\n"
+                            "}"
+                        );
+                    }
+                }
+                ImGui::End();
+            }
         }
         ImGui::End();
     });
@@ -1994,14 +2134,14 @@ void import(flecs::world& w){
         if (!ui->showOfflinePreviewWindow) return;
         auto selectedPatch = Patch::getSelected(app);
 
-        if(ImGui::Begin("Offline Shader Preview", &ui->showOfflinePreviewWindow)){
+        if(ImGui::Begin("Effect Preview", &ui->showOfflinePreviewWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
             auto prog = std::atomic_load(&App::currentPatchProgram);
             if(prog && prog->glslEditorFboTex != 0){
                 GLuint tex = prog->glslEditorFboTex;
-                float tw = 256.0f;
-                float th = 256.0f;
+                float tw = (float)prog->previewWidth;
+                float th = (float)prog->previewHeight;
 
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 float scale = std::min(avail.x / tw, avail.y / th);

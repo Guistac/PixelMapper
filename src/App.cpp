@@ -91,10 +91,18 @@ namespace App {
             auto start = std::chrono::steady_clock::now();
             std::shared_ptr<PatchProgram> program = std::atomic_load(&currentPatchProgram);
             if(program){
-                float intervalMs = 1000.0f / program->refreshRate;
-                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(start - lastSendTime).count();
+                double intervalMs = 1000.0 / program->refreshRate;
+                double elapsedMs = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(start - lastSendTime).count();
                 if (elapsedMs >= intervalMs) {
-                    lastSendTime = start;
+                    // Accumulate rather than snap to start to prevent timing drift
+                    lastSendTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                        std::chrono::duration<double, std::milli>(intervalMs)
+                    );
+                    
+                    // If we fall behind by more than 5 frames (e.g., startup or debugger), snap to start
+                    if (std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(start - lastSendTime).count() > intervalMs * 5.0) {
+                        lastSendTime = start;
+                    }
 
                     render(program.get());
                     encode(program.get());
@@ -104,7 +112,7 @@ namespace App {
                     float duration = program->crossfadeDuration.load();
                     if (duration > 0.0f && progress < 1.0f)
                     {
-                        float dt = intervalMs / 1000.0f;
+                        float dt = (float)intervalMs / 1000.0f;
                         program->crossfadeProgress.store(std::min(1.0f, progress + dt / duration));
                     }
 
@@ -133,7 +141,21 @@ namespace App {
                 }
             }
 
-            std::this_thread::sleep_until(start + std::chrono::milliseconds(3));
+            // Precise, adaptive sleep to target next frame boundary and save CPU
+            if (program) {
+                double intervalMs = 1000.0 / program->refreshRate;
+                auto nextFrameTime = lastSendTime + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double, std::milli>(intervalMs)
+                );
+                auto now = std::chrono::steady_clock::now();
+                if (nextFrameTime > now) {
+                    std::this_thread::sleep_until(nextFrameTime);
+                } else {
+                    std::this_thread::yield(); // Yield if late, letting it catch up
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
         }
 
         if (sharedContextWindow) {
@@ -257,8 +279,7 @@ namespace App {
             const Shape::Line& line = fixture.get<Fixture::WithShape, Shape::Line>();
             Fixture::setPixelPositions(pd,
                 [&](float range, int index, size_t count) -> glm::vec3{
-                    glm::vec2 out = line.start + range * (line.end - line.start);
-                    return glm::vec3(out.x, out.y, 0.0);
+                    return line.start + range * (line.end - line.start);
             });
             fixture.remove<Fixture::PixelPositionsDirty>();
             flecs::entity patch = Fixture::getPatch(fixture);
@@ -275,11 +296,11 @@ namespace App {
             Fixture::setPixelPositions(pd,
                 [&](float range, int index, size_t count) -> glm::vec3{
                     float angle = float(index) / float(count) * M_PI * 2.0;
-                    glm::vec2 out{
+                    return glm::vec3(
                         circle.center.x + cosf(angle) * circle.radius,
-                        circle.center.y + sinf(angle) * circle.radius
-                    };
-                    return glm::vec3(out.x, out.y, 0.0);
+                        circle.center.y + sinf(angle) * circle.radius,
+                        circle.center.z
+                    );
             });
             fixture.remove<Fixture::PixelPositionsDirty>();
             Fixture::getPatch(fixture).add<Patch::RenderAreaDirty>();

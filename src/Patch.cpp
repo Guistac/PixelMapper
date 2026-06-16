@@ -128,6 +128,7 @@ namespace Patch {
             if (res.glslQuadVao) glDeleteVertexArrays(1, &res.glslQuadVao);
             if (res.glslQuadVbo) glDeleteBuffers(1, &res.glslQuadVbo);
             if (res.glslPbo[0]) glDeleteBuffers(2, res.glslPbo);
+            if (res.glslNoiseTex) glDeleteTextures(1, &res.glslNoiseTex);
         });
 
         w.observer<GPUProgram>("CleanGPUProgram").event(flecs::OnRemove)
@@ -247,7 +248,13 @@ namespace {
                 "uniform float     iFrameRate;\n"
                 "uniform int       iFrame;\n"
                 "uniform vec4      iMouse;\n"
-                "uniform vec4      iDate;\n" +
+                "uniform vec4      iDate;\n"
+                "uniform sampler2D iChannel0;\n"
+                "uniform sampler2D iChannel1;\n"
+                "uniform sampler2D iChannel2;\n"
+                "uniform sampler2D iChannel3;\n"
+                "vec4 texture(sampler2D sampler, vec3 coord) { return texture(sampler, coord.xy); }\n"
+                "vec4 textureLod(sampler2D sampler, vec3 coord, float lod) { return textureLod(sampler, coord.xy, lod); }\n" +
                 fsSourceStr +
                 "\n"
                 "void main() {\n"
@@ -312,9 +319,11 @@ namespace {
             "out vec3 vPixelPos3D;\n"
             "out vec2 vPixelPos2D;\n"
             "uniform float zSlice;\n"
+            "uniform vec3 pixelPosMin;\n"
+            "uniform vec3 pixelPosMax;\n"
             "void main() {\n"
             "    vPixelPos2D = position * 0.5 + 0.5;\n"
-            "    vPixelPos3D = vec3(vPixelPos2D.x, vPixelPos2D.y, zSlice);\n"
+            "    vPixelPos3D = mix(pixelPosMin, pixelPosMax, vec3(vPixelPos2D.x, vPixelPos2D.y, zSlice));\n"
             "    gl_Position = vec4(position, 0.0, 1.0);\n"
             "}\n";
 
@@ -334,7 +343,13 @@ namespace {
                 "uniform int       iFrame;\n"
                 "uniform vec4      iMouse;\n"
                 "uniform vec4      iDate;\n"
-                "uniform float     zSlice;\n" +
+                "uniform float     zSlice;\n"
+                "uniform sampler2D iChannel0;\n"
+                "uniform sampler2D iChannel1;\n"
+                "uniform sampler2D iChannel2;\n"
+                "uniform sampler2D iChannel3;\n"
+                "vec4 texture(sampler2D sampler, vec3 coord) { return texture(sampler, coord.xy); }\n"
+                "vec4 textureLod(sampler2D sampler, vec3 coord, float lod) { return textureLod(sampler, coord.xy, lod); }\n" +
                 fsSourceStr +
                 "\n"
                 "void main() {\n"
@@ -479,6 +494,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->fixtureCount++;
     });
     program->pixelColors = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
+    program->pixelColorsTemp = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
     program->pixelPositions = (glm::vec3*)malloc(program->pixelCount * sizeof(glm::vec3));
 
     if (program->fixtureCount > 0) {
@@ -553,7 +569,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
     program->p2us = (PatchProgram::Pix2UniCopyInstr*)malloc(program->p2uCount * sizeof(PatchProgram::Pix2UniCopyInstr));
     memcpy(program->p2us, p2us.data(), program->p2uCount * sizeof(PatchProgram::Pix2UniCopyInstr));
 
-    int R = 256;
+    int previewRes = 256;
     if(const auto* settings = patch.try_get<Patch::Settings>()){
         program->networkEnabled = settings->networkEnabled;
         program->sourcePort = settings->sourcePort;
@@ -561,8 +577,25 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->renderMode = settings->renderMode;
         program->whiteMode = settings->whiteMode;
         program->highlightFrequency = settings->highlightFrequency;
-        R = settings->vfbResolution;
+        previewRes = settings->vfbResolution;
     }
+
+    int previewW = previewRes;
+    int previewH = previewRes;
+    if (patch.has<Patch::RenderArea>()) {
+        const auto& ra = patch.get<Patch::RenderArea>();
+        float dx = ra.max.x - ra.min.x;
+        float dy = ra.max.y - ra.min.y;
+        if (dx > 0.001f || dy > 0.001f) {
+            if (dx >= dy) {
+                previewH = std::max(1, (int)std::round(previewRes * dy / dx));
+            } else {
+                previewW = std::max(1, (int)std::round(previewRes * dx / dy));
+            }
+        }
+    }
+    program->previewWidth = previewW;
+    program->previewHeight = previewH;
 
     if (program->pixelCount > 0) {
         program->pixelSelected = new std::atomic<bool>[program->pixelCount];
@@ -679,8 +712,24 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             auto* res = &patch.get_mut<Patch::GPUResources>();
             auto* patchGp = &patch.get_mut<Patch::GPUProgram>();
 
+            // Initialize noise texture if needed
+            if (res->glslNoiseTex == 0) {
+                glGenTextures(1, &res->glslNoiseTex);
+                glBindTexture(GL_TEXTURE_2D, res->glslNoiseTex);
+                std::vector<uint8_t> noiseData(256 * 256 * 4);
+                for (size_t i = 0; i < noiseData.size(); ++i) {
+                    noiseData[i] = (uint8_t)(rand() % 256);
+                }
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, noiseData.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+
             // Resize FBO if resolution changed
-            if (res->glslFbo == 0 || res->vfbWidth != mainVfbWidth) {
+            if (res->glslFbo == 0 || res->vfbWidth != mainVfbWidth || res->previewWidth != program->previewWidth || res->previewHeight != program->previewHeight) {
                 if (res->glslFbo) {
                     glDeleteFramebuffers(1, &res->glslFbo);
                     glDeleteTextures(1, &res->glslFboTex);
@@ -702,6 +751,8 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
 
                 res->vfbWidth = mainVfbWidth;
                 res->vfbHeight = 1;
+                res->previewWidth = program->previewWidth;
+                res->previewHeight = program->previewHeight;
 
                 glGenFramebuffers(1, &res->glslFbo);
                 glGenTextures(1, &res->glslFboTex);
@@ -714,11 +765,11 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslFbo);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslFboTex, 0);
 
-                // Editor preview is always 256x256
+                // Editor preview
                 glGenFramebuffers(1, &res->glslEditorFbo);
                 glGenTextures(1, &res->glslEditorFboTex);
                 glBindTexture(GL_TEXTURE_2D, res->glslEditorFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res->previewWidth, res->previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -726,11 +777,11 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslEditorFbo);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslEditorFboTex, 0);
 
-                // Playback 2D preview is always 256x256
+                // Playback 2D preview
                 glGenFramebuffers(1, &res->glslPlaybackPreviewFbo);
                 glGenTextures(1, &res->glslPlaybackPreviewFboTex);
                 glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTex);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res->previewWidth, res->previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -741,7 +792,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glGenFramebuffers(1, &res->glslPlaybackPreviewFboOld);
                 glGenTextures(1, &res->glslPlaybackPreviewFboTexOld);
                 glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexOld);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res->previewWidth, res->previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -752,7 +803,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glGenFramebuffers(1, &res->glslPlaybackPreviewFboBlend);
                 glGenTextures(1, &res->glslPlaybackPreviewFboTexBlend);
                 glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexBlend);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res->previewWidth, res->previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -900,6 +951,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             program->glslFboBlend = res->glslFboBlend;
             program->glslFboTexBlend = res->glslFboTexBlend;
             program->glslBlendProgram = res->glslBlendProgram;
+            program->glslNoiseTex = res->glslNoiseTex;
 
             // Compile Cue Shaders
             flecs::entity cueFolder = patch.target<CueList::CueFolder>();
@@ -989,6 +1041,7 @@ PatchProgram::~PatchProgram(){
     free(devices);
     free(p2us);
     free(pixelColors);
+    free(pixelColorsTemp);
     free(pixelPositions);
     free(universes);
     free(vfbPixels);
@@ -1052,6 +1105,54 @@ void render(PatchProgram* program){
                 }
             }
 
+            auto setupProgramUniforms = [&](unsigned int prog) {
+                if (prog == 0) return;
+                glUseProgram(prog);
+
+                GLint timeLoc = glGetUniformLocation(prog, "iTime");
+                if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
+                GLint timeLocLegacy = glGetUniformLocation(prog, "time");
+                if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+
+                GLint resLoc = glGetUniformLocation(prog, "iResolution");
+                if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
+                GLint resLocLegacy = glGetUniformLocation(prog, "resolution");
+                if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
+
+                GLint pCountLoc = glGetUniformLocation(prog, "pixelCount");
+                if (pCountLoc >= 0) glUniform1f(pCountLoc, (float)program->pixelCount);
+
+                GLint pMinLoc = glGetUniformLocation(prog, "pixelPosMin");
+                if (pMinLoc >= 0) glUniform3f(pMinLoc, program->pixelPosMin.x, program->pixelPosMin.y, program->pixelPosMin.z);
+                GLint pMaxLoc = glGetUniformLocation(prog, "pixelPosMax");
+                if (pMaxLoc >= 0) glUniform3f(pMaxLoc, program->pixelPosMax.x, program->pixelPosMax.y, program->pixelPosMax.z);
+
+                GLint sliceLoc = glGetUniformLocation(prog, "zSlice");
+                if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
+
+                if (program->glslNoiseTex != 0) {
+                    for (int chan = 0; chan < 4; ++chan) {
+                        std::string chanName = "iChannel" + std::to_string(chan);
+                        GLint chanLoc = glGetUniformLocation(prog, chanName.c_str());
+                        if (chanLoc >= 0) {
+                            glActiveTexture(GL_TEXTURE0 + chan);
+                            glBindTexture(GL_TEXTURE_2D, program->glslNoiseTex);
+                            glUniform1i(chanLoc, chan);
+                        }
+                    }
+                }
+            };
+
+            auto cleanupProgramTextures = [&]() {
+                if (program->glslNoiseTex != 0) {
+                    for (int chan = 3; chan >= 0; --chan) {
+                        glActiveTexture(GL_TEXTURE0 + chan);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+                    }
+                    glActiveTexture(GL_TEXTURE0);
+                }
+            };
+
             // ── Lazy create VAOs on RT thread (not shared between GL contexts) ──
             if (!program->vaoReady) {
                 // Point-Rendering VAO
@@ -1102,23 +1203,11 @@ void render(PatchProgram* program){
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                     glClear(GL_COLOR_BUFFER_BIT);
 
-                    glUseProgram(oldProg);
-                    GLint timeLoc = glGetUniformLocation(oldProg, "iTime");
-                    if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                    GLint timeLocLegacy = glGetUniformLocation(oldProg, "time");
-                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
-                    
-                    GLint resLoc = glGetUniformLocation(oldProg, "iResolution");
-                    if (resLoc >= 0) glUniform3f(resLoc, (float)program->pixelCount, 1.0f, 1.0f);
-                    GLint resLocLegacy = glGetUniformLocation(oldProg, "resolution");
-                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, (float)program->pixelCount, 1.0f);
-                    
-                    GLint pCountLoc = glGetUniformLocation(oldProg, "pixelCount");
-                    if (pCountLoc >= 0) glUniform1f(pCountLoc, (float)program->pixelCount);
-
+                    setupProgramUniforms(oldProg);
                     glBindVertexArray(program->glslPointVao);
                     glDrawArrays(GL_POINTS, 0, program->pixelCount);
                     glBindVertexArray(0);
+                    cleanupProgramTextures();
                     glUseProgram(0);
                 }
             }
@@ -1130,23 +1219,11 @@ void render(PatchProgram* program){
             glClear(GL_COLOR_BUFFER_BIT);
 
             if (activeProg != 0) {
-                glUseProgram(activeProg);
-                GLint timeLoc = glGetUniformLocation(activeProg, "iTime");
-                if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                GLint timeLocLegacy = glGetUniformLocation(activeProg, "time");
-                if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
-                
-                GLint resLoc = glGetUniformLocation(activeProg, "iResolution");
-                if (resLoc >= 0) glUniform3f(resLoc, (float)program->pixelCount, 1.0f, 1.0f);
-                GLint resLocLegacy = glGetUniformLocation(activeProg, "resolution");
-                if (resLocLegacy >= 0) glUniform2f(resLocLegacy, (float)program->pixelCount, 1.0f);
-
-                GLint pCountLoc = glGetUniformLocation(activeProg, "pixelCount");
-                if (pCountLoc >= 0) glUniform1f(pCountLoc, (float)program->pixelCount);
-
+                setupProgramUniforms(activeProg);
                 glBindVertexArray(program->glslPointVao);
                 glDrawArrays(GL_POINTS, 0, program->pixelCount);
                 glBindVertexArray(0);
+                cleanupProgramTextures();
                 glUseProgram(0);
             }
 
@@ -1223,35 +1300,23 @@ void render(PatchProgram* program){
                 }
 
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslEditorFbo);
-                glViewport(0, 0, 256, 256);
+                glViewport(0, 0, program->previewWidth, program->previewHeight);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
                 if (editProgPreview != 0) {
-                    glUseProgram(editProgPreview);
-                    GLint timeLoc = glGetUniformLocation(editProgPreview, "iTime");
-                    if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                    GLint timeLocLegacy = glGetUniformLocation(editProgPreview, "time");
-                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
-                    
-                    GLint resLoc = glGetUniformLocation(editProgPreview, "iResolution");
-                    if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
-                    GLint resLocLegacy = glGetUniformLocation(editProgPreview, "resolution");
-                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
-
-                    GLint sliceLoc = glGetUniformLocation(editProgPreview, "zSlice");
-                    if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
-
+                    setupProgramUniforms(editProgPreview);
                     glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
+                    cleanupProgramTextures();
                     glUseProgram(0);
                 }
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
             }
 
             // ── Draw 2D Playback Preview into glslPlaybackPreviewFbo ──
-            if (program->glslPlaybackPreviewFbo) {
+            if (program->glslPlaybackPreviewFbo && program->showPlaybackPreview.load()) {
                 float progress = program->crossfadeProgress.load();
 
                 // 1. Render Outgoing Cue's 2D Preview to glslPlaybackPreviewFboOld (if crossfading)
@@ -1265,27 +1330,15 @@ void render(PatchProgram* program){
                     }
                     if (oldIdx >= -1 && oldProgPreview != 0) {
                         glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboOld);
-                        glViewport(0, 0, 256, 256);
+                        glViewport(0, 0, program->previewWidth, program->previewHeight);
                         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                         glClear(GL_COLOR_BUFFER_BIT);
 
-                        glUseProgram(oldProgPreview);
-                        GLint timeLoc = glGetUniformLocation(oldProgPreview, "iTime");
-                        if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                        GLint timeLocLegacy = glGetUniformLocation(oldProgPreview, "time");
-                        if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
-                        
-                        GLint resLoc = glGetUniformLocation(oldProgPreview, "iResolution");
-                        if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
-                        GLint resLocLegacy = glGetUniformLocation(oldProgPreview, "resolution");
-                        if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
-
-                        GLint sliceLoc = glGetUniformLocation(oldProgPreview, "zSlice");
-                        if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
-
+                        setupProgramUniforms(oldProgPreview);
                         glBindVertexArray(program->glslQuadVao);
                         glDrawArrays(GL_TRIANGLES, 0, 6);
                         glBindVertexArray(0);
+                        cleanupProgramTextures();
                         glUseProgram(0);
                     }
                 }
@@ -1300,35 +1353,23 @@ void render(PatchProgram* program){
                 }
 
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFbo);
-                glViewport(0, 0, 256, 256);
+                glViewport(0, 0, program->previewWidth, program->previewHeight);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
                 if (activeProgPreview != 0) {
-                    glUseProgram(activeProgPreview);
-                    GLint timeLoc = glGetUniformLocation(activeProgPreview, "iTime");
-                    if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
-                    GLint timeLocLegacy = glGetUniformLocation(activeProgPreview, "time");
-                    if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
-                    
-                    GLint resLoc = glGetUniformLocation(activeProgPreview, "iResolution");
-                    if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);
-                    GLint resLocLegacy = glGetUniformLocation(activeProgPreview, "resolution");
-                    if (resLocLegacy >= 0) glUniform2f(resLocLegacy, 256.0f, 256.0f);
-
-                    GLint sliceLoc = glGetUniformLocation(activeProgPreview, "zSlice");
-                    if (sliceLoc >= 0) glUniform1f(sliceLoc, program->zSlice.load());
-
+                    setupProgramUniforms(activeProgPreview);
                     glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
+                    cleanupProgramTextures();
                     glUseProgram(0);
                 }
 
                 // 3. Blend Active and Outgoing Previews into glslPlaybackPreviewFboBlend (if crossfading)
                 if (progress < 1.0f && program->glslPlaybackPreviewFboBlend && program->glslBlendProgram) {
                     glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboBlend);
-                    glViewport(0, 0, 256, 256);
+                    glViewport(0, 0, program->previewWidth, program->previewHeight);
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -1377,41 +1418,43 @@ void render(PatchProgram* program){
         }
     }
 
-    // 2. Direct mapping: copy vfbPixels to pixelColors (no interpolation needed!)
-    if (program->pixelCount > 0 && program->vfbPixels) {
-        std::memcpy(program->pixelColors, program->vfbPixels, program->pixelCount * sizeof(ColorRGBW));
-    }
+    // 2. Direct mapping: copy vfbPixels to pixelColorsTemp (no interpolation needed!)
+    if (program->pixelCount > 0 && program->vfbPixels && program->pixelColorsTemp) {
+        std::memcpy(program->pixelColorsTemp, program->vfbPixels, program->pixelCount * sizeof(ColorRGBW));
 
-    // 3. Highlight/Flash selected pixels for "Find" feature
-    if (program->pixelSelected) {
-        float period = 1.0f / (program->highlightFrequency > 0.0f ? program->highlightFrequency : 1.0f);
-        float phase = fmodf(program->timeElapsed, period);
-        bool flashOn = (phase < period * 0.5f);
-        if (flashOn) {
-            for (uint32_t i = 0; i < program->pixelCount; ++i) {
-                if (program->pixelSelected[i].load()) {
-                    program->pixelColors[i] = {255, 255, 255, 255};
+        // 3. Highlight/Flash selected pixels for "Find" feature
+        if (program->pixelSelected) {
+            float period = 1.0f / (program->highlightFrequency > 0.0f ? program->highlightFrequency : 1.0f);
+            float phase = fmodf(program->timeElapsed, period);
+            bool flashOn = (phase < period * 0.5f);
+            if (flashOn) {
+                for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                    if (program->pixelSelected[i].load()) {
+                        program->pixelColorsTemp[i] = {255, 255, 255, 255};
+                    }
                 }
             }
         }
-    }
 
-    // 4. RGB→RGBW white channel conversion
-    if (program->whiteMode == Patch::WhiteMode::AUTO) {
-        for (uint32_t i = 0; i < program->pixelCount; ++i) {
-            ColorRGBW& c = program->pixelColors[i];
-            uint8_t w = std::min({c.r, c.g, c.b});
-            c.r -= w;
-            c.g -= w;
-            c.b -= w;
-            c.w = w;
+        // 4. RGB→RGBW white channel conversion
+        if (program->whiteMode == Patch::WhiteMode::AUTO) {
+            for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                ColorRGBW& c = program->pixelColorsTemp[i];
+                uint8_t w = std::min({c.r, c.g, c.b});
+                c.r -= w;
+                c.g -= w;
+                c.b -= w;
+                c.w = w;
+            }
+        } else if (program->whiteMode == Patch::WhiteMode::OFF) {
+            for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                program->pixelColorsTemp[i].w = 0;
+            }
         }
-    } else if (program->whiteMode == Patch::WhiteMode::OFF) {
-        for (uint32_t i = 0; i < program->pixelCount; ++i) {
-            program->pixelColors[i].w = 0;
-        }
+        
+        // Final copy: publish processed colors to pixelColors atomically/safely
+        std::memcpy(program->pixelColors, program->pixelColorsTemp, program->pixelCount * sizeof(ColorRGBW));
     }
-    // PASSTHROUGH: leave pixelColors as-is
 }
 
 void encode(PatchProgram* program) {
