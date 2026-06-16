@@ -39,6 +39,10 @@ namespace App {
         bool showGrid = true;
         int editingCueIndex = -1;
         int editingBankIndex = -1;
+        bool showFixtures = true;
+        bool showPixels = true;
+        bool showFrame = true;
+        bool autoZoom = false;
     };
 
     struct Queries {

@@ -36,6 +36,25 @@ static flecs::id_t currentPatchId = 0;
 static bool autoCompile = true;
 static bool hasUncompiledChanges = false;
  
+static void DrawCompactProgress(ImDrawList* drawList, ImVec2 pos, float radius, float progress, ImU32 colorBg, ImU32 colorFg) {
+    ImVec2 center = ImVec2(pos.x + radius, pos.y + radius);
+    
+    // Draw background circle outline
+    drawList->AddCircle(center, radius, colorBg, 0, 1.0f);
+    
+    // Draw filled pie arc if progress > 0
+    if (progress > 0.001f) {
+        float startAngle = -3.1415926535f / 2.0f; // Top
+        float endAngle = startAngle + progress * 3.1415926535f * 2.0f;
+        
+        drawList->PathClear();
+        drawList->PathLineTo(center);
+        drawList->PathArcTo(center, radius - 0.5f, startAngle, endAngle, 32);
+        drawList->PathLineTo(center);
+        drawList->PathFillConvex(colorFg);
+    }
+}
+
 static void setEditingCueIndex(flecs::entity app, int idx) {
     if (auto* ui = &app.get_mut<App::UIConfig>()) {
         ui->editingCueIndex = idx;
@@ -274,7 +293,7 @@ void import(flecs::world& w){
                 ImGui::MenuItem("Artnet Data",             nullptr, &ui->showArtnetData);
                 ImGui::MenuItem("Patch & Network Settings",nullptr, &ui->showNetworkSettings);
                 ImGui::MenuItem("Artnet Devices",          nullptr, &ui->showArtnetDevices);
-                ImGui::MenuItem("Script & Shader Editor",  nullptr, &ui->showScriptEditor);
+                ImGui::MenuItem("Effect Editor",           nullptr, &ui->showScriptEditor);
                 ImGui::MenuItem("Cue List",                nullptr, &ui->showCuesWindow);
                 ImGui::MenuItem("Offline Preview",         nullptr, &ui->showOfflinePreviewWindow);
                 ImGui::MenuItem("Effect Bank",             nullptr, &ui->showEffectBankWindow);
@@ -471,10 +490,6 @@ void import(flecs::world& w){
         auto selectedPatch   = Patch::getSelected(app);
         auto selectedFixture = Fixture::getSelected(selectedPatch);
 
-        static bool b_showFixtures = true;
-        static bool b_showPixels   = true;
-        static bool b_showFrame    = true;
-
         // Marquee state
         static bool      marqueeActive = false;
         static glm::vec2 marqueeStart{0}, marqueeEnd{0};
@@ -492,15 +507,21 @@ void import(flecs::world& w){
             ImGui::Checkbox("Grid", &ui->showGrid); ImGui::SameLine();
             ImGui::SetNextItemWidth(100);
             ImGui::SliderFloat("Opacity", &ui->previewOpacity, 0.0f, 1.0f, "%.2f"); ImGui::SameLine();
-            ImGui::Checkbox("Fixtures", &b_showFixtures); ImGui::SameLine();
-            ImGui::Checkbox("Pixels",   &b_showPixels);   ImGui::SameLine();
-            ImGui::Checkbox("Rendered", &b_showFrame);    ImGui::SameLine();
+            ImGui::Checkbox("Fixtures", &ui->showFixtures); ImGui::SameLine();
+            ImGui::Checkbox("Pixels",   &ui->showPixels);   ImGui::SameLine();
+            ImGui::Checkbox("Rendered", &ui->showFrame);    ImGui::SameLine();
+            ImGui::Checkbox("Auto Zoom", &ui->autoZoom); ImGui::SameLine();
             if(ImGui::Button("Zoom to Fit") && selectedPatch.is_valid()){
                 if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>())
-                    canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {30,30});
+                    canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {15,15});
             }
 
             if(ImDrawList* drawing = canvas.begin("Canvas", ImGui::GetContentRegionAvail())){
+                if (ui->autoZoom && selectedPatch.is_valid()) {
+                    if (const auto* ra = selectedPatch.try_get<Patch::RenderArea>()) {
+                        canvas.zoomToFit(glm::vec2(ra->min), glm::vec2(ra->max), {15,15});
+                    }
+                }
                 // ── Capture canvas interaction state BEFORE any child widgets ──
                 bool canvasHovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(canvas.frameMin, canvas.frameMax) && !ImGui::IsAnyItemHovered();
                 bool canvasClicked = ImGui::IsMouseClicked(ImGuiMouseButton_Left) && canvasHovered;
@@ -517,7 +538,7 @@ void import(flecs::world& w){
                 if(selectedPatch.is_valid()){
 
                     // ── VFB preview texture ──
-                    if(b_showFrame){
+                    if(ui->showFrame){
                         auto prog = std::atomic_load(&App::currentPatchProgram);
                         if(prog){
                             int tw = prog->vfbWidth;
@@ -559,7 +580,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Draw fixtures ──
-                    if(b_showFixtures){
+                    if(ui->showFixtures){
                         Fixture::iterateWithDmx(selectedPatch,
                             [&](flecs::entity f, const Fixture::Layout& layout, const Fixture::DmxAddress&)
                         {
@@ -578,7 +599,7 @@ void import(flecs::world& w){
                         });
                     }
 
-                    if(b_showPixels){
+                    if(ui->showPixels){
                         std::vector<ColorRGBW> tempColors;
                         bool hasColors = false;
                         auto prog = std::atomic_load(&App::currentPatchProgram);
@@ -626,7 +647,7 @@ void import(flecs::world& w){
                     static glm::vec3 prevDragAnchor{0};
                     static bool wasDragging = false;
 
-                    if(!ui->patchLocked && selectedFixture.is_valid() && b_showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
+                    if(!ui->patchLocked && selectedFixture.is_valid() && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
                         ImGui::PushStyleColor(ImGuiCol_Button,        {0.2f, 0.6f, 1.0f, 0.8f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1.0f, 1.0f, 1.0f, 1.0f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.2f, 1.0f, 0.4f, 1.0f});
@@ -691,7 +712,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Click-to-select and Drag Start ──
-                    if(canvasClicked && !handleDragged && !handleActive && b_showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space)){
+                    if(canvasClicked && !handleDragged && !handleActive && ui->showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space)){
                         float threshSq = canvas.screenSizeToCanvasSize(8.f);
                         threshSq *= threshSq;
 
@@ -878,7 +899,7 @@ void import(flecs::world& w){
                     univs.push_back(universe);
                 });
 
-                if (ImGui::Button("◀ Prev") && !univs.empty()) {
+                if (ImGui::Button("< Prev") && !univs.empty()) {
                     int prevIndex = currentUnivIndex - 1;
                     if (prevIndex < 0) prevIndex = (int)univs.size() - 1;
                     Artnet::Universe::select(selectedPatch, univs[prevIndex]);
@@ -903,7 +924,7 @@ void import(flecs::world& w){
                 }
                 ImGui::SameLine();
 
-                if (ImGui::Button("Next ▶") && !univs.empty()) {
+                if (ImGui::Button("Next >") && !univs.empty()) {
                     int nextIndex = currentUnivIndex + 1;
                     if (nextIndex >= (int)univs.size()) nextIndex = 0;
                     Artnet::Universe::select(selectedPatch, univs[nextIndex]);
@@ -1095,8 +1116,8 @@ void import(flecs::world& w){
         ImGui::End();
     });
 
-    // ─────────────── Script & Shader Editor ──────────────────────
-    w.system<>("WindowScriptEditor").kind(flecs::OnStore)
+    // ─────────────── Effect Editor ──────────────────────
+    w.system<>("WindowEffectEditor").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
         auto app          = App::get(it.world());
         auto* ui          = &app.get_mut<App::UIConfig>();
@@ -1111,7 +1132,7 @@ void import(flecs::world& w){
             editorsInitialized = true;
         }
 
-        if(ImGui::Begin("Script & Shader Editor", &ui->showScriptEditor)){
+        if(ImGui::Begin("Effect Editor", &ui->showScriptEditor)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
             auto* settings   = selectedPatch.try_get_mut<Patch::Settings>();
@@ -1144,16 +1165,6 @@ void import(flecs::world& w){
                 std::string targetText = "";
                 if (ui->editingCueIndex == -1) {
                     targetText = scriptData->glslSource;
-                } else if (ui->editingCueIndex >= 0) {
-                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
-                    if (cueEnt.is_valid()) {
-                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
-                        if (targetEffect.is_valid()) {
-                            if (const auto* glsl = targetEffect.try_get<EffectBank::Effect::GlslSource>()) {
-                                targetText = glsl->value;
-                            }
-                        }
-                    }
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                     flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                     if (fxEnt.is_valid()) {
@@ -1186,14 +1197,6 @@ void import(flecs::world& w){
                             if (f) f << newSource;
                         } catch (...) {}
                     }
-                } else if (ui->editingCueIndex >= 0) {
-                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
-                    if (cueEnt.is_valid()) {
-                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
-                        if (targetEffect.is_valid()) {
-                            targetEffect.set<EffectBank::Effect::GlslSource>({newSource});
-                        }
-                    }
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                     flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                     if (fxEnt.is_valid()) {
@@ -1220,45 +1223,14 @@ void import(flecs::world& w){
                     settings->vfbResolution = std::clamp(settings->vfbResolution, 16, 2048);
                     selectedPatch.add<Patch::ProgramDirty>();
                 }
-            } else if (ui->editingCueIndex >= 0) {
-                flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
-                if (cueEnt.is_valid()) {
-                    ImGui::Text("Editing Cue %d:", ui->editingCueIndex + 1); ImGui::SameLine();
-                    char cueName[64];
-                    std::strncpy(cueName, cueEnt.name().c_str(), sizeof(cueName)-1);
-                    ImGui::SetNextItemWidth(120);
-                    if (ImGui::InputText("Name", cueName, sizeof(cueName))) {
-                        cueEnt.set_name(cueName);
-                    }
-                    ImGui::SameLine();
-                    
-                    float hold = 5.0f;
-                    if (const auto* h = cueEnt.try_get<CueList::Cue::HoldDuration>()) hold = h->value;
-                    ImGui::SetNextItemWidth(70);
-                    if (ImGui::InputFloat("Hold", &hold, 0.1f, 1.0f, "%.1fs")) {
-                        cueEnt.set<CueList::Cue::HoldDuration>({std::max(0.0f, hold)});
-                    }
-                    ImGui::SameLine();
-                    
-                    float fade = 0.0f;
-                    if (const auto* f = cueEnt.try_get<CueList::Cue::FadeDuration>()) fade = f->value;
-                    ImGui::SetNextItemWidth(70);
-                    if (ImGui::InputFloat("Fade", &fade, 0.1f, 1.0f, "%.1fs")) {
-                        cueEnt.set<CueList::Cue::FadeDuration>({std::max(0.0f, fade)});
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Release")) {
-                        setEditingCueIndex(app, -1);
-                    }
-                }
             } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                 flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                 if (fxEnt.is_valid()) {
-                    ImGui::Text("Editing Bank Effect %d:", ui->editingBankIndex + 1); ImGui::SameLine();
+                    ImGui::Text("Editing Effect:"); ImGui::SameLine();
                     char fxName[64];
                     std::strncpy(fxName, fxEnt.name().c_str(), sizeof(fxName)-1);
                     ImGui::SetNextItemWidth(150);
-                    if (ImGui::InputText("Name", fxName, sizeof(fxName))) {
+                    if (ImGui::InputText("Name##fx", fxName, sizeof(fxName))) {
                         fxEnt.set_name(fxName);
                     }
                     ImGui::SameLine();
@@ -1304,14 +1276,6 @@ void import(flecs::world& w){
                             if (f) f << presetGlsl;
                         } catch (...) {}
                     }
-                } else if (ui->editingCueIndex >= 0) {
-                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
-                    if (cueEnt.is_valid()) {
-                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
-                        if (targetEffect.is_valid()) {
-                            targetEffect.set<EffectBank::Effect::GlslSource>({presetGlsl});
-                        }
-                    }
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                     flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                     if (fxEnt.is_valid()) {
@@ -1333,9 +1297,9 @@ void import(flecs::world& w){
 
             ImGui::Separator();
             if (hasUncompiledChanges) {
-                ImGui::TextColored({1.0f, 0.5f, 0.0f, 1.0f}, "● Unsaved Changes (compiling...)");
+                ImGui::TextColored({1.0f, 0.5f, 0.0f, 1.0f}, "* Unsaved Changes (compiling...)");
             } else {
-                ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "● Saved & Compiled");
+                ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "Compiled & Saved");
             }
 
             ImGui::Separator();
@@ -1346,8 +1310,6 @@ void import(flecs::world& w){
             if (prog) {
                 if (ui->editingCueIndex == -1) {
                     displayLog = prog->defaultCompilerLog;
-                } else if (ui->editingCueIndex >= 0 && ui->editingCueIndex < (int)prog->compiledCues.size()) {
-                    displayLog = prog->compiledCues[ui->editingCueIndex].compilerLog;
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0 && ui->editingBankIndex < (int)prog->compiledBankEffects.size()) {
                     displayLog = prog->compiledBankEffects[ui->editingBankIndex].compilerLog;
                 }
@@ -1365,6 +1327,8 @@ void import(flecs::world& w){
         ImGui::End();
     });
 
+
+
     // ─────────────── WindowCues ─────────────────────────────
     w.system<>("WindowCues").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
@@ -1377,21 +1341,21 @@ void import(flecs::world& w){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
             flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
-            if (!cueFolder.is_valid()) { ImGui::TextDisabled("No cue folder."); ImGui::End(); return; }
+            flecs::entity bankFolder = selectedPatch.target<EffectBank::EffectFolder>();
+            if (!cueFolder.is_valid() || !bankFolder.is_valid()) { ImGui::TextDisabled("No folders."); ImGui::End(); return; }
             auto* session = cueFolder.try_get_mut<CueList::SessionState>();
             if(!session){ ImGui::End(); return; }
 
             // ── Transport ──
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-            ImGui::Checkbox("▶ Auto-advance", &session->autoAdvance); ImGui::SameLine();
-            ImGui::Checkbox("↺ Loop",         &session->loop);
+            ImGui::Checkbox("Auto-advance", &session->autoAdvance); ImGui::SameLine();
+            ImGui::Checkbox("Loop",         &session->loop);
 
             struct CueEntry {
                 flecs::entity entity;
                 int order = 0;
                 float hold = 5.0f;
                 float fade = 2.0f;
-                std::string name;
             };
             std::vector<CueEntry> cues;
 
@@ -1402,7 +1366,6 @@ void import(flecs::world& w){
                     if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
                     if (const auto* h = child.try_get<CueList::Cue::HoldDuration>()) entry.hold = h->value;
                     if (const auto* f = child.try_get<CueList::Cue::FadeDuration>()) entry.fade = f->value;
-                    entry.name = child.name();
                     cues.push_back(entry);
                 }
             });
@@ -1418,13 +1381,13 @@ void import(flecs::world& w){
                 session->holdTimer   = 0.f;
                 auto program = std::atomic_load(&App::currentPatchProgram);
                 if (program) {
-                    program->activeCueIndex.store(idx);
                     program->pendingCrossfadeDuration.store(cueEntry.fade);
+                    program->activeCueIndex.store(idx);
                 }
             };
 
             ImGui::SameLine();
-            if(ImGui::Button("⏮ Prev")){
+            if(ImGui::Button("<< Prev")){
                 if(!cues.empty()){
                     int prev = session->activeIndex - 1;
                     if(prev < 0) prev = session->loop ? (int)cues.size()-1 : 0;
@@ -1432,7 +1395,7 @@ void import(flecs::world& w){
                 }
             }
             ImGui::SameLine();
-            if(ImGui::Button("⏭ Next")){
+            if(ImGui::Button("Next >>")){
                 if(!cues.empty()){
                     int next = session->activeIndex + 1;
                     if(next >= (int)cues.size()) next = session->loop ? 0 : (int)cues.size()-1;
@@ -1440,19 +1403,7 @@ void import(flecs::world& w){
                 }
             }
 
-            // Crossfade in progress indicator
-            auto activeProg = std::atomic_load(&App::currentPatchProgram);
-            if(activeProg && activeProg->crossfadeProgress < 1.f){
-                float p = activeProg->crossfadeProgress;
-                ImGui::SameLine();
-                ImGui::TextColored({0.4f,0.8f,1.f,1.f}, "Crossfade: %.0f%%", p * 100.f);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(120.f);
-                ImGui::ProgressBar(p, ImVec2(120.f, 0));
-            }
-
-            ImGui::Separator();
-
+            ImGui::SameLine();
             if(ImGui::Button("+ Add Cue")){
                 int nextOrder = 0;
                 for (const auto& cue : cues) {
@@ -1461,17 +1412,36 @@ void import(flecs::world& w){
                     }
                 }
                 std::string cueName = "Cue " + std::to_string(cues.size() + 1);
-                
-                auto* scriptData = selectedPatch.try_get<Patch::ScriptData>();
-                std::string glsl = scriptData ? scriptData->glslSource : "";
 
                 flecs::entity bankFolder = selectedPatch.target<EffectBank::EffectFolder>();
-                auto fallbackEffect = it.world().entity()
-                    .child_of(bankFolder)
-                    .add<EffectBank::Effect::Is>()
-                    .set<EffectBank::Effect::GlslSource>({glsl})
-                    .set<Patch::GPUProgram>({});
-                fallbackEffect.set_name(cueName.c_str());
+                flecs::entity targetFx;
+                
+                // Find first effect in bank
+                bankFolder.children([&](flecs::entity child) {
+                    if (child.has<EffectBank::Effect::Is>() && !targetFx.is_valid()) {
+                        targetFx = child;
+                    }
+                });
+
+                // If no effects in bank, create a default one
+                if (!targetFx.is_valid()) {
+                    auto* scriptData = selectedPatch.try_get<Patch::ScriptData>();
+                    std::string glsl = scriptData ? scriptData->glslSource : 
+                        "#version 150\n"
+                        "in vec2 uv;\n"
+                        "out vec4 fragColor;\n"
+                        "uniform float time;\n"
+                        "uniform vec2 resolution;\n"
+                        "void main() {\n"
+                        "    fragColor = vec4(uv.x, uv.y, sin(time)*0.5+0.5, 1.0);\n"
+                        "}\n";
+                    targetFx = it.world().entity()
+                        .child_of(bankFolder)
+                        .add<EffectBank::Effect::Is>()
+                        .set<EffectBank::Effect::GlslSource>({glsl})
+                        .set<Patch::GPUProgram>({});
+                    targetFx.set_name("Effect 1");
+                }
 
                 auto newCue = it.world().entity()
                     .child_of(cueFolder)
@@ -1479,18 +1449,18 @@ void import(flecs::world& w){
                     .set<CueList::Cue::HoldDuration>({5.f})
                     .set<CueList::Cue::FadeDuration>({2.f})
                     .set<CueList::Cue::IndexOrder>({nextOrder})
-                    .add<CueList::Cue::TargetEffect>(fallbackEffect);
+                    .add<CueList::Cue::TargetEffect>(targetFx);
                 newCue.set_name(cueName.c_str());
 
                 if (session->activeIndex < 0) session->activeIndex = 0;
                 selectedPatch.add<Patch::ProgramDirty>();
             }
             ImGui::PopStyleVar();
-            ImGui::Separator();
 
             if (ImGui::BeginChild("##CueItems", ImVec2(0, 0), true)) {
-                if (ImGui::BeginTable("CueTable", 5, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("Status/Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+                if (ImGui::BeginTable("CueTable", 6, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+                    ImGui::TableSetupColumn("Effect", ImGuiTableColumnFlags_WidthStretch, 2.0f);
                     ImGui::TableSetupColumn("Hold", ImGuiTableColumnFlags_WidthFixed, 80.f);
                     ImGui::TableSetupColumn("Fade", ImGuiTableColumnFlags_WidthFixed, 80.f);
                     ImGui::TableSetupColumn("Edit", ImGuiTableColumnFlags_WidthFixed, 60.f);
@@ -1500,34 +1470,84 @@ void import(flecs::world& w){
                     for (int i = 0; i < (int)cues.size(); i++) {
                         auto& cueEntry = cues[i];
                         bool isActive = (i == session->activeIndex);
-                        bool isEditing = (ui->editingCueIndex == i);
+
+                        flecs::entity targetEffect = cueEntry.entity.target<CueList::Cue::TargetEffect>();
+                        bool isEditingThis = false;
+                        int targetFxIdx = -1;
+                        if (targetEffect.is_valid()) {
+                            // Find the index of targetEffect in the bank folder children
+                            int idxCounter = 0;
+                            bankFolder.children([&](flecs::entity child) {
+                                if (child.has<EffectBank::Effect::Is>()) {
+                                    if (child == targetEffect) {
+                                        targetFxIdx = idxCounter;
+                                    }
+                                    idxCounter++;
+                                }
+                            });
+                            isEditingThis = (ui->editingCueIndex == -2 && ui->editingBankIndex == targetFxIdx);
+                        }
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
 
                         ImGui::PushID(cueEntry.entity.id());
 
+                        // Draw compact progress pie chart if active or outgoing
+                        float progress = 0.0f;
+                        ImU32 progressColor = IM_COL32(100, 255, 100, 255);
+                        bool showProgress = false;
+
+                        float crossfadeProgress = 1.0f;
+                        int previousCueIndex = -2;
+                        auto activeProg = std::atomic_load(&App::currentPatchProgram);
+                        if (activeProg) {
+                            crossfadeProgress = activeProg->crossfadeProgress.load();
+                            previousCueIndex = activeProg->previousCueIndex;
+                        }
+
                         if (isActive) {
-                            ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "▶ ");
-                            ImGui::SameLine();
-                        } else if (isEditing) {
-                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "✎ ");
+                            if (session->autoAdvance && cueEntry.hold > 0.001f) {
+                                progress = std::clamp(session->holdTimer / cueEntry.hold, 0.0f, 1.0f);
+                                progressColor = IM_COL32(100, 255, 100, 255); // Green for hold
+                                showProgress = true;
+                            }
+                        } else if (i == previousCueIndex && crossfadeProgress < 1.0f) {
+                            progress = crossfadeProgress;
+                            progressColor = IM_COL32(100, 200, 255, 255); // Blue for crossfade
+                            showProgress = true;
+                        }
+
+                        if (showProgress) {
+                            ImGui::Dummy(ImVec2(14, 14));
+                            ImVec2 pMin = ImGui::GetItemRectMin();
+                            DrawCompactProgress(ImGui::GetWindowDrawList(), pMin, 6.0f, progress, IM_COL32(100, 100, 100, 255), progressColor);
                             ImGui::SameLine();
                         } else {
-                            ImGui::Text("  ");
-                            ImGui::SameLine();
+                            if (isActive) {
+                                ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "> ");
+                                ImGui::SameLine();
+                            } else {
+                                ImGui::Text("  ");
+                                ImGui::SameLine();
+                            }
                         }
 
                         char label[128];
-                        std::snprintf(label, sizeof(label), "%s##select", cueEntry.name.c_str());
-                        if (ImGui::Selectable(label, isActive, ImGuiSelectableFlags_SpanAllColumns)) {
+                        std::snprintf(label, sizeof(label), "Cue %d##select", i + 1);
+                        if (ImGui::Selectable(label, isActive)) {
                             triggerCue(i);
+                        }
+                        if (isEditingThis) {
+                            float pulse = std::sin((float)ImGui::GetTime() * 6.0f) * 0.5f + 0.5f;
+                            ImU32 flashColor = IM_COL32(230, 140, 20, (int)(pulse * 60.f + 15.f)); // Pulsing orange background
+                            ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), flashColor, 2.0f);
                         }
 
                         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
                             uint64_t dragCid = cueEntry.entity.id();
                             ImGui::SetDragDropPayload("DND_CUE_ORDER", &dragCid, sizeof(dragCid));
-                            ImGui::Text("Move %s", cueEntry.name.c_str());
+                            ImGui::Text("Move Cue %d", i + 1);
                             ImGui::EndDragDropSource();
                         }
 
@@ -1541,29 +1561,54 @@ void import(flecs::world& w){
                         }
 
                         ImGui::TableNextColumn();
+                        std::string comboLabel = targetEffect.is_valid() ? targetEffect.name().c_str() : "None";
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::BeginCombo("##EffectCombo", comboLabel.c_str())) {
+                            std::vector<flecs::entity> fxList;
+                            bankFolder.children([&](flecs::entity child) {
+                                if (child.has<EffectBank::Effect::Is>()) {
+                                    fxList.push_back(child);
+                                }
+                            });
+                            for (auto& fx : fxList) {
+                                bool isSel = (fx == targetEffect);
+                                if (ImGui::Selectable(fx.name().c_str(), isSel)) {
+                                    cueEntry.entity.remove<CueList::Cue::TargetEffect>(flecs::Wildcard);
+                                    cueEntry.entity.add<CueList::Cue::TargetEffect>(fx);
+                                    selectedPatch.add<Patch::ProgramDirty>();
+                                }
+                                if (isSel) {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        ImGui::TableNextColumn();
                         float hold = cueEntry.hold;
                         ImGui::SetNextItemWidth(70);
-                        if (ImGui::InputFloat("##h", &hold, 0.1f, 1.0f, "%.1fs")) {
+                        if (ImGui::InputFloat("##h", &hold, 0.0f, 0.0f, "%.1fs")) {
                             cueEntry.entity.set<CueList::Cue::HoldDuration>({std::max(0.0f, hold)});
                         }
 
                         ImGui::TableNextColumn();
                         float fade = cueEntry.fade;
                         ImGui::SetNextItemWidth(70);
-                        if (ImGui::InputFloat("##f", &fade, 0.1f, 1.0f, "%.1fs")) {
+                        if (ImGui::InputFloat("##f", &fade, 0.0f, 0.0f, "%.1fs")) {
                             cueEntry.entity.set<CueList::Cue::FadeDuration>({std::max(0.0f, fade)});
                         }
 
                         ImGui::TableNextColumn();
-                        if (isEditing) {
+                        if (isEditingThis) {
                             ImGui::PushStyleColor(ImGuiCol_Button, {0.8f, 0.5f, 0.1f, 1.0f});
                             if (ImGui::Button("Edit")) {
                                 setEditingCueIndex(app, -1);
                             }
                             ImGui::PopStyleColor();
                         } else {
-                            if (ImGui::Button("Edit")) {
-                                setEditingCueIndex(app, i);
+                            if (ImGui::Button("Edit") && targetFxIdx >= 0) {
+                                setEditingBankIndex(app, targetFxIdx);
+                                ui->showScriptEditor = true;
                             }
                         }
 
@@ -1575,11 +1620,6 @@ void import(flecs::world& w){
                                 session->activeIndex = std::clamp(session->activeIndex, -1, (int)cues.size() - 2);
                             } else if (session->activeIndex > i) {
                                 session->activeIndex--;
-                            }
-                            if (ui->editingCueIndex == i) {
-                                setEditingCueIndex(app, -1);
-                            } else if (ui->editingCueIndex > i) {
-                                setEditingCueIndex(app, ui->editingCueIndex - 1);
                             }
                             i--;
                             selectedPatch.add<Patch::ProgramDirty>();
@@ -1613,7 +1653,7 @@ void import(flecs::world& w){
             flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
             if (!cueFolder.is_valid() || !bankSession) { ImGui::End(); return; }
 
-            if(ImGui::Button("+ Add Experimental Effect")){
+            if(ImGui::Button("+ Add Effect")){
                 std::vector<flecs::entity> fxList;
                 bankFolder.children([&](flecs::entity child) {
                     if (child.has<EffectBank::Effect::Is>()) {
@@ -1636,22 +1676,43 @@ void import(flecs::world& w){
                     .set<EffectBank::Effect::GlslSource>({glsl})
                     .set<Patch::GPUProgram>({});
                 newFx.set_name(fxName.c_str());
+                
+                // Immediately select for editing and open editor window
+                setEditingBankIndex(app, (int)fxList.size());
+                ui->showScriptEditor = true;
+
                 selectedPatch.add<Patch::ProgramDirty>();
             }
+
+            ImGui::SameLine();
+            static char filterBuf[128] = "";
+            ImGui::SetNextItemWidth(180.f);
+            ImGui::InputTextWithHint("##EffectFilter", "Search effects...", filterBuf, sizeof(filterBuf));
 
             ImGui::Separator();
 
             if (ImGui::BeginChild("##BankItems", ImVec2(0, 0), true)) {
-                if (ImGui::BeginTable("BankTable", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
+                if (ImGui::BeginTable("BankTable", 5, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
                     ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 110.f);
+                    ImGui::TableSetupColumn("Duplicate", ImGuiTableColumnFlags_WidthFixed, 80.f);
                     ImGui::TableSetupColumn("Edit", ImGuiTableColumnFlags_WidthFixed, 60.f);
                     ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 60.f);
                     ImGui::TableHeadersRow();
 
                     std::vector<flecs::entity> fxList;
+                    std::string filterStr = filterBuf;
+                    std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
+
                     bankFolder.children([&](flecs::entity child) {
                         if (child.has<EffectBank::Effect::Is>()) {
+                            if (!filterStr.empty()) {
+                                std::string name = child.name().c_str();
+                                std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+                                if (name.find(filterStr) == std::string::npos) {
+                                    return;
+                                }
+                            }
                             fxList.push_back(child);
                         }
                     });
@@ -1666,7 +1727,7 @@ void import(flecs::world& w){
                         ImGui::PushID(fx.id());
 
                         if (isEditing) {
-                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "✎ %s", fx.name().c_str());
+                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "* %s", fx.name().c_str());
                         } else {
                             ImGui::Text("%s", fx.name().c_str());
                         }
@@ -1682,11 +1743,6 @@ void import(flecs::world& w){
                                 }
                             });
                             
-                            std::string glsl = "";
-                            if (const auto* src = fx.try_get<EffectBank::Effect::GlslSource>()) {
-                                glsl = src->value;
-                            }
-                            
                             auto newCue = it.world().entity()
                                 .child_of(cueFolder)
                                 .add<CueList::Cue::Is>()
@@ -1695,6 +1751,22 @@ void import(flecs::world& w){
                                 .set<CueList::Cue::IndexOrder>({nextOrder})
                                 .add<CueList::Cue::TargetEffect>(fx);
                             newCue.set_name(fx.name().c_str());
+                            selectedPatch.add<Patch::ProgramDirty>();
+                        }
+
+                        ImGui::TableNextColumn();
+                        if (ImGui::Button("Duplicate")) {
+                            std::string glsl = "";
+                            if (const auto* src = fx.try_get<EffectBank::Effect::GlslSource>()) {
+                                glsl = src->value;
+                            }
+                            std::string newName = std::string(fx.name().c_str()) + " Copy";
+                            auto newFx = it.world().entity()
+                                .child_of(bankFolder)
+                                .add<EffectBank::Effect::Is>()
+                                .set<EffectBank::Effect::GlslSource>({glsl})
+                                .set<Patch::GPUProgram>({});
+                            newFx.set_name(newName.c_str());
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
 
@@ -1760,7 +1832,7 @@ void import(flecs::world& w){
                 ImGui::SetCursorPosX((avail.x - imgSize.x) * 0.5f + ImGui::GetCursorPosX());
                 ImGui::SetCursorPosY((avail.y - imgSize.y) * 0.5f + ImGui::GetCursorPosY());
 
-                ImGui::Image((ImTextureID)(intptr_t)tex, imgSize, ImVec2(0,1), ImVec2(1,0));
+                ImGui::Image((ImTextureID)(intptr_t)tex, imgSize, ImVec2(0,0), ImVec2(1,1));
             } else {
                 ImGui::TextDisabled("No offline shader preview available.");
             }

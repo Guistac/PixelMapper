@@ -92,6 +92,10 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
         uiEl->SetAttribute("patchLocked", config->patchLocked ? 1 : 0);
         uiEl->SetAttribute("previewOpacity", config->previewOpacity);
         uiEl->SetAttribute("showGrid", config->showGrid ? 1 : 0);
+        uiEl->SetAttribute("showFixtures", config->showFixtures ? 1 : 0);
+        uiEl->SetAttribute("showPixels", config->showPixels ? 1 : 0);
+        uiEl->SetAttribute("showFrame", config->showFrame ? 1 : 0);
+        uiEl->SetAttribute("autoZoom", config->autoZoom ? 1 : 0);
         uiEl->SetAttribute("editingCueIndex", config->editingCueIndex);
         uiEl->SetAttribute("editingBankIndex", config->editingBankIndex);
         root->InsertEndChild(uiEl);
@@ -298,6 +302,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
         if (config) {
             uiEl->QueryIntAttribute("currentLayout", &config->currentLayout);
             int sf=1, sp=1, sd=1, sn=1, sdev=1, sse=0, sc=0, sop=0, seb=0, pl=0, sg=1;
+            int sfix=1, spix=1, sfrm=1, sazm=0;
             uiEl->QueryIntAttribute("showFixturesWindow", &sf);
             uiEl->QueryIntAttribute("showPatchEditor", &sp);
             uiEl->QueryIntAttribute("showArtnetData", &sd);
@@ -309,6 +314,10 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             uiEl->QueryIntAttribute("showEffectBankWindow", &seb);
             uiEl->QueryIntAttribute("patchLocked", &pl);
             uiEl->QueryIntAttribute("showGrid", &sg);
+            uiEl->QueryIntAttribute("showFixtures", &sfix);
+            uiEl->QueryIntAttribute("showPixels", &spix);
+            uiEl->QueryIntAttribute("showFrame", &sfrm);
+            uiEl->QueryIntAttribute("autoZoom", &sazm);
             uiEl->QueryFloatAttribute("previewOpacity", &config->previewOpacity);
             uiEl->QueryIntAttribute("editingCueIndex", &config->editingCueIndex);
             uiEl->QueryIntAttribute("editingBankIndex", &config->editingBankIndex);
@@ -323,6 +332,10 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             config->showEffectBankWindow = (seb != 0);
             config->patchLocked = (pl != 0);
             config->showGrid = (sg != 0);
+            config->showFixtures = (sfix != 0);
+            config->showPixels = (spix != 0);
+            config->showFrame = (sfrm != 0);
+            config->autoZoom = (sazm != 0);
         }
     }
 

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" patchLocked="1" previewOpacity="0.5" showGrid="0" showFixtures="0" showPixels="1" showFrame="1" autoZoom="1" editingCueIndex="-2" editingBankIndex="5"/>
     <Patch name="Patch 1">
-        <Settings refreshRate="120" networkEnabled="1" sourcePort="6454" renderMode="2" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
+        <Settings refreshRate="20" networkEnabled="1" sourcePort="6454" renderMode="2" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -68,8 +69,16 @@ void main() {
         <ArtNetDevices>
             <Device name="Device 1" ip="16.115.47.33" startUniverse="1" universeCount="0"/>
         </ArtNetDevices>
-        <CueList autoAdvance="1" loop="1" activeIndex="3">
-            <Cue name="Cue 1" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+        <CueList autoAdvance="1" loop="1" activeIndex="5">
+            <Cue name="Cue 1" holdSeconds="2" fadeSeconds="1" targetEffectId="0"/>
+            <Cue name="Cue 2" holdSeconds="2" fadeSeconds="1" targetEffectId="1"/>
+            <Cue name="Cue 3" holdSeconds="2" fadeSeconds="1" targetEffectId="2"/>
+            <Cue name="Cue 5" holdSeconds="2" fadeSeconds="1" targetEffectId="3"/>
+            <Cue name="Effect 5" holdSeconds="2" fadeSeconds="1" targetEffectId="4"/>
+            <Cue name="Solid Color Cycle" holdSeconds="2" fadeSeconds="1" targetEffectId="5"/>
+        </CueList>
+        <EffectBank activeIndex="-1">
+            <Effect name="Rainbow pattern spin" id="0"><![CDATA[#version 150
 in vec2 uv;
 out vec4 fragColor;
 
@@ -95,8 +104,8 @@ void main() {
     
     fragColor = vec4(r, g, b, 1.0);
 }
-]]></Cue>
-            <Cue name="Cue 2" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+]]></Effect>
+            <Effect name="Fire" id="1"><![CDATA[#version 150
 in vec2 uv;
 out vec4 fragColor;
 uniform float time;
@@ -114,14 +123,14 @@ void main() {
     q.y = 1.0 - q.y;  // flame rises upward
     float t = time * 1.5;
     float f = noise(q * vec2(10.0, 5.0) + vec2(0.0, -t));
-    f += 0.5 * noise(q * vec2(60.0, 10.0) + vec2(0.0, -t * 1.3));
+    f += 0.5 * noise(q * vec2(10.0, 10.0) + vec2(0.0, -t * 1.3));
     f = clamp(f - q.y * 1.1, 0.0, 1.0);
     vec3 fire = mix(vec3(1.0, 0.0, 0.0), vec3(1.0, 0.9, 0.0), f);
     fire = mix(vec3(0.0), fire, pow(f, 0.4));
     fragColor = vec4(fire, 1.0);
 }
-]]></Cue>
-            <Cue name="Cue 3" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+]]></Effect>
+            <Effect name="Scanline" id="2"><![CDATA[#version 150
 in vec2 uv;
 out vec4 fragColor;
 uniform float time;
@@ -136,24 +145,8 @@ void main() {
     float brightness = bg + bar * (1.0 - bg);
     fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
 }
-]]></Cue>
-            <Cue name="Cue 4" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
-in vec2 uv;
-out vec4 fragColor;
-uniform float time;
-uniform vec2 resolution;
-
-void main() {
-    float speed = 0.5;
-    float sweep = mod(time * speed, 1.0);
-    float bar   = smoothstep(sweep - 0.04, sweep, uv.y)
-                - smoothstep(sweep, sweep + 0.04, uv.y);
-    float bg = 0.05;
-    float brightness = bg + bar * (1.0 - bg);
-    fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
-}
-]]></Cue>
-            <Cue name="Cue 5" holdSeconds="5" fadeSeconds="2"><![CDATA[#version 150
+]]></Effect>
+            <Effect name="Protean Clouds" id="3"><![CDATA[#version 150
 
 in vec2 uv;
 out vec4 fragColor;
@@ -291,8 +284,38 @@ void main()
     col *= pow( 16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y), 0.12)*0.7+0.3; 
     
     fragColor = vec4( col, 1.0 );
-}]]></Cue>
-        </CueList>
-        <EffectBank activeIndex="-1"/>
+}]]></Effect>
+            <Effect name="Sparkle" id="4"><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
+uniform float time;
+uniform vec2 resolution;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main() {
+    vec2 cell = floor(uv * 20.0);
+    float rnd  = hash(cell + floor(time * 12.0));
+    float spark = step(0.94, rnd);
+    fragColor = vec4(vec3(spark), 1.0);
+}
+]]></Effect>
+            <Effect name="Solid Color Cycle" id="5"><![CDATA[#version 150
+in vec2 uv;
+out vec4 fragColor;
+uniform float time;
+uniform vec2 resolution;
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+void main() {
+    float hue = mod(time * 0.05, 1.0);
+    vec3 col = hsv2rgb(vec3(hue, 0.9, 1.0));
+    fragColor = vec4(col, 1.0);
+}
+]]></Effect>
+        </EffectBank>
     </Patch>
 </PixelMapper>

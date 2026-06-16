@@ -171,7 +171,7 @@ namespace {
             "in vec2 position;\n"
             "out vec2 uv;\n"
             "void main() {\n"
-            "    uv = position * 0.5 + 0.5;\n"
+            "    uv = vec2(position.x * 0.5 + 0.5, 1.0 - (position.y * 0.5 + 0.5));\n"
             "    gl_Position = vec4(position, 0.0, 1.0);\n"
             "}\n";
 
@@ -697,12 +697,16 @@ void render(PatchProgram* program){
     program->timeElapsed = (float)glfwGetTime();
 
     // ── Cue Switch Detection & Crossfade Triggering ──
-    if (program->renderMode == Patch::RenderMode::GLSL && program->vfbPixels && program->vfbPixelsOld) {
+    if (program->vfbPixels && program->vfbPixelsOld) {
         int targetCue = program->activeCueIndex.load();
         if (program->currentRenderedCueIndex != targetCue) {
             float fade = program->pendingCrossfadeDuration.load();
             program->pendingCrossfadeDuration.store(0.0f); // Consume
             if (fade > 0.0f && program->currentRenderedCueIndex != -2) {
+                if (program->renderMode != Patch::RenderMode::GLSL) {
+                    std::memcpy(program->vfbPixelsOld, program->vfbPixels,
+                                program->vfbWidth * program->vfbHeight * sizeof(ColorRGBW));
+                }
                 program->previousCueIndex = program->currentRenderedCueIndex;
                 program->crossfadeDuration.store(fade);
                 program->crossfadeProgress.store(0.0f);

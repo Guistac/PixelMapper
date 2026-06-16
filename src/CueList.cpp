@@ -70,8 +70,8 @@ void import(flecs::world& w) {
          // Write the next active cue index atomically
          auto program = std::atomic_load(&App::currentPatchProgram);
          if (program) {
-             program->activeCueIndex.store(next);
              program->pendingCrossfadeDuration.store(nextFade);
+             program->activeCueIndex.store(next);
          }
      });
 }
