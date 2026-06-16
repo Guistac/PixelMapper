@@ -32,45 +32,39 @@ static std::unique_ptr<TextEditor> luaEditor;
 static std::unique_ptr<TextEditor> glslEditor;
 static bool editorsInitialized = false;
 static flecs::id_t currentPatchId = 0;
- 
-static int editingCueIndex = -1;
-static int editingBankIndex = -1;
-static bool showOfflinePreviewWindow = false;
-static bool showEffectBankWindow = false;
+
 static bool autoCompile = true;
 static bool hasUncompiledChanges = false;
  
-static bool patchLocked = false;
-static float previewOpacity = 1.0f;
-static bool b_showGrid = true;
- 
-static void setEditingCueIndex(int idx) {
-    editingCueIndex = idx;
-    App::patchProgramLock.lock();
-    if (App::currentPatchProgram) {
-        App::currentPatchProgram->editingCueIndex = idx;
+static void setEditingCueIndex(flecs::entity app, int idx) {
+    if (auto* ui = &app.get_mut<App::UIConfig>()) {
+        ui->editingCueIndex = idx;
         if (idx >= -1) {
-            App::currentPatchProgram->editingBankIndex = -1;
+            ui->editingBankIndex = -1;
         }
     }
-    App::patchProgramLock.unlock();
-    if (idx >= -1) {
-        editingBankIndex = -1;
+    auto p = std::atomic_load(&App::currentPatchProgram);
+    if (p) {
+        p->editingCueIndex.store(idx);
+        if (idx >= -1) {
+            p->editingBankIndex.store(-1);
+        }
     }
 }
  
-static void setEditingBankIndex(int idx) {
-    editingBankIndex = idx;
-    App::patchProgramLock.lock();
-    if (App::currentPatchProgram) {
-        App::currentPatchProgram->editingBankIndex = idx;
+static void setEditingBankIndex(flecs::entity app, int idx) {
+    if (auto* ui = &app.get_mut<App::UIConfig>()) {
+        ui->editingBankIndex = idx;
         if (idx >= 0) {
-            App::currentPatchProgram->editingCueIndex = -2;
+            ui->editingCueIndex = -2;
         }
     }
-    App::patchProgramLock.unlock();
-    if (idx >= 0) {
-        editingCueIndex = -2;
+    auto p = std::atomic_load(&App::currentPatchProgram);
+    if (p) {
+        p->editingBankIndex.store(idx);
+        if (idx >= 0) {
+            p->editingCueIndex.store(-2);
+        }
     }
 }
 
@@ -79,43 +73,124 @@ static int currentVfbWidth = 0;
 static int currentVfbHeight = 0;
 
 enum class GuiLayout {
-    PatchEditing,
-    EffectsControl
+    PatchEditing = 0,
+    EffectsControl = 1
 };
 
-static GuiLayout currentLayout = GuiLayout::PatchEditing;
-
-static bool showFixturesWindow    = true;
-static bool showPatchEditor       = true;
-static bool showArtnetData        = true;
-static bool showNetworkSettings   = true;
-static bool showArtnetDevices     = true;
-static bool showScriptEditor      = false; // Default to false for PatchEditing layout
-static bool showCuesWindow        = false;
-
-static void applyLayout(GuiLayout layout) {
-    currentLayout = layout;
+static void applyLayout(flecs::entity app, App::UIConfig* ui, GuiLayout layout) {
+    ui->currentLayout = (int)layout;
     if (layout == GuiLayout::PatchEditing) {
-        showPatchEditor       = true;
-        showFixturesWindow    = true;
-        showArtnetDevices     = true;
-        showNetworkSettings   = true;
-        showArtnetData        = true;
-        showScriptEditor      = false;
-        showCuesWindow        = false;
-        showOfflinePreviewWindow = false;
-        showEffectBankWindow  = false;
+        ui->showPatchEditor       = true;
+        ui->showFixturesWindow    = true;
+        ui->showArtnetDevices     = true;
+        ui->showNetworkSettings   = true;
+        ui->showArtnetData        = true;
+        ui->showScriptEditor      = false;
+        ui->showCuesWindow        = false;
+        ui->showOfflinePreviewWindow = false;
+        ui->showEffectBankWindow  = false;
     } else if (layout == GuiLayout::EffectsControl) {
-        showScriptEditor      = true;
-        showCuesWindow        = true;
-        showPatchEditor       = true;
-        showFixturesWindow    = false;
-        showArtnetDevices     = false;
-        showNetworkSettings   = false;
-        showArtnetData        = false;
-        showOfflinePreviewWindow = true;
-        showEffectBankWindow  = true;
+        ui->showScriptEditor      = true;
+        ui->showCuesWindow        = true;
+        ui->showPatchEditor       = true;
+        ui->showFixturesWindow    = false;
+        ui->showArtnetDevices     = false;
+        ui->showNetworkSettings   = false;
+        ui->showArtnetData        = false;
+        ui->showOfflinePreviewWindow = true;
+        ui->showEffectBankWindow  = true;
     }
+}
+
+static void reorderCues(flecs::entity patch, flecs::entity dragCue, flecs::entity dropCue) {
+    if (!dragCue.is_valid() || !dropCue.is_valid() || dragCue == dropCue) return;
+
+    flecs::entity cueFolder = patch.target<CueList::CueFolder>();
+    if (!cueFolder.is_valid()) return;
+
+    struct CueSortEntry {
+        flecs::entity entity;
+        int order = 0;
+    };
+    std::vector<CueSortEntry> sortedCues;
+    cueFolder.children([&](flecs::entity child) {
+        if (child.has<CueList::Cue::Is>()) {
+            CueSortEntry entry;
+            entry.entity = child;
+            if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+            sortedCues.push_back(entry);
+        }
+    });
+
+    std::sort(sortedCues.begin(), sortedCues.end(), [](const CueSortEntry& a, const CueSortEntry& b) {
+        return a.order < b.order;
+    });
+
+    std::vector<flecs::entity> list;
+    for (const auto& entry : sortedCues) {
+        list.push_back(entry.entity);
+    }
+
+    auto dragIt = std::find(list.begin(), list.end(), dragCue);
+    auto dropIt = std::find(list.begin(), list.end(), dropCue);
+    if (dragIt == list.end() || dropIt == list.end()) return;
+
+    auto* session = &cueFolder.get_mut<CueList::SessionState>();
+    flecs::entity activeCueEntity;
+    if (session && session->activeIndex >= 0 && session->activeIndex < (int)list.size()) {
+        activeCueEntity = list[session->activeIndex];
+    }
+
+    list.erase(dragIt);
+    dropIt = std::find(list.begin(), list.end(), dropCue);
+    list.insert(dropIt, dragCue);
+
+    for (int i = 0; i < (int)list.size(); ++i) {
+        list[i].set<CueList::Cue::IndexOrder>({i});
+        if (list[i] == activeCueEntity && session) {
+            session->activeIndex = i;
+            auto program = std::atomic_load(&App::currentPatchProgram);
+            if (program) {
+                program->activeCueIndex.store(i);
+            }
+        }
+    }
+
+    patch.add<Patch::ProgramDirty>();
+}
+
+static flecs::entity getCueEntityByIndex(flecs::entity cueFolder, int idx) {
+    if (!cueFolder.is_valid() || idx < 0) return flecs::entity::null();
+    struct CueSortEntry {
+        flecs::entity entity;
+        int order = 0;
+    };
+    std::vector<CueSortEntry> sortedCues;
+    cueFolder.children([&](flecs::entity child) {
+        if (child.has<CueList::Cue::Is>()) {
+            CueSortEntry entry;
+            entry.entity = child;
+            if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+            sortedCues.push_back(entry);
+        }
+    });
+    if (idx >= (int)sortedCues.size()) return flecs::entity::null();
+    std::sort(sortedCues.begin(), sortedCues.end(), [](const CueSortEntry& a, const CueSortEntry& b) {
+        return a.order < b.order;
+    });
+    return sortedCues[idx].entity;
+}
+
+static flecs::entity getEffectEntityByIndex(flecs::entity bankFolder, int idx) {
+    if (!bankFolder.is_valid() || idx < 0) return flecs::entity::null();
+    std::vector<flecs::entity> fxList;
+    bankFolder.children([&](flecs::entity child) {
+        if (child.has<EffectBank::Effect::Is>()) {
+            fxList.push_back(child);
+        }
+    });
+    if (idx >= (int)fxList.size()) return flecs::entity::null();
+    return fxList[idx];
 }
 
 // ─────────────────── hit-test helpers ───────────────────────────
@@ -157,6 +232,7 @@ void import(flecs::world& w){
     w.system<>("MainWindow").kind(flecs::PreStore)
     .run([&](flecs::iter& it){
         auto app = App::get(it.world());
+        auto* ui = &app.get_mut<App::UIConfig>();
         if(ImGui::BeginMainMenuBar()){
 
             if(ImGui::BeginMenu("File")){
@@ -183,25 +259,25 @@ void import(flecs::world& w){
             }
 
             if(ImGui::BeginMenu("Layout")){
-                if(ImGui::MenuItem("Patch Editing", nullptr, currentLayout == GuiLayout::PatchEditing)) {
-                    applyLayout(GuiLayout::PatchEditing);
+                if(ImGui::MenuItem("Patch Editing", nullptr, ui->currentLayout == (int)GuiLayout::PatchEditing)) {
+                    applyLayout(app, ui, GuiLayout::PatchEditing);
                 }
-                if(ImGui::MenuItem("Effects & Control", nullptr, currentLayout == GuiLayout::EffectsControl)) {
-                    applyLayout(GuiLayout::EffectsControl);
+                if(ImGui::MenuItem("Effects & Control", nullptr, ui->currentLayout == (int)GuiLayout::EffectsControl)) {
+                    applyLayout(app, ui, GuiLayout::EffectsControl);
                 }
                 ImGui::EndMenu();
             }
 
             if(ImGui::BeginMenu("View")){
-                ImGui::MenuItem("Fixtures",                nullptr, &showFixturesWindow);
-                ImGui::MenuItem("Patch Editor",            nullptr, &showPatchEditor);
-                ImGui::MenuItem("Artnet Data",             nullptr, &showArtnetData);
-                ImGui::MenuItem("Patch & Network Settings",nullptr, &showNetworkSettings);
-                ImGui::MenuItem("Artnet Devices",          nullptr, &showArtnetDevices);
-                ImGui::MenuItem("Script & Shader Editor",  nullptr, &showScriptEditor);
-                ImGui::MenuItem("Cue List",                nullptr, &showCuesWindow);
-                ImGui::MenuItem("Offline Preview",         nullptr, &showOfflinePreviewWindow);
-                ImGui::MenuItem("Effect Bank",             nullptr, &showEffectBankWindow);
+                ImGui::MenuItem("Fixtures",                nullptr, &ui->showFixturesWindow);
+                ImGui::MenuItem("Patch Editor",            nullptr, &ui->showPatchEditor);
+                ImGui::MenuItem("Artnet Data",             nullptr, &ui->showArtnetData);
+                ImGui::MenuItem("Patch & Network Settings",nullptr, &ui->showNetworkSettings);
+                ImGui::MenuItem("Artnet Devices",          nullptr, &ui->showArtnetDevices);
+                ImGui::MenuItem("Script & Shader Editor",  nullptr, &ui->showScriptEditor);
+                ImGui::MenuItem("Cue List",                nullptr, &ui->showCuesWindow);
+                ImGui::MenuItem("Offline Preview",         nullptr, &ui->showOfflinePreviewWindow);
+                ImGui::MenuItem("Effect Bank",             nullptr, &ui->showEffectBankWindow);
                 ImGui::EndMenu();
             }
 
@@ -220,70 +296,74 @@ void import(flecs::world& w){
         ImGui::DockSpaceOverViewport();
     });
 
-    // ─────────────── Cmd+S shortcut ───────────────────────────
     w.system<>("KeyboardShortcuts").kind(flecs::PreStore)
     .run([&](flecs::iter& it){
-        if (ImGui::GetIO().KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false))
-            PatchSerializer::save(App::get(it.world()), "patches/default.xml");
+        auto app = App::get(it.world());
+        if(ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_LeftSuper)){
+            if(ImGui::IsKeyPressed(ImGuiKey_S, false)) PatchSerializer::save(app, "patches/default.xml");
+        }
     });
 
-    // ─────────────── Fixtures Window ─────────────────────────────
+    // ─────────────── WindowFixtures ───────────────
     w.system<>("WindowFixtures").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showFixturesWindow) return;
-        auto app              = App::get(it.world());
-        auto selectedPatch    = Patch::getSelected(app);
-        auto selectedFixture  = Fixture::getSelected(selectedPatch);
+        auto app = App::get(it.world());
+        auto* ui = &app.get_mut<App::UIConfig>();
+        if (!ui->showFixturesWindow) return;
+        auto selectedPatch   = Patch::getSelected(app);
+        auto selectedFixture = Fixture::getSelected(selectedPatch);
+        bool hasSel          = selectedFixture.is_valid() && selectedFixture.is_alive();
 
-        if(ImGui::Begin("Fixtures", &showFixturesWindow)){
+        if(ImGui::Begin("Fixtures", &ui->showFixturesWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-            if(ImGui::Button("Add Line")){
-                Fixture::createLine(selectedPatch, {0,0,0}, {100,100,0});
-                selectedPatch.add<Patch::DmxMapDirty>();
-                selectedPatch.add<Patch::RenderAreaDirty>();
-            }
-            ImGui::SameLine();
-            if(ImGui::Button("Add Circle")){
-                Fixture::createCircle(selectedPatch, {0,0,0}, 50.f);
-                selectedPatch.add<Patch::DmxMapDirty>();
-                selectedPatch.add<Patch::RenderAreaDirty>();
-            }
-            bool hasSel = selectedFixture.is_valid() && selectedFixture.is_alive();
-            ImGui::SameLine();
-            if(!hasSel) ImGui::BeginDisabled();
-            if(ImGui::Button("Duplicate")){
-                auto dup = Fixture::duplicate(selectedPatch, selectedFixture);
-                if(dup.is_valid()){ Fixture::select(selectedPatch, dup); }
-                selectedPatch.add<Patch::DmxMapDirty>(); selectedPatch.add<Patch::RenderAreaDirty>();
-            }
-            if(!hasSel) ImGui::EndDisabled();
-            ImGui::SameLine();
-            if(ImGui::Button("Auto-Pack DMX")) Fixture::autoPackDmx(selectedPatch);
-            ImGui::SameLine();
-            if(!hasSel) ImGui::BeginDisabled();
-            ImGui::PushStyleColor(ImGuiCol_Button,        {0.5f,0.1f,0.1f,1});
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.7f,0.15f,0.15f,1});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.4f,0.05f,0.05f,1});
-            if(ImGui::Button("Remove")){
-                auto p = Fixture::getPatch(selectedFixture);
-                selectedFixture.destruct();
-                if(p.is_valid()){ Fixture::clearSelection(p); msClear(p); p.add<Patch::DmxMapDirty>(); p.add<Patch::RenderAreaDirty>(); }
-            }
-            ImGui::PopStyleColor(3);
-            if(!hasSel) ImGui::EndDisabled();
-            ImGui::PopStyleVar();
-            ImGui::Separator();
-
-            if(ImGui::BeginTable("FixturesTable", 2, ImGuiTableFlags_Resizable)){
+            // Title list + props table
+            if(ImGui::BeginTable("FixTable", 2, ImGuiTableFlags_Resizable)){
                 ImGui::TableNextRow();
-                // Fixture list
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Fixture List");
-                if(ImGui::BeginListBox("##Fixtures", ImGui::GetContentRegionAvail())){
-                    static flecs::id_t renamingId = 0;
-                    static char renameBuf[64] = {};
+                ImGui::SeparatorText("Fixtures List");
+
+                // Toolbar buttons
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
+                if (ImGui::Button("+ Line")) {
+                    auto f = Fixture::createLine(selectedPatch, {-200, 0, 0}, {200, 0, 0});
+                    Fixture::select(selectedPatch, f); msClear(selectedPatch);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("+ Circle")) {
+                    auto f = Fixture::createCircle(selectedPatch, {0, 0, 0}, 150);
+                    Fixture::select(selectedPatch, f); msClear(selectedPatch);
+                }
+                ImGui::SameLine();
+                
+                ImGui::PushStyleColor(ImGuiCol_Button,        {0.5f, 0.1f, 0.1f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.7f, 0.15f, 0.15f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.4f, 0.05f, 0.05f, 1.0f});
+                bool anySelected = hasSel || msCount(selectedPatch) > 0;
+                if (!anySelected) ImGui::BeginDisabled();
+                if (ImGui::Button("Remove")) {
+                    if(msCount(selectedPatch) > 0){
+                        const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
+                        if(ms) for(auto fid : ms->ids){
+                            flecs::entity(selectedPatch.world(), fid).destruct();
+                        }
+                        msClear(selectedPatch);
+                        Fixture::clearSelection(selectedPatch);
+                    } else if(selectedFixture.is_valid()){
+                        selectedFixture.destruct();
+                        Fixture::clearSelection(selectedPatch);
+                    }
+                }
+                if (!anySelected) ImGui::EndDisabled();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar();
+
+                ImGui::Separator();
+
+                static uint64_t renamingId = 0;
+                static char renameBuf[64] = "";
+
+                if(ImGui::BeginListBox("##FixsList", ImGui::GetContentRegionAvail())){
                     Fixture::iterateWithDmx(selectedPatch,
                         [&](flecs::entity f, const Fixture::Layout&, const Fixture::DmxAddress&)
                     {
@@ -385,8 +465,9 @@ void import(flecs::world& w){
     // ─────────────── Patch Editor (Canvas) ───────────────────────
     w.system<>("WindowPatchEditor").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showPatchEditor) return;
         auto app             = App::get(it.world());
+        auto* ui             = &app.get_mut<App::UIConfig>();
+        if (!ui->showPatchEditor) return;
         auto selectedPatch   = Patch::getSelected(app);
         auto selectedFixture = Fixture::getSelected(selectedPatch);
 
@@ -404,13 +485,13 @@ void import(flecs::world& w){
         static flecs::entity clickedFixture;
         static glm::vec2 lastDragMouseCanvas{0};
 
-        if(ImGui::Begin("Patch Editor", &showPatchEditor,
+        if(ImGui::Begin("Patch Editor", &ui->showPatchEditor,
                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         {
-            ImGui::Checkbox("Lock", &patchLocked); ImGui::SameLine();
-            ImGui::Checkbox("Grid", &b_showGrid); ImGui::SameLine();
+            ImGui::Checkbox("Lock", &ui->patchLocked); ImGui::SameLine();
+            ImGui::Checkbox("Grid", &ui->showGrid); ImGui::SameLine();
             ImGui::SetNextItemWidth(100);
-            ImGui::SliderFloat("Opacity", &previewOpacity, 0.0f, 1.0f, "%.2f"); ImGui::SameLine();
+            ImGui::SliderFloat("Opacity", &ui->previewOpacity, 0.0f, 1.0f, "%.2f"); ImGui::SameLine();
             ImGui::Checkbox("Fixtures", &b_showFixtures); ImGui::SameLine();
             ImGui::Checkbox("Pixels",   &b_showPixels);   ImGui::SameLine();
             ImGui::Checkbox("Rendered", &b_showFrame);    ImGui::SameLine();
@@ -427,7 +508,7 @@ void import(flecs::world& w){
                 glm::vec2 mCanvas  = canvas.getMouseCanvasPos();
                 bool shiftHeld     = ImGui::GetIO().KeyShift;
 
-                if (b_showGrid) {
+                if (ui->showGrid) {
                     canvas.drawGrid(100.0, 0xFF333333, 0xFF000000);
                 } else {
                     drawing->AddRectFilled(canvas.frameMin, canvas.frameMax, 0xFF000000);
@@ -437,45 +518,44 @@ void import(flecs::world& w){
 
                     // ── VFB preview texture ──
                     if(b_showFrame){
-                        App::patchProgramLock.lock();
-                        if(App::currentPatchProgram){
-                            int tw = App::currentPatchProgram->vfbWidth;
-                            int th = App::currentPatchProgram->vfbHeight;
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if(prog){
+                            int tw = prog->vfbWidth;
+                            int th = prog->vfbHeight;
                             GLuint texID = 0;
-                            if(App::currentPatchProgram->renderMode == Patch::RenderMode::GLSL){
-                                if (App::currentPatchProgram->crossfadeProgress < 1.0f && App::currentPatchProgram->glslFboTexBlend != 0) {
-                                    texID = App::currentPatchProgram->glslFboTexBlend;
+                            if(prog->renderMode == Patch::RenderMode::GLSL){
+                                if (prog->crossfadeProgress < 1.0f && prog->glslFboTexBlend != 0) {
+                                    texID = prog->glslFboTexBlend;
                                 } else {
-                                    texID = App::currentPatchProgram->glslFboTex;
+                                    texID = prog->glslFboTex;
                                 }
-                            } else if(App::currentPatchProgram->vfbPixels){
+                            } else if(prog->vfbPixels){
                                 if(vfbPreviewTexId == 0) glGenTextures(1, &vfbPreviewTexId);
                                 glBindTexture(GL_TEXTURE_2D, vfbPreviewTexId);
                                 if(currentVfbWidth != tw || currentVfbHeight != th){
                                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0,
-                                                 GL_RGBA, GL_UNSIGNED_BYTE, App::currentPatchProgram->vfbPixels);
+                                                 GL_RGBA, GL_UNSIGNED_BYTE, prog->vfbPixels);
                                     currentVfbWidth = tw; currentVfbHeight = th;
                                 } else {
                                     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tw, th,
-                                                    GL_RGBA, GL_UNSIGNED_BYTE, App::currentPatchProgram->vfbPixels);
+                                                    GL_RGBA, GL_UNSIGNED_BYTE, prog->vfbPixels);
                                 }
-                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                                glBindTexture(GL_TEXTURE_2D, 0);
-                                texID = vfbPreviewTexId;
+                                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                                            glBindTexture(GL_TEXTURE_2D, 0);
+                                            texID = vfbPreviewTexId;
                             }
                             if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>()){
                                 glm::vec2 pMin = canvas.canvasToScreen(glm::vec2(ra->min));
                                 glm::vec2 pMax = canvas.canvasToScreen(glm::vec2(ra->max));
-                                ImU32 tintCol = IM_COL32(255, 255, 255, (int)(previewOpacity * 255));
+                                ImU32 tintCol = IM_COL32(255, 255, 255, (int)(ui->previewOpacity * 255));
                                 if(texID) drawing->AddImage((ImTextureID)(intptr_t)texID, pMin, pMax, ImVec2(0,0), ImVec2(1,1), tintCol);
-                                else      drawing->AddRectFilled(pMin, pMax, IM_COL32(0, 0, 0, (int)(previewOpacity * 0.4f * 255)));
+                                else      drawing->AddRectFilled(pMin, pMax, IM_COL32(0, 0, 0, (int)(ui->previewOpacity * 0.4f * 255)));
                             }
                         }
-                        App::patchProgramLock.unlock();
                     } else if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>()){
                         drawing->AddRectFilled(canvas.canvasToScreen(glm::vec2(ra->min)),
-                                               canvas.canvasToScreen(glm::vec2(ra->max)), IM_COL32(0, 0, 0, (int)(previewOpacity * 0.27f * 255)));
+                                               canvas.canvasToScreen(glm::vec2(ra->max)), IM_COL32(0, 0, 0, (int)(ui->previewOpacity * 0.27f * 255)));
                     }
 
                     // ── Draw fixtures ──
@@ -501,13 +581,12 @@ void import(flecs::world& w){
                     if(b_showPixels){
                         std::vector<ColorRGBW> tempColors;
                         bool hasColors = false;
-                        App::patchProgramLock.lock();
-                        if (App::currentPatchProgram && App::currentPatchProgram->pixelColors) {
-                            tempColors.assign(App::currentPatchProgram->pixelColors,
-                                              App::currentPatchProgram->pixelColors + App::currentPatchProgram->pixelCount);
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if (prog && prog->pixelColors) {
+                            tempColors.assign(prog->pixelColors,
+                                              prog->pixelColors + prog->pixelCount);
                             hasColors = true;
                         }
-                        App::patchProgramLock.unlock();
 
                         int pixelIndex = 0;
                         Fixture::iterateWithDmx(selectedPatch,
@@ -531,7 +610,7 @@ void import(flecs::world& w){
                     }
 
                     // ── Double-click to add fixture ──
-                    if (!patchLocked) {
+                    if (!ui->patchLocked) {
                         glm::vec2 clickPos;
                         if(canvas.isDoubleClicked(clickPos)){
                             Fixture::createLine(selectedPatch, {clickPos, 0}, {clickPos + glm::vec2(100,100), 0});
@@ -547,7 +626,7 @@ void import(flecs::world& w){
                     static glm::vec3 prevDragAnchor{0};
                     static bool wasDragging = false;
 
-                    if(!patchLocked && selectedFixture.is_valid() && b_showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
+                    if(!ui->patchLocked && selectedFixture.is_valid() && b_showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space) && !fixtureDragging){
                         ImGui::PushStyleColor(ImGuiCol_Button,        {0.2f, 0.6f, 1.0f, 0.8f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1.0f, 1.0f, 1.0f, 1.0f});
                         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.2f, 1.0f, 0.4f, 1.0f});
@@ -612,8 +691,6 @@ void import(flecs::world& w){
                     }
 
                     // ── Click-to-select and Drag Start ──
-                    // Only act when the canvas background was clicked (canvasClicked),
-                    // not when a drag handle consumed the click.
                     if(canvasClicked && !handleDragged && !handleActive && b_showFixtures && !ImGui::IsKeyDown(ImGuiKey_Space)){
                         float threshSq = canvas.screenSizeToCanvasSize(8.f);
                         threshSq *= threshSq;
@@ -638,13 +715,12 @@ void import(flecs::world& w){
 
                         if(hitFixture.is_valid()){
                             clickedFixture = hitFixture;
-                            if (!patchLocked) {
+                            if (!ui->patchLocked) {
                                 fixtureDragging = true;
                                 fixtureHasDragged = false;
                                 lastDragMouseCanvas = mCanvas;
                             }
 
-                            // If it's not selected yet, select it immediately on click down so dragging works immediately
                             bool isAlreadySelected = (hitFixture == selectedFixture || msContains(selectedPatch, hitFixture));
                             if(!isAlreadySelected){
                                 if(shiftHeld){
@@ -657,7 +733,6 @@ void import(flecs::world& w){
                                 }
                             }
                         } else if(!shiftHeld){
-                            // Clicked empty space — start marquee (canvasActive will track drag)
                             Fixture::clearSelection(selectedPatch);
                             msClear(selectedPatch);
                             marqueeActive = true;
@@ -674,7 +749,6 @@ void import(flecs::world& w){
                                 fixtureHasDragged = true;
                                 lastDragMouseCanvas = mCanvas;
 
-                                // Lambda to move a fixture
                                 auto moveFixture = [](flecs::entity f, const glm::vec2& d2d) {
                                     if(!f.is_valid() || !f.is_alive()) return;
                                     glm::vec3 d3d{d2d.x, d2d.y, 0.0f};
@@ -693,7 +767,6 @@ void import(flecs::world& w){
                                     }
                                 };
 
-                                // Move all selected fixtures
                                 const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
                                 if(ms && !ms->ids.empty()){
                                     for(auto fid : ms->ids){
@@ -704,9 +777,7 @@ void import(flecs::world& w){
                                 }
                             }
                         } else {
-                            // Mouse released
                             if(!fixtureHasDragged && clickedFixture.is_valid()){
-                                // Toggle selection or update selection since it was a click, not a drag
                                 if(shiftHeld){
                                     if(auto* ms = getOrCreateMultiSelection(selectedPatch)){
                                         if(ms->ids.count(clickedFixture.id())){
@@ -736,8 +807,6 @@ void import(flecs::world& w){
                     }
 
                     // ── Marquee rubber-band ──
-                    // canvasActive is true only while the user is dragging the BACKGROUND
-                    // (the InvisibleButton). It is false when dragging a child handle button.
                     if(marqueeActive){
                         if(canvasActive || ImGui::IsMouseDown(ImGuiMouseButton_Left)){
                             marqueeEnd = mCanvas;
@@ -754,7 +823,6 @@ void import(flecs::world& w){
                         drawing->AddRectFilled(sA, sB, IM_COL32(100,200,255,30));
 
                         if(!ImGui::IsMouseDown(ImGuiMouseButton_Left)){
-                            // Mouse released — commit selection
                             bool first = true;
                             msClear(selectedPatch);
                             Fixture::iterateWithDmx(selectedPatch,
@@ -779,7 +847,6 @@ void import(flecs::world& w){
                         }
                     }
 
-                    // Cancel marquee if mouse was released outside
                     if(marqueeActive && !canvasActive && !ImGui::IsMouseDown(0))
                         marqueeActive = false;
                 }
@@ -793,15 +860,15 @@ void import(flecs::world& w){
     // ─────────────── Artnet Data Window ──────────────────────────
     w.system<>("WindowArtnetData").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showArtnetData) return;
         auto app             = App::get(it.world());
+        auto* ui             = &app.get_mut<App::UIConfig>();
+        if (!ui->showArtnetData) return;
         auto selectedPatch   = Patch::getSelected(app);
         auto selectedFixture = Fixture::getSelected(selectedPatch);
         auto selectedUniverse = Artnet::Universe::getSelected(selectedPatch);
 
-        if(ImGui::Begin("Artnet Data", &showArtnetData)){
+        if(ImGui::Begin("Artnet Data", &ui->showArtnetData)){
             if(selectedPatch.is_valid()){
-                // Get all universes in sorted order
                 std::vector<flecs::entity> univs;
                 int currentUnivIndex = -1;
                 Artnet::Universe::iterate(selectedPatch, [&](flecs::entity universe, Artnet::Universe::Properties& props){
@@ -863,7 +930,6 @@ void import(flecs::world& w){
                             for(int i = dmxAddress.universe + 1; i < (int)univProps->universeId; i++) count -= 512;
                         }
                         if(count <= 0 || offset < 0) return;
-                        // MappedField: {Name, Offset, Count, Color, b_selected}
                         fields.push_back({fixture.name().c_str(), offset, count, 0, (fixture == selectedFixture)});
                 });
                 std::sort(fields.begin(), fields.end(), [](const MappedField& a, const MappedField& b){ return a.Offset < b.Offset; });
@@ -872,17 +938,16 @@ void import(flecs::world& w){
                 uint8_t localChannels[512] = {0};
                 bool channelsCopied = false;
                 if (univProps) {
-                    App::patchProgramLock.lock();
-                    if (App::currentPatchProgram) {
-                        for (int ui = 0; ui < App::currentPatchProgram->universeCount; ++ui) {
-                            if (App::currentPatchProgram->universes[ui].id == univProps->universeId) {
-                                std::memcpy(localChannels, App::currentPatchProgram->universes[ui].buffer, 512);
+                    auto prog = std::atomic_load(&App::currentPatchProgram);
+                    if (prog) {
+                        for (int ui = 0; ui < prog->universeCount; ++ui) {
+                            if (prog->universes[ui].id == univProps->universeId) {
+                                std::memcpy(localChannels, prog->universes[ui].buffer, 512);
                                 channelsCopied = true;
                                 break;
                             }
                         }
                     }
-                    App::patchProgramLock.unlock();
                 }
 
                 if (!channelsCopied) {
@@ -906,10 +971,11 @@ void import(flecs::world& w){
     // ─────────────── Patch & Network Settings ────────────────────
     w.system<>("WindowPatchSettings").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showNetworkSettings) return;
         auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showNetworkSettings) return;
         auto selectedPatch = Patch::getSelected(app);
-        if(ImGui::Begin("Patch & Network Settings", &showNetworkSettings)){
+        if(ImGui::Begin("Patch & Network Settings", &ui->showNetworkSettings)){
             if(selectedPatch.is_valid()){
                 if(auto* s = selectedPatch.try_get_mut<Patch::Settings>()){
                     bool e = false;
@@ -919,6 +985,30 @@ void import(flecs::world& w){
                     if(ImGui::InputInt("Source Port", &sp)){ s->sourcePort = std::clamp(sp,1,65535); e = true; }
                     ImGui::SeparatorText("Timing");
                     e |= ImGui::SliderFloat("Refresh Rate (Hz)", &s->refreshRate, 1.f, 120.f, "%.1f Hz");
+                    
+                    ImGui::SeparatorText("Virtual Framebuffer");
+                    int vfbRes = s->vfbResolution;
+                    if (ImGui::SliderInt("Resolution", &vfbRes, 16, 2048)) {
+                        s->vfbResolution = vfbRes;
+                        e = true;
+                    }
+                    
+                    int wVal = vfbRes;
+                    int hVal = vfbRes;
+                    if (selectedPatch.has<Patch::RenderArea>()) {
+                        const auto& ra = selectedPatch.get<Patch::RenderArea>();
+                        float dx = ra.max.x - ra.min.x;
+                        float dy = ra.max.y - ra.min.y;
+                        if (dx > 0.001f || dy > 0.001f) {
+                            if (dx >= dy) {
+                                hVal = std::max(1, (int)std::round(vfbRes * dy / dx));
+                            } else {
+                                wVal = std::max(1, (int)std::round(vfbRes * dx / dy));
+                            }
+                        }
+                    }
+                    ImGui::Text("Actual FBO Size: %d x %d (W x H)", wVal, hVal);
+                    
                     if(e) selectedPatch.add<Patch::ProgramDirty>();
                 }
             } else ImGui::TextDisabled("No patch selected.");
@@ -929,19 +1019,23 @@ void import(flecs::world& w){
     // ─────────────── Artnet Devices Window ───────────────────────
     w.system<>("WindowArtnetDevices").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showArtnetDevices) return;
         auto app               = App::get(it.world());
+        auto* ui               = &app.get_mut<App::UIConfig>();
+        if (!ui->showArtnetDevices) return;
         auto selectedPatch     = Patch::getSelected(app);
         auto selectedDev       = Artnet::Device::getSelected(selectedPatch);
 
-        if(ImGui::Begin("Artnet Devices", &showArtnetDevices)){
+        if(ImGui::Begin("Artnet Devices", &ui->showArtnetDevices)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-            if(ImGui::Button("Add Device")){
+            if(ImGui::Button("+ Add Device")){
+                std::vector<flecs::entity> devs;
+                Artnet::Device::iterateInPatch(selectedPatch, [&](flecs::entity d, const Artnet::Device::Settings&){ devs.push_back(d); });
+                std::string devName = "Device " + std::to_string(devs.size() + 1);
                 auto dev = Artnet::Device::create(selectedPatch);
-                static int cnt = 1;
-                dev.set_name(("Device " + std::to_string(cnt++)).c_str());
+                dev.set_name(devName.c_str());
+                Artnet::Device::select(selectedPatch, dev);
                 if(auto* s = dev.try_get_mut<Artnet::Device::Settings>()){
                     s->ipAddress = 0xFFFFFFFF; s->startUniverse = 0; s->universeCount = 1;
                 }
@@ -1004,8 +1098,9 @@ void import(flecs::world& w){
     // ─────────────── Script & Shader Editor ──────────────────────
     w.system<>("WindowScriptEditor").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showScriptEditor) return;
         auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showScriptEditor) return;
         auto selectedPatch = Patch::getSelected(app);
 
         if(!editorsInitialized){
@@ -1016,37 +1111,56 @@ void import(flecs::world& w){
             editorsInitialized = true;
         }
 
-        if(ImGui::Begin("Script & Shader Editor", &showScriptEditor)){
+        if(ImGui::Begin("Script & Shader Editor", &ui->showScriptEditor)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
             auto* settings   = selectedPatch.try_get_mut<Patch::Settings>();
             auto* scriptData = selectedPatch.try_get_mut<Patch::ScriptData>();
-            auto* cueList    = selectedPatch.try_get_mut<CueList::List>();
-            auto* bank       = selectedPatch.try_get_mut<EffectBank::Bank>();
             if(!settings || !scriptData){ ImGui::End(); return; }
 
-            // ── Target Syncing and Change Detection ──
+            flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
+            flecs::entity bankFolder = selectedPatch.target<EffectBank::EffectFolder>();
+
             static flecs::id_t lastPatchId = 0;
             static int lastEditingCueIndex = -99;
             static int lastEditingBankIndex = -99;
             static std::string lastEditorText = "";
 
             bool targetChanged = (selectedPatch.id() != lastPatchId) || 
-                                 (editingCueIndex != lastEditingCueIndex) || 
-                                 (editingBankIndex != lastEditingBankIndex);
+                                 (ui->editingCueIndex != lastEditingCueIndex) || 
+                                 (ui->editingBankIndex != lastEditingBankIndex);
 
             if (targetChanged) {
                 lastPatchId = selectedPatch.id();
-                lastEditingCueIndex = editingCueIndex;
-                lastEditingBankIndex = editingBankIndex;
+                lastEditingCueIndex = ui->editingCueIndex;
+                lastEditingBankIndex = ui->editingBankIndex;
+
+                auto p = std::atomic_load(&App::currentPatchProgram);
+                if (p) {
+                    p->editingCueIndex.store(ui->editingCueIndex);
+                    p->editingBankIndex.store(ui->editingBankIndex);
+                }
                 
                 std::string targetText = "";
-                if (editingCueIndex == -1) {
+                if (ui->editingCueIndex == -1) {
                     targetText = scriptData->glslSource;
-                } else if (editingCueIndex >= 0 && cueList && editingCueIndex < (int)cueList->cues.size()) {
-                    targetText = cueList->cues[editingCueIndex].glslSource;
-                } else if (editingCueIndex == -2 && bank && editingBankIndex >= 0 && editingBankIndex < (int)bank->effects.size()) {
-                    targetText = bank->effects[editingBankIndex].glslSource;
+                } else if (ui->editingCueIndex >= 0) {
+                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
+                    if (cueEnt.is_valid()) {
+                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
+                        if (targetEffect.is_valid()) {
+                            if (const auto* glsl = targetEffect.try_get<EffectBank::Effect::GlslSource>()) {
+                                targetText = glsl->value;
+                            }
+                        }
+                    }
+                } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
+                    flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
+                    if (fxEnt.is_valid()) {
+                        if (const auto* glsl = fxEnt.try_get<EffectBank::Effect::GlslSource>()) {
+                            targetText = glsl->value;
+                        }
+                    }
                 }
                 glslEditor->SetText(targetText);
                 lastEditorText = targetText;
@@ -1064,7 +1178,7 @@ void import(flecs::world& w){
 
             if (hasUncompiledChanges && (ImGui::GetTime() - lastChangeTime > 0.3)) {
                 std::string newSource = glslEditor->GetText();
-                if (editingCueIndex == -1) {
+                if (ui->editingCueIndex == -1) {
                     scriptData->glslSource = newSource;
                     if (settings) {
                         try {
@@ -1072,17 +1186,26 @@ void import(flecs::world& w){
                             if (f) f << newSource;
                         } catch (...) {}
                     }
-                } else if (editingCueIndex >= 0 && cueList && editingCueIndex < (int)cueList->cues.size()) {
-                    cueList->cues[editingCueIndex].glslSource = newSource;
-                } else if (editingCueIndex == -2 && bank && editingBankIndex >= 0 && editingBankIndex < (int)bank->effects.size()) {
-                    bank->effects[editingBankIndex].glslSource = newSource;
+                } else if (ui->editingCueIndex >= 0) {
+                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
+                    if (cueEnt.is_valid()) {
+                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
+                        if (targetEffect.is_valid()) {
+                            targetEffect.set<EffectBank::Effect::GlslSource>({newSource});
+                        }
+                    }
+                } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
+                    flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
+                    if (fxEnt.is_valid()) {
+                        fxEnt.set<EffectBank::Effect::GlslSource>({newSource});
+                    }
                 }
                 selectedPatch.add<Patch::ProgramDirty>();
                 hasUncompiledChanges = false;
             }
 
             // ── Editor Header Row ──
-            if (editingCueIndex == -1) {
+            if (ui->editingCueIndex == -1) {
                 ImGui::Text("Editing: Default Shader"); ImGui::SameLine();
                 const char* modes[] = {"C++ Sine", "Lua Script", "GLSL Shader"};
                 int mode = (int)settings->renderMode;
@@ -1097,47 +1220,72 @@ void import(flecs::world& w){
                     settings->vfbResolution = std::clamp(settings->vfbResolution, 16, 2048);
                     selectedPatch.add<Patch::ProgramDirty>();
                 }
-            } else if (editingCueIndex >= 0 && cueList && editingCueIndex < (int)cueList->cues.size()) {
-                CueList::Cue& cue = cueList->cues[editingCueIndex];
-                ImGui::Text("Editing Cue %d:", editingCueIndex + 1); ImGui::SameLine();
-                char cueName[64];
-                std::strncpy(cueName, cue.name.c_str(), sizeof(cueName)-1);
-                ImGui::SetNextItemWidth(120);
-                if (ImGui::InputText("Name", cueName, sizeof(cueName))) {
-                    cue.name = cueName;
+            } else if (ui->editingCueIndex >= 0) {
+                flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
+                if (cueEnt.is_valid()) {
+                    ImGui::Text("Editing Cue %d:", ui->editingCueIndex + 1); ImGui::SameLine();
+                    char cueName[64];
+                    std::strncpy(cueName, cueEnt.name().c_str(), sizeof(cueName)-1);
+                    ImGui::SetNextItemWidth(120);
+                    if (ImGui::InputText("Name", cueName, sizeof(cueName))) {
+                        cueEnt.set_name(cueName);
+                    }
+                    ImGui::SameLine();
+                    
+                    float hold = 5.0f;
+                    if (const auto* h = cueEnt.try_get<CueList::Cue::HoldDuration>()) hold = h->value;
+                    ImGui::SetNextItemWidth(70);
+                    if (ImGui::InputFloat("Hold", &hold, 0.1f, 1.0f, "%.1fs")) {
+                        cueEnt.set<CueList::Cue::HoldDuration>({std::max(0.0f, hold)});
+                    }
+                    ImGui::SameLine();
+                    
+                    float fade = 0.0f;
+                    if (const auto* f = cueEnt.try_get<CueList::Cue::FadeDuration>()) fade = f->value;
+                    ImGui::SetNextItemWidth(70);
+                    if (ImGui::InputFloat("Fade", &fade, 0.1f, 1.0f, "%.1fs")) {
+                        cueEnt.set<CueList::Cue::FadeDuration>({std::max(0.0f, fade)});
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Release")) {
+                        setEditingCueIndex(app, -1);
+                    }
                 }
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(70);
-                ImGui::InputFloat("Hold", &cue.holdSeconds, 0.0f, 0.0f, "%.1fs");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(70);
-                ImGui::InputFloat("Fade", &cue.fadeSeconds, 0.0f, 0.0f, "%.1fs");
-                ImGui::SameLine();
-                if (ImGui::Button("Release")) {
-                    setEditingCueIndex(-1);
-                }
-            } else if (editingCueIndex == -2 && bank && editingBankIndex >= 0 && editingBankIndex < (int)bank->effects.size()) {
-                EffectBank::Effect& fx = bank->effects[editingBankIndex];
-                ImGui::Text("Editing Bank Effect %d:", editingBankIndex + 1); ImGui::SameLine();
-                char fxName[64];
-                std::strncpy(fxName, fx.name.c_str(), sizeof(fxName)-1);
-                ImGui::SetNextItemWidth(150);
-                if (ImGui::InputText("Name", fxName, sizeof(fxName))) {
-                    fx.name = fxName;
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Add to Cue List")) {
-                    CueList::Cue cue;
-                    cue.name = fx.name;
-                    cue.glslSource = fx.glslSource;
-                    cue.holdSeconds = 5.0f;
-                    cue.fadeSeconds = 2.0f;
-                    cueList->cues.push_back(cue);
-                    selectedPatch.add<Patch::ProgramDirty>();
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Release")) {
-                    setEditingCueIndex(-1);
+            } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
+                flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
+                if (fxEnt.is_valid()) {
+                    ImGui::Text("Editing Bank Effect %d:", ui->editingBankIndex + 1); ImGui::SameLine();
+                    char fxName[64];
+                    std::strncpy(fxName, fxEnt.name().c_str(), sizeof(fxName)-1);
+                    ImGui::SetNextItemWidth(150);
+                    if (ImGui::InputText("Name", fxName, sizeof(fxName))) {
+                        fxEnt.set_name(fxName);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Add to Cue List")) {
+                        int nextOrder = 0;
+                        cueFolder.children([&](flecs::entity child) {
+                            if (child.has<CueList::Cue::Is>()) {
+                                if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) {
+                                    if (ord->value >= nextOrder) nextOrder = ord->value + 1;
+                                }
+                            }
+                        });
+                        std::string cueName = fxEnt.name().c_str();
+                        auto newCue = it.world().entity()
+                            .child_of(cueFolder)
+                            .add<CueList::Cue::Is>()
+                            .set<CueList::Cue::HoldDuration>({5.0f})
+                            .set<CueList::Cue::FadeDuration>({2.0f})
+                            .set<CueList::Cue::IndexOrder>({nextOrder})
+                            .add<CueList::Cue::TargetEffect>(fxEnt);
+                        newCue.set_name(cueName.c_str());
+                        selectedPatch.add<Patch::ProgramDirty>();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Release")) {
+                        setEditingCueIndex(app, -1);
+                    }
                 }
             }
 
@@ -1148,7 +1296,7 @@ void import(flecs::world& w){
             if(ImGui::Combo("Preset", &presetIdx, presetGetter, nullptr, kPresetCount) && presetIdx >= 0){
                 std::string presetGlsl = kPresets[presetIdx].glsl;
                 glslEditor->SetText(presetGlsl);
-                if (editingCueIndex == -1) {
+                if (ui->editingCueIndex == -1) {
                     scriptData->glslSource = presetGlsl;
                     if (settings) {
                         try {
@@ -1156,10 +1304,19 @@ void import(flecs::world& w){
                             if (f) f << presetGlsl;
                         } catch (...) {}
                     }
-                } else if (editingCueIndex >= 0 && cueList && editingCueIndex < (int)cueList->cues.size()) {
-                    cueList->cues[editingCueIndex].glslSource = presetGlsl;
-                } else if (editingCueIndex == -2 && bank && editingBankIndex >= 0 && editingBankIndex < (int)bank->effects.size()) {
-                    bank->effects[editingBankIndex].glslSource = presetGlsl;
+                } else if (ui->editingCueIndex >= 0) {
+                    flecs::entity cueEnt = getCueEntityByIndex(cueFolder, ui->editingCueIndex);
+                    if (cueEnt.is_valid()) {
+                        flecs::entity targetEffect = cueEnt.target<CueList::Cue::TargetEffect>();
+                        if (targetEffect.is_valid()) {
+                            targetEffect.set<EffectBank::Effect::GlslSource>({presetGlsl});
+                        }
+                    }
+                } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
+                    flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
+                    if (fxEnt.is_valid()) {
+                        fxEnt.set<EffectBank::Effect::GlslSource>({presetGlsl});
+                    }
                 }
                 selectedPatch.add<Patch::ProgramDirty>();
                 hasUncompiledChanges = false;
@@ -1167,7 +1324,6 @@ void import(flecs::world& w){
 
             ImGui::Separator();
 
-            // ── Editor fills remaining space minus log area ──
             const float kLogHeight = 100.f;
             const float kSepHeight = ImGui::GetStyle().ItemSpacing.y + 1.f;
             float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f - ImGui::GetTextLineHeightWithSpacing();
@@ -1176,7 +1332,6 @@ void import(flecs::world& w){
             glslEditor->Render("GlslEd", ImVec2(0, editorHeight));
 
             ImGui::Separator();
-            // Status bar
             if (hasUncompiledChanges) {
                 ImGui::TextColored({1.0f, 0.5f, 0.0f, 1.0f}, "● Unsaved Changes (compiling...)");
             } else {
@@ -1187,17 +1342,16 @@ void import(flecs::world& w){
             ImGui::Text("Compilation Log:");
             ImGui::BeginChild("##Log", ImVec2(0, kLogHeight), true);
             std::string displayLog = "";
-            App::patchProgramLock.lock();
-            if (App::currentPatchProgram) {
-                if (editingCueIndex == -1) {
-                    displayLog = App::currentPatchProgram->defaultCompilerLog;
-                } else if (editingCueIndex >= 0 && editingCueIndex < (int)App::currentPatchProgram->compiledCues.size()) {
-                    displayLog = App::currentPatchProgram->compiledCues[editingCueIndex].compilerLog;
-                } else if (editingCueIndex == -2 && editingBankIndex >= 0 && editingBankIndex < (int)App::currentPatchProgram->compiledBankEffects.size()) {
-                    displayLog = App::currentPatchProgram->compiledBankEffects[editingBankIndex].compilerLog;
+            auto prog = std::atomic_load(&App::currentPatchProgram);
+            if (prog) {
+                if (ui->editingCueIndex == -1) {
+                    displayLog = prog->defaultCompilerLog;
+                } else if (ui->editingCueIndex >= 0 && ui->editingCueIndex < (int)prog->compiledCues.size()) {
+                    displayLog = prog->compiledCues[ui->editingCueIndex].compilerLog;
+                } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0 && ui->editingBankIndex < (int)prog->compiledBankEffects.size()) {
+                    displayLog = prog->compiledBankEffects[ui->editingBankIndex].compilerLog;
                 }
             }
-            App::patchProgramLock.unlock();
 
             bool ok = displayLog == "Compile successful!";
             if(ok)
@@ -1211,87 +1365,129 @@ void import(flecs::world& w){
         ImGui::End();
     });
 
-    // ─────────────── Cue List Window ─────────────────────────────
+    // ─────────────── WindowCues ─────────────────────────────
     w.system<>("WindowCues").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showCuesWindow) return;
         auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showCuesWindow) return;
         auto selectedPatch = Patch::getSelected(app);
 
-        if(ImGui::Begin("Cue List", &showCuesWindow)){
+        if(ImGui::Begin("Cue List", &ui->showCuesWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
-            if(!selectedPatch.has<CueList::List>()) selectedPatch.set<CueList::List>({});
-            auto* cueList    = selectedPatch.try_get_mut<CueList::List>();
-            if(!cueList){ ImGui::End(); return; }
+            flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
+            if (!cueFolder.is_valid()) { ImGui::TextDisabled("No cue folder."); ImGui::End(); return; }
+            auto* session = cueFolder.try_get_mut<CueList::SessionState>();
+            if(!session){ ImGui::End(); return; }
 
             // ── Transport ──
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-            ImGui::Checkbox("▶ Auto-advance", &cueList->autoAdvance); ImGui::SameLine();
-            ImGui::Checkbox("↺ Loop",         &cueList->loop);
+            ImGui::Checkbox("▶ Auto-advance", &session->autoAdvance); ImGui::SameLine();
+            ImGui::Checkbox("↺ Loop",         &session->loop);
+
+            struct CueEntry {
+                flecs::entity entity;
+                int order = 0;
+                float hold = 5.0f;
+                float fade = 2.0f;
+                std::string name;
+            };
+            std::vector<CueEntry> cues;
+
+            cueFolder.children([&](flecs::entity child) {
+                if (child.has<CueList::Cue::Is>()) {
+                    CueEntry entry;
+                    entry.entity = child;
+                    if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+                    if (const auto* h = child.try_get<CueList::Cue::HoldDuration>()) entry.hold = h->value;
+                    if (const auto* f = child.try_get<CueList::Cue::FadeDuration>()) entry.fade = f->value;
+                    entry.name = child.name();
+                    cues.push_back(entry);
+                }
+            });
+
+            std::sort(cues.begin(), cues.end(), [](const CueEntry& a, const CueEntry& b) {
+                return a.order < b.order;
+            });
 
             auto triggerCue = [&](int idx){
-                if(idx < 0 || idx >= (int)cueList->cues.size()) return;
-                const CueList::Cue& cue = cueList->cues[idx];
-                cueList->activeIndex = idx;
-                cueList->holdTimer   = 0.f;
-                App::patchProgramLock.lock();
-                if (App::currentPatchProgram) {
-                    App::currentPatchProgram->activeCueIndex = idx;
-                    App::currentPatchProgram->pendingCrossfadeDuration = cue.fadeSeconds;
+                if(idx < 0 || idx >= (int)cues.size()) return;
+                const auto& cueEntry = cues[idx];
+                session->activeIndex = idx;
+                session->holdTimer   = 0.f;
+                auto program = std::atomic_load(&App::currentPatchProgram);
+                if (program) {
+                    program->activeCueIndex.store(idx);
+                    program->pendingCrossfadeDuration.store(cueEntry.fade);
                 }
-                App::patchProgramLock.unlock();
             };
 
             ImGui::SameLine();
             if(ImGui::Button("⏮ Prev")){
-                if(!cueList->cues.empty()){
-                    int prev = cueList->activeIndex - 1;
-                    if(prev < 0) prev = cueList->loop ? (int)cueList->cues.size()-1 : 0;
+                if(!cues.empty()){
+                    int prev = session->activeIndex - 1;
+                    if(prev < 0) prev = session->loop ? (int)cues.size()-1 : 0;
                     triggerCue(prev);
                 }
             }
             ImGui::SameLine();
             if(ImGui::Button("⏭ Next")){
-                if(!cueList->cues.empty()){
-                    int next = cueList->activeIndex + 1;
-                    if(next >= (int)cueList->cues.size()) next = cueList->loop ? 0 : (int)cueList->cues.size()-1;
+                if(!cues.empty()){
+                    int next = session->activeIndex + 1;
+                    if(next >= (int)cues.size()) next = session->loop ? 0 : (int)cues.size()-1;
                     triggerCue(next);
                 }
             }
 
             // Crossfade in progress indicator
-            if(App::patchProgramLock.try_lock()){
-                if(App::currentPatchProgram && App::currentPatchProgram->crossfadeProgress < 1.f){
-                    float p = App::currentPatchProgram->crossfadeProgress;
-                    App::patchProgramLock.unlock();
-                    ImGui::SameLine();
-                    ImGui::TextColored({0.4f,0.8f,1.f,1.f}, "Crossfade: %.0f%%", p * 100.f);
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(120.f);
-                    ImGui::ProgressBar(p, ImVec2(120.f, 0));
-                } else {
-                    App::patchProgramLock.unlock();
-                }
+            auto activeProg = std::atomic_load(&App::currentPatchProgram);
+            if(activeProg && activeProg->crossfadeProgress < 1.f){
+                float p = activeProg->crossfadeProgress;
+                ImGui::SameLine();
+                ImGui::TextColored({0.4f,0.8f,1.f,1.f}, "Crossfade: %.0f%%", p * 100.f);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(120.f);
+                ImGui::ProgressBar(p, ImVec2(120.f, 0));
             }
 
             ImGui::Separator();
 
             if(ImGui::Button("+ Add Cue")){
-                CueList::Cue cue;
-                cue.name       = "Cue " + std::to_string(cueList->cues.size() + 1);
+                int nextOrder = 0;
+                for (const auto& cue : cues) {
+                    if (cue.order >= nextOrder) {
+                        nextOrder = cue.order + 1;
+                    }
+                }
+                std::string cueName = "Cue " + std::to_string(cues.size() + 1);
+                
                 auto* scriptData = selectedPatch.try_get<Patch::ScriptData>();
-                cue.glslSource = scriptData ? scriptData->glslSource : "";
-                cue.holdSeconds = 5.f;
-                cue.fadeSeconds = 2.f;
-                cueList->cues.push_back(cue);
-                if(cueList->activeIndex < 0) cueList->activeIndex = 0;
+                std::string glsl = scriptData ? scriptData->glslSource : "";
+
+                flecs::entity bankFolder = selectedPatch.target<EffectBank::EffectFolder>();
+                auto fallbackEffect = it.world().entity()
+                    .child_of(bankFolder)
+                    .add<EffectBank::Effect::Is>()
+                    .set<EffectBank::Effect::GlslSource>({glsl})
+                    .set<Patch::GPUProgram>({});
+                fallbackEffect.set_name(cueName.c_str());
+
+                auto newCue = it.world().entity()
+                    .child_of(cueFolder)
+                    .add<CueList::Cue::Is>()
+                    .set<CueList::Cue::HoldDuration>({5.f})
+                    .set<CueList::Cue::FadeDuration>({2.f})
+                    .set<CueList::Cue::IndexOrder>({nextOrder})
+                    .add<CueList::Cue::TargetEffect>(fallbackEffect);
+                newCue.set_name(cueName.c_str());
+
+                if (session->activeIndex < 0) session->activeIndex = 0;
                 selectedPatch.add<Patch::ProgramDirty>();
             }
             ImGui::PopStyleVar();
             ImGui::Separator();
 
-            // ── Cue list ──
             if (ImGui::BeginChild("##CueItems", ImVec2(0, 0), true)) {
                 if (ImGui::BeginTable("CueTable", 5, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn("Status/Name", ImGuiTableColumnFlags_WidthStretch, 2.0f);
@@ -1301,17 +1497,16 @@ void import(flecs::world& w){
                     ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 60.f);
                     ImGui::TableHeadersRow();
 
-                    for (int i = 0; i < (int)cueList->cues.size(); i++) {
-                        CueList::Cue& cue = cueList->cues[i];
-                        bool isActive = (i == cueList->activeIndex);
-                        bool isEditing = (editingCueIndex == i);
+                    for (int i = 0; i < (int)cues.size(); i++) {
+                        auto& cueEntry = cues[i];
+                        bool isActive = (i == session->activeIndex);
+                        bool isEditing = (ui->editingCueIndex == i);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
 
-                        ImGui::PushID(i);
+                        ImGui::PushID(cueEntry.entity.id());
 
-                        // Bullet or Play indicator
                         if (isActive) {
                             ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "▶ ");
                             ImGui::SameLine();
@@ -1323,49 +1518,70 @@ void import(flecs::world& w){
                             ImGui::SameLine();
                         }
 
-                        // Selectable name triggers cue execution (start cue)
                         char label[128];
-                        std::snprintf(label, sizeof(label), "%s##select", cue.name.c_str());
+                        std::snprintf(label, sizeof(label), "%s##select", cueEntry.name.c_str());
                         if (ImGui::Selectable(label, isActive, ImGuiSelectableFlags_SpanAllColumns)) {
                             triggerCue(i);
                         }
 
-                        ImGui::TableNextColumn();
-                        ImGui::SetNextItemWidth(70);
-                        ImGui::InputFloat("##h", &cue.holdSeconds, 0.0f, 0.0f, "%.1fs");
+                        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                            uint64_t dragCid = cueEntry.entity.id();
+                            ImGui::SetDragDropPayload("DND_CUE_ORDER", &dragCid, sizeof(dragCid));
+                            ImGui::Text("Move %s", cueEntry.name.c_str());
+                            ImGui::EndDragDropSource();
+                        }
+
+                        if (ImGui::BeginDragDropTarget()) {
+                            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_CUE_ORDER")) {
+                                uint64_t dragCid = *(const uint64_t*)payload->Data;
+                                flecs::entity dragCue(it.world(), dragCid);
+                                reorderCues(selectedPatch, dragCue, cueEntry.entity);
+                            }
+                            ImGui::EndDragDropTarget();
+                        }
 
                         ImGui::TableNextColumn();
+                        float hold = cueEntry.hold;
                         ImGui::SetNextItemWidth(70);
-                        ImGui::InputFloat("##f", &cue.fadeSeconds, 0.0f, 0.0f, "%.1fs");
+                        if (ImGui::InputFloat("##h", &hold, 0.1f, 1.0f, "%.1fs")) {
+                            cueEntry.entity.set<CueList::Cue::HoldDuration>({std::max(0.0f, hold)});
+                        }
+
+                        ImGui::TableNextColumn();
+                        float fade = cueEntry.fade;
+                        ImGui::SetNextItemWidth(70);
+                        if (ImGui::InputFloat("##f", &fade, 0.1f, 1.0f, "%.1fs")) {
+                            cueEntry.entity.set<CueList::Cue::FadeDuration>({std::max(0.0f, fade)});
+                        }
 
                         ImGui::TableNextColumn();
                         if (isEditing) {
                             ImGui::PushStyleColor(ImGuiCol_Button, {0.8f, 0.5f, 0.1f, 1.0f});
                             if (ImGui::Button("Edit")) {
-                                setEditingCueIndex(-1); // Toggle edit off
+                                setEditingCueIndex(app, -1);
                             }
                             ImGui::PopStyleColor();
                         } else {
                             if (ImGui::Button("Edit")) {
-                                setEditingCueIndex(i);
+                                setEditingCueIndex(app, i);
                             }
                         }
 
                         ImGui::TableNextColumn();
                         ImGui::PushStyleColor(ImGuiCol_Button, {0.6f, 0.1f, 0.1f, 1.0f});
                         if (ImGui::Button("Remove")) {
-                            cueList->cues.erase(cueList->cues.begin() + i);
-                            if (cueList->activeIndex == i) {
-                                cueList->activeIndex = std::clamp(cueList->activeIndex, -1, (int)cueList->cues.size() - 1);
-                            } else if (cueList->activeIndex > i) {
-                                cueList->activeIndex--;
+                            cueEntry.entity.destruct();
+                            if (session->activeIndex == i) {
+                                session->activeIndex = std::clamp(session->activeIndex, -1, (int)cues.size() - 2);
+                            } else if (session->activeIndex > i) {
+                                session->activeIndex--;
                             }
-                            if (editingCueIndex == i) {
-                                setEditingCueIndex(-1);
-                            } else if (editingCueIndex > i) {
-                                setEditingCueIndex(editingCueIndex - 1);
+                            if (ui->editingCueIndex == i) {
+                                setEditingCueIndex(app, -1);
+                            } else if (ui->editingCueIndex > i) {
+                                setEditingCueIndex(app, ui->editingCueIndex - 1);
                             }
-                            i--; // Adjust loop counter since we removed an item
+                            i--;
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
                         ImGui::PopStyleColor();
@@ -1383,22 +1599,29 @@ void import(flecs::world& w){
     // ─────────────── Effect Bank Window ───────────────────────────
     w.system<>("WindowEffectBank").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showEffectBankWindow) return;
         auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showEffectBankWindow) return;
         auto selectedPatch = Patch::getSelected(app);
 
-        if(ImGui::Begin("Effect Bank", &showEffectBankWindow)){
+        if(ImGui::Begin("Effect Bank", &ui->showEffectBankWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
-            if(!selectedPatch.has<EffectBank::Bank>()) selectedPatch.set<EffectBank::Bank>({});
-            auto* bank    = selectedPatch.try_get_mut<EffectBank::Bank>();
-            auto* cueList = selectedPatch.try_get_mut<CueList::List>();
-            if(!bank || !cueList){ ImGui::End(); return; }
+            flecs::entity bankFolder = selectedPatch.target<EffectBank::EffectFolder>();
+            if (!bankFolder.is_valid()) { ImGui::TextDisabled("No bank folder."); ImGui::End(); return; }
+            auto* bankSession = bankFolder.try_get_mut<EffectBank::SessionState>();
+            flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
+            if (!cueFolder.is_valid() || !bankSession) { ImGui::End(); return; }
 
             if(ImGui::Button("+ Add Experimental Effect")){
-                EffectBank::Effect fx;
-                fx.name = "Effect " + std::to_string(bank->effects.size() + 1);
-                fx.glslSource = 
+                std::vector<flecs::entity> fxList;
+                bankFolder.children([&](flecs::entity child) {
+                    if (child.has<EffectBank::Effect::Is>()) {
+                        fxList.push_back(child);
+                    }
+                });
+                std::string fxName = "Effect " + std::to_string(fxList.size() + 1);
+                std::string glsl = 
                     "#version 150\n"
                     "in vec2 uv;\n"
                     "out vec4 fragColor;\n"
@@ -1407,7 +1630,12 @@ void import(flecs::world& w){
                     "void main() {\n"
                     "    fragColor = vec4(uv.x, uv.y, sin(time)*0.5+0.5, 1.0);\n"
                     "}\n";
-                bank->effects.push_back(fx);
+                auto newFx = it.world().entity()
+                    .child_of(bankFolder)
+                    .add<EffectBank::Effect::Is>()
+                    .set<EffectBank::Effect::GlslSource>({glsl})
+                    .set<Patch::GPUProgram>({});
+                newFx.set_name(fxName.c_str());
                 selectedPatch.add<Patch::ProgramDirty>();
             }
 
@@ -1421,29 +1649,52 @@ void import(flecs::world& w){
                     ImGui::TableSetupColumn("Remove", ImGuiTableColumnFlags_WidthFixed, 60.f);
                     ImGui::TableHeadersRow();
 
-                    for (int i = 0; i < (int)bank->effects.size(); i++) {
-                        EffectBank::Effect& fx = bank->effects[i];
-                        bool isEditing = (editingCueIndex == -2 && editingBankIndex == i);
+                    std::vector<flecs::entity> fxList;
+                    bankFolder.children([&](flecs::entity child) {
+                        if (child.has<EffectBank::Effect::Is>()) {
+                            fxList.push_back(child);
+                        }
+                    });
+
+                    for (int i = 0; i < (int)fxList.size(); i++) {
+                        flecs::entity fx = fxList[i];
+                        bool isEditing = (ui->editingCueIndex == -2 && ui->editingBankIndex == i);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
 
-                        ImGui::PushID(i);
+                        ImGui::PushID(fx.id());
 
                         if (isEditing) {
-                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "✎ %s", fx.name.c_str());
+                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "✎ %s", fx.name().c_str());
                         } else {
-                            ImGui::Text("%s", fx.name.c_str());
+                            ImGui::Text("%s", fx.name().c_str());
                         }
 
                         ImGui::TableNextColumn();
                         if (ImGui::Button("Add to Cue List")) {
-                            CueList::Cue cue;
-                            cue.name = fx.name;
-                            cue.glslSource = fx.glslSource;
-                            cue.holdSeconds = 5.0f;
-                            cue.fadeSeconds = 2.0f;
-                            cueList->cues.push_back(cue);
+                            int nextOrder = 0;
+                            cueFolder.children([&](flecs::entity child) {
+                                if (child.has<CueList::Cue::Is>()) {
+                                    if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) {
+                                        if (ord->value >= nextOrder) nextOrder = ord->value + 1;
+                                    }
+                                }
+                            });
+                            
+                            std::string glsl = "";
+                            if (const auto* src = fx.try_get<EffectBank::Effect::GlslSource>()) {
+                                glsl = src->value;
+                            }
+                            
+                            auto newCue = it.world().entity()
+                                .child_of(cueFolder)
+                                .add<CueList::Cue::Is>()
+                                .set<CueList::Cue::HoldDuration>({5.0f})
+                                .set<CueList::Cue::FadeDuration>({2.0f})
+                                .set<CueList::Cue::IndexOrder>({nextOrder})
+                                .add<CueList::Cue::TargetEffect>(fx);
+                            newCue.set_name(fx.name().c_str());
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
 
@@ -1451,23 +1702,23 @@ void import(flecs::world& w){
                         if (isEditing) {
                             ImGui::PushStyleColor(ImGuiCol_Button, {0.8f, 0.5f, 0.1f, 1.0f});
                             if (ImGui::Button("Edit")) {
-                                setEditingCueIndex(-1); // Toggle edit off
+                                setEditingCueIndex(app, -1);
                             }
                             ImGui::PopStyleColor();
                         } else {
                             if (ImGui::Button("Edit")) {
-                                setEditingBankIndex(i);
+                                setEditingBankIndex(app, i);
                             }
                         }
 
                         ImGui::TableNextColumn();
                         ImGui::PushStyleColor(ImGuiCol_Button, {0.6f, 0.1f, 0.1f, 1.0f});
                         if (ImGui::Button("Remove")) {
-                            bank->effects.erase(bank->effects.begin() + i);
-                            if (editingCueIndex == -2 && editingBankIndex == i) {
-                                setEditingCueIndex(-1);
-                            } else if (editingCueIndex == -2 && editingBankIndex > i) {
-                                setEditingBankIndex(editingBankIndex - 1);
+                            fx.destruct();
+                            if (ui->editingCueIndex == -2 && ui->editingBankIndex == i) {
+                                setEditingCueIndex(app, -1);
+                            } else if (ui->editingCueIndex == -2 && ui->editingBankIndex > i) {
+                                setEditingBankIndex(app, ui->editingBankIndex - 1);
                             }
                             i--;
                             selectedPatch.add<Patch::ProgramDirty>();
@@ -1487,19 +1738,19 @@ void import(flecs::world& w){
     // ─────────────── Offline Preview Window ───────────────────────
     w.system<>("WindowOfflinePreview").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
-        if (!showOfflinePreviewWindow) return;
         auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showOfflinePreviewWindow) return;
         auto selectedPatch = Patch::getSelected(app);
 
-        if(ImGui::Begin("Offline Shader Preview", &showOfflinePreviewWindow)){
+        if(ImGui::Begin("Offline Shader Preview", &ui->showOfflinePreviewWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
-            App::patchProgramLock.lock();
-            if(App::currentPatchProgram && App::currentPatchProgram->glslEditorFboTex != 0){
-                GLuint tex = App::currentPatchProgram->glslEditorFboTex;
-                float tw = App::currentPatchProgram->vfbWidth;
-                float th = App::currentPatchProgram->vfbHeight;
-                App::patchProgramLock.unlock();
+            auto prog = std::atomic_load(&App::currentPatchProgram);
+            if(prog && prog->glslEditorFboTex != 0){
+                GLuint tex = prog->glslEditorFboTex;
+                float tw = prog->vfbWidth;
+                float th = prog->vfbHeight;
 
                 ImVec2 avail = ImGui::GetContentRegionAvail();
                 float scale = std::min(avail.x / tw, avail.y / th);
@@ -1509,10 +1760,8 @@ void import(flecs::world& w){
                 ImGui::SetCursorPosX((avail.x - imgSize.x) * 0.5f + ImGui::GetCursorPosX());
                 ImGui::SetCursorPosY((avail.y - imgSize.y) * 0.5f + ImGui::GetCursorPosY());
 
-                // OpenGL textures are y-up, so flip UV coordinates to show upright in ImGui
                 ImGui::Image((ImTextureID)(intptr_t)tex, imgSize, ImVec2(0,1), ImVec2(1,0));
             } else {
-                App::patchProgramLock.unlock();
                 ImGui::TextDisabled("No offline shader preview available.");
             }
         }
