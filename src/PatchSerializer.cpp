@@ -76,6 +76,27 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
     XMLElement* root = doc.NewElement("PixelMapper");
     doc.InsertEndChild(root);
 
+    // ── Save UIConfig ──
+    if (const auto* config = pixelMapper.try_get<App::UIConfig>()) {
+        XMLElement* uiEl = doc.NewElement("UIConfig");
+        uiEl->SetAttribute("currentLayout", config->currentLayout);
+        uiEl->SetAttribute("showFixturesWindow", config->showFixturesWindow ? 1 : 0);
+        uiEl->SetAttribute("showPatchEditor", config->showPatchEditor ? 1 : 0);
+        uiEl->SetAttribute("showArtnetData", config->showArtnetData ? 1 : 0);
+        uiEl->SetAttribute("showNetworkSettings", config->showNetworkSettings ? 1 : 0);
+        uiEl->SetAttribute("showArtnetDevices", config->showArtnetDevices ? 1 : 0);
+        uiEl->SetAttribute("showScriptEditor", config->showScriptEditor ? 1 : 0);
+        uiEl->SetAttribute("showCuesWindow", config->showCuesWindow ? 1 : 0);
+        uiEl->SetAttribute("showOfflinePreviewWindow", config->showOfflinePreviewWindow ? 1 : 0);
+        uiEl->SetAttribute("showEffectBankWindow", config->showEffectBankWindow ? 1 : 0);
+        uiEl->SetAttribute("patchLocked", config->patchLocked ? 1 : 0);
+        uiEl->SetAttribute("previewOpacity", config->previewOpacity);
+        uiEl->SetAttribute("showGrid", config->showGrid ? 1 : 0);
+        uiEl->SetAttribute("editingCueIndex", config->editingCueIndex);
+        uiEl->SetAttribute("editingBankIndex", config->editingBankIndex);
+        root->InsertEndChild(uiEl);
+    }
+
     Patch::iterate(pixelMapper, [&](flecs::entity patch) {
         XMLElement* patchEl = doc.NewElement("Patch");
         patchEl->SetAttribute("name", patch.name().c_str());
@@ -157,34 +178,83 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             devicesEl->InsertEndChild(dEl);
         });
 
-        // ── Cue List ──
-        if (const auto* cueList = patch.try_get<CueList::List>()) {
-            XMLElement* clEl = doc.NewElement("CueList");
-            clEl->SetAttribute("autoAdvance", cueList->autoAdvance ? 1 : 0);
-            clEl->SetAttribute("loop",        cueList->loop ? 1 : 0);
-            clEl->SetAttribute("activeIndex", cueList->activeIndex);
-            patchEl->InsertEndChild(clEl);
+        // ── Map effects to unique IDs ──
+        std::unordered_map<flecs::id_t, int> effectToId;
+        std::vector<flecs::entity> effects;
+        flecs::entity bankFolder = patch.target<EffectBank::EffectFolder>();
+        if (bankFolder.is_valid()) {
+            bankFolder.children([&](flecs::entity child) {
+                if (child.has<EffectBank::Effect::Is>()) {
+                    effectToId[child.id()] = (int)effects.size();
+                    effects.push_back(child);
+                }
+            });
+        }
 
-            for (const auto& cue : cueList->cues) {
-                XMLElement* cueEl = doc.NewElement("Cue");
-                cueEl->SetAttribute("name",        cue.name.c_str());
-                cueEl->SetAttribute("holdSeconds", cue.holdSeconds);
-                cueEl->SetAttribute("fadeSeconds", cue.fadeSeconds);
-                setElementText(doc, cueEl, cue.glslSource);
-                clEl->InsertEndChild(cueEl);
+        // ── Cue List ──
+        flecs::entity cueFolder = patch.target<CueList::CueFolder>();
+        if (cueFolder.is_valid()) {
+            if (const auto* session = cueFolder.try_get<CueList::SessionState>()) {
+                XMLElement* clEl = doc.NewElement("CueList");
+                clEl->SetAttribute("autoAdvance", session->autoAdvance ? 1 : 0);
+                clEl->SetAttribute("loop",        session->loop ? 1 : 0);
+                clEl->SetAttribute("activeIndex", session->activeIndex);
+                patchEl->InsertEndChild(clEl);
+
+                struct CueEntry {
+                    flecs::entity entity;
+                    int order = 0;
+                };
+                std::vector<CueEntry> cues;
+                cueFolder.children([&](flecs::entity child) {
+                    if (child.has<CueList::Cue::Is>()) {
+                        CueEntry entry;
+                        entry.entity = child;
+                        if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+                        cues.push_back(entry);
+                    }
+                });
+                std::sort(cues.begin(), cues.end(), [](const CueEntry& a, const CueEntry& b) {
+                    return a.order < b.order;
+                });
+
+                for (const auto& entry : cues) {
+                    XMLElement* cueEl = doc.NewElement("Cue");
+                    cueEl->SetAttribute("name", entry.entity.name().c_str());
+                    float hold = 5.0f;
+                    if (const auto* h = entry.entity.try_get<CueList::Cue::HoldDuration>()) hold = h->value;
+                    float fade = 0.0f;
+                    if (const auto* f = entry.entity.try_get<CueList::Cue::FadeDuration>()) fade = f->value;
+                    cueEl->SetAttribute("holdSeconds", hold);
+                    cueEl->SetAttribute("fadeSeconds", fade);
+
+                    flecs::entity targetFx = entry.entity.target<CueList::Cue::TargetEffect>();
+                    if (targetFx.is_valid() && effectToId.count(targetFx.id())) {
+                        cueEl->SetAttribute("targetEffectId", effectToId[targetFx.id()]);
+                    }
+                    
+                    clEl->InsertEndChild(cueEl);
+                }
             }
         }
 
         // ── Effect Bank ──
-        if (const auto* bank = patch.try_get<EffectBank::Bank>()) {
+        if (bankFolder.is_valid()) {
             XMLElement* ebEl = doc.NewElement("EffectBank");
-            ebEl->SetAttribute("activeIndex", bank->activeIndex);
+            if (const auto* session = bankFolder.try_get<EffectBank::SessionState>()) {
+                ebEl->SetAttribute("activeIndex", session->activeIndex);
+            }
             patchEl->InsertEndChild(ebEl);
 
-            for (const auto& fx : bank->effects) {
+            for (size_t i = 0; i < effects.size(); ++i) {
+                flecs::entity fx = effects[i];
                 XMLElement* fxEl = doc.NewElement("Effect");
-                fxEl->SetAttribute("name", fx.name.c_str());
-                setElementText(doc, fxEl, fx.glslSource);
+                fxEl->SetAttribute("name", fx.name().c_str());
+                fxEl->SetAttribute("id", (int)i);
+
+                std::string glsl = "";
+                if (const auto* g = fx.try_get<EffectBank::Effect::GlslSource>()) glsl = g->value;
+                setElementText(doc, fxEl, glsl);
                 ebEl->InsertEndChild(fxEl);
             }
         }
@@ -220,6 +290,40 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
     if (!root) {
         std::cerr << "[PatchSerializer] No <PixelMapper> root element.\n";
         return false;
+    }
+
+    // ── Load UIConfig ──
+    if (XMLElement* uiEl = root->FirstChildElement("UIConfig")) {
+        auto* config = &pixelMapper.get_mut<App::UIConfig>();
+        if (config) {
+            uiEl->QueryIntAttribute("currentLayout", &config->currentLayout);
+            int sf=1, sp=1, sd=1, sn=1, sdev=1, sse=0, sc=0, sop=0, seb=0, pl=0, sg=1;
+            uiEl->QueryIntAttribute("showFixturesWindow", &sf);
+            uiEl->QueryIntAttribute("showPatchEditor", &sp);
+            uiEl->QueryIntAttribute("showArtnetData", &sd);
+            uiEl->QueryIntAttribute("showNetworkSettings", &sn);
+            uiEl->QueryIntAttribute("showArtnetDevices", &sdev);
+            uiEl->QueryIntAttribute("showScriptEditor", &sse);
+            uiEl->QueryIntAttribute("showCuesWindow", &sc);
+            uiEl->QueryIntAttribute("showOfflinePreviewWindow", &sop);
+            uiEl->QueryIntAttribute("showEffectBankWindow", &seb);
+            uiEl->QueryIntAttribute("patchLocked", &pl);
+            uiEl->QueryIntAttribute("showGrid", &sg);
+            uiEl->QueryFloatAttribute("previewOpacity", &config->previewOpacity);
+            uiEl->QueryIntAttribute("editingCueIndex", &config->editingCueIndex);
+            uiEl->QueryIntAttribute("editingBankIndex", &config->editingBankIndex);
+            config->showFixturesWindow = (sf != 0);
+            config->showPatchEditor = (sp != 0);
+            config->showArtnetData = (sd != 0);
+            config->showNetworkSettings = (sn != 0);
+            config->showArtnetDevices = (sdev != 0);
+            config->showScriptEditor = (sse != 0);
+            config->showCuesWindow = (sc != 0);
+            config->showOfflinePreviewWindow = (sop != 0);
+            config->showEffectBankWindow = (seb != 0);
+            config->patchLocked = (pl != 0);
+            config->showGrid = (sg != 0);
+        }
     }
 
     // Destroy existing patches first
@@ -341,48 +445,85 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             }
         }
 
-        // ── Cue List ──
-        if (XMLElement* clEl = patchEl->FirstChildElement("CueList")) {
-            CueList::List list;
-            int autoAdv = 0, loop = 1, actIdx = -1;
-            clEl->QueryIntAttribute("autoAdvance", &autoAdv);
-            clEl->QueryIntAttribute("loop",        &loop);
-            clEl->QueryIntAttribute("activeIndex", &actIdx);
-            list.autoAdvance = (autoAdv != 0);
-            list.loop        = (loop != 0);
-            list.activeIndex = actIdx;
+        // ── Effect Bank ──
+        std::unordered_map<int, flecs::entity> idToEffect;
+        flecs::entity bankFolder = patch.target<EffectBank::EffectFolder>();
+        if (XMLElement* ebEl = patchEl->FirstChildElement("EffectBank")) {
+            if (bankFolder.is_valid()) {
+                auto* session = &bankFolder.get_mut<EffectBank::SessionState>();
+                int actIdx = -1;
+                ebEl->QueryIntAttribute("activeIndex", &actIdx);
+                session->activeIndex = actIdx;
 
-            for (XMLElement* cueEl = clEl->FirstChildElement("Cue");
-                 cueEl; cueEl = cueEl->NextSiblingElement("Cue"))
-            {
-                CueList::Cue cue;
-                const char* cueName = cueEl->Attribute("name");
-                if (cueName) cue.name = cueName;
-                cueEl->QueryFloatAttribute("holdSeconds", &cue.holdSeconds);
-                cueEl->QueryFloatAttribute("fadeSeconds", &cue.fadeSeconds);
-                cue.glslSource = getElementText(cueEl);
-                list.cues.push_back(cue);
+                for (XMLElement* fxEl = ebEl->FirstChildElement("Effect");
+                     fxEl; fxEl = fxEl->NextSiblingElement("Effect"))
+                {
+                    const char* fxName = fxEl->Attribute("name");
+                    int fxId = -1;
+                    fxEl->QueryIntAttribute("id", &fxId);
+
+                    auto newEffect = patch.world().entity()
+                        .child_of(bankFolder)
+                        .add<EffectBank::Effect::Is>()
+                        .set<EffectBank::Effect::GlslSource>({getElementText(fxEl)})
+                        .set<Patch::GPUProgram>({});
+                    if (fxName) newEffect.set_name(fxName);
+
+                    if (fxId != -1) {
+                        idToEffect[fxId] = newEffect;
+                    }
+                }
             }
-            patch.set<CueList::List>(list);
         }
 
-        // ── Effect Bank ──
-        if (XMLElement* ebEl = patchEl->FirstChildElement("EffectBank")) {
-            EffectBank::Bank bank;
-            int actIdx = -1;
-            ebEl->QueryIntAttribute("activeIndex", &actIdx);
-            bank.activeIndex = actIdx;
+        // ── Cue List ──
+        flecs::entity cueFolder = patch.target<CueList::CueFolder>();
+        if (XMLElement* clEl = patchEl->FirstChildElement("CueList")) {
+            if (cueFolder.is_valid()) {
+                auto* session = &cueFolder.get_mut<CueList::SessionState>();
+                int autoAdv = 0, loop = 1, actIdx = -1;
+                clEl->QueryIntAttribute("autoAdvance", &autoAdv);
+                clEl->QueryIntAttribute("loop",        &loop);
+                clEl->QueryIntAttribute("activeIndex", &actIdx);
+                session->autoAdvance = (autoAdv != 0);
+                session->loop        = (loop != 0);
+                session->activeIndex = actIdx;
 
-            for (XMLElement* fxEl = ebEl->FirstChildElement("Effect");
-                 fxEl; fxEl = fxEl->NextSiblingElement("Effect"))
-            {
-                EffectBank::Effect fx;
-                const char* fxName = fxEl->Attribute("name");
-                if (fxName) fx.name = fxName;
-                fx.glslSource = getElementText(fxEl);
-                bank.effects.push_back(fx);
+                int cueOrderIdx = 0;
+                for (XMLElement* cueEl = clEl->FirstChildElement("Cue");
+                     cueEl; cueEl = cueEl->NextSiblingElement("Cue"))
+                {
+                    const char* cueName = cueEl->Attribute("name");
+                    float hold = 5.0f, fade = 0.0f;
+                    cueEl->QueryFloatAttribute("holdSeconds", &hold);
+                    cueEl->QueryFloatAttribute("fadeSeconds", &fade);
+                    int targetFxId = -1;
+                    cueEl->QueryIntAttribute("targetEffectId", &targetFxId);
+
+                    auto newCue = patch.world().entity()
+                        .child_of(cueFolder)
+                        .add<CueList::Cue::Is>()
+                        .set<CueList::Cue::HoldDuration>({hold})
+                        .set<CueList::Cue::FadeDuration>({fade})
+                        .set<CueList::Cue::IndexOrder>({cueOrderIdx++});
+                    if (cueName) newCue.set_name(cueName);
+
+                    if (targetFxId != -1 && idToEffect.count(targetFxId)) {
+                        newCue.add<CueList::Cue::TargetEffect>(idToEffect[targetFxId]);
+                    } else {
+                        // Fallback/Backward compatibility: create an effect in EffectBank from inline source
+                        std::string glsl = getElementText(cueEl);
+                        auto fallbackEffect = patch.world().entity()
+                            .child_of(bankFolder)
+                            .add<EffectBank::Effect::Is>()
+                            .set<EffectBank::Effect::GlslSource>({glsl})
+                            .set<Patch::GPUProgram>({});
+                        std::string fxName = (cueName ? std::string(cueName) : "Cue Effect");
+                        fallbackEffect.set_name(fxName.c_str());
+                        newCue.add<CueList::Cue::TargetEffect>(fallbackEffect);
+                    }
+                }
             }
-            patch.set<EffectBank::Bank>(bank);
         }
 
         // Trigger full recompile
@@ -402,6 +543,5 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
     std::cout << "[PatchSerializer] Loaded from " << path << "\n";
     return true;
 }
-
 } // namespace PatchSerializer
 } // namespace PixelMapper
