@@ -1,5 +1,12 @@
 #pragma once
 #include <stdint.h>
+#include <memory>
+#include <mutex>
+#include <string>
+
+namespace Network {
+    class UdpSocket;
+}
 
 namespace PixelMapper {
 
@@ -14,8 +21,13 @@ public:
     void closeSocket();
 
 private:
-    int socketFd = -1;
+    std::unique_ptr<Network::UdpSocket> udpSocket;
     uint16_t activeSourcePort = 0;
+    uint32_t activeLocalBindIp = 0;
+
+    std::mutex errorMutex;
+    bool hadSendError = false;
+    std::string lastSendError;
 };
 
 } // namespace PixelMapper

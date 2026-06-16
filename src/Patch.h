@@ -37,14 +37,23 @@ namespace Patch {
         GLSL
     };
 
+    enum class WhiteMode {
+        AUTO = 0,  // W = min(R,G,B), then subtract from RGB
+        OFF,       // W = 0 always
+        PASSTHROUGH // No conversion, raw shader output
+    };
+
     struct Settings {
         float refreshRate = 40.0f;
         bool networkEnabled = false;
         uint16_t sourcePort = 6454;
         RenderMode renderMode = RenderMode::CPP;
+        WhiteMode whiteMode = WhiteMode::AUTO;
         int vfbResolution = 256;
         char luaScriptPath[256] = "scripts/default_patch.lua";
         char shaderPath[256] = "shaders/default_patch.frag";
+        bool highlightSelected = true;
+        float highlightFrequency = 1.0f;
     };
 
     struct ScriptData {
@@ -114,6 +123,16 @@ struct PatchProgram {
         uint16_t universeIndex;
         uint16_t universeOffset;
     };
+    struct CompiledFixture {
+        uint64_t entityId;
+        uint32_t pixelStart;
+        uint32_t pixelCount;
+    };
+
+    CompiledFixture* fixtures = nullptr;
+    uint32_t fixtureCount = 0;
+    std::atomic<bool>* pixelSelected = nullptr;
+    float highlightFrequency = 1.0f;
 
     Artnet::Device::Settings* devices = nullptr;
     uint32_t deviceCount = 0;
@@ -135,6 +154,7 @@ struct PatchProgram {
 
     // Modular rendering fields
     Patch::RenderMode renderMode = Patch::RenderMode::CPP;
+    Patch::WhiteMode whiteMode = Patch::WhiteMode::AUTO;
     int vfbWidth = 0;
     int vfbHeight = 0;
     ColorRGBW* vfbPixels = nullptr; // CPU-side Virtual Framebuffer

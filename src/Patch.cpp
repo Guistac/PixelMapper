@@ -308,9 +308,19 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
 
     //prepare pixel buffers
     program->pixelCount = 0;
-    Fixture::iterateWithDmx(patch, [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress& addr){ program->pixelCount += layout.pixelCount; });
+    program->fixtureCount = 0;
+    Fixture::iterateWithDmx(patch, [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress& addr){
+        program->pixelCount += layout.pixelCount;
+        program->fixtureCount++;
+    });
     program->pixelColors = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
     program->pixelPositions = (glm::vec3*)malloc(program->pixelCount * sizeof(glm::vec3));
+
+    if (program->fixtureCount > 0) {
+        program->fixtures = (PatchProgram::CompiledFixture*)malloc(program->fixtureCount * sizeof(PatchProgram::CompiledFixture));
+    } else {
+        program->fixtures = nullptr;
+    }
 
     //prepare universe buffers
     program->universeCount = Artnet::Universe::getCount(patch);
@@ -325,10 +335,20 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
 
     
     int pixelIndex = 0;
+    int fixtureIdx = 0;
     std::vector<PatchProgram::Pix2UniCopyInstr> p2us;
     Fixture::iterateWithDmx(patch, [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress& addr){
         int fixtureByteCount = layout.pixelCount * layout.channelsPerPixel;
         int universeSpanSize = (addr.address + fixtureByteCount + 511) / 512;
+
+        if (program->fixtures) {
+            program->fixtures[fixtureIdx] = {
+                fixture.id(),
+                (uint32_t)pixelIndex,
+                (uint32_t)layout.pixelCount
+            };
+        }
+        fixtureIdx++;
 
         if(const auto* pixelData = fixture.try_get<Fixture::PixelData>()){
             memcpy(program->pixelPositions + pixelIndex, pixelData->positions.data(), pixelData->positions.size() * sizeof(glm::vec3));
@@ -374,7 +394,18 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->sourcePort = settings->sourcePort;
         program->refreshRate = settings->refreshRate;
         program->renderMode = settings->renderMode;
+        program->whiteMode = settings->whiteMode;
+        program->highlightFrequency = settings->highlightFrequency;
         R = settings->vfbResolution;
+    }
+
+    if (program->pixelCount > 0) {
+        program->pixelSelected = new std::atomic<bool>[program->pixelCount];
+        for (uint32_t i = 0; i < program->pixelCount; ++i) {
+            program->pixelSelected[i].store(false);
+        }
+    } else {
+        program->pixelSelected = nullptr;
     }
 
     std::vector<Artnet::Device::Settings> devSettings;
@@ -691,6 +722,8 @@ PatchProgram::~PatchProgram(){
     free(universes);
     free(vfbPixels);
     free(vfbPixelsOld);
+    free(fixtures);
+    delete[] pixelSelected;
 }
 
 void render(PatchProgram* program){
@@ -989,6 +1022,37 @@ void render(PatchProgram* program){
         
         program->pixelColors[i] = finalColor;
     }
+
+    // 3. Highlight/Flash selected pixels for "Find" feature
+    if (program->pixelSelected) {
+        float period = 1.0f / (program->highlightFrequency > 0.0f ? program->highlightFrequency : 1.0f);
+        float phase = fmodf(program->timeElapsed, period);
+        bool flashOn = (phase < period * 0.5f);
+        if (flashOn) {
+            for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                if (program->pixelSelected[i].load()) {
+                    program->pixelColors[i] = {255, 255, 255, 255};
+                }
+            }
+        }
+    }
+
+    // 4. RGB→RGBW white channel conversion
+    if (program->whiteMode == Patch::WhiteMode::AUTO) {
+        for (uint32_t i = 0; i < program->pixelCount; ++i) {
+            ColorRGBW& c = program->pixelColors[i];
+            uint8_t w = std::min({c.r, c.g, c.b});
+            c.r -= w;
+            c.g -= w;
+            c.b -= w;
+            c.w = w;
+        }
+    } else if (program->whiteMode == Patch::WhiteMode::OFF) {
+        for (uint32_t i = 0; i < program->pixelCount; ++i) {
+            program->pixelColors[i].w = 0;
+        }
+    }
+    // PASSTHROUGH: leave pixelColors as-is
 }
 
 void encode(PatchProgram* program) {

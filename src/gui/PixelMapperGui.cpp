@@ -509,7 +509,21 @@ void import(flecs::world& w){
             ImGui::SliderFloat("Opacity", &ui->previewOpacity, 0.0f, 1.0f, "%.2f"); ImGui::SameLine();
             ImGui::Checkbox("Fixtures", &ui->showFixtures); ImGui::SameLine();
             ImGui::Checkbox("Pixels",   &ui->showPixels);   ImGui::SameLine();
+            if (ui->showPixels) {
+                ImGui::SetNextItemWidth(50);
+                ImGui::InputFloat("Size", &ui->pixelSize, 0.0f, 0.0f, "%.0f");
+                if (ui->pixelSize < 1.0f) ui->pixelSize = 1.0f;
+                ImGui::SameLine();
+            }
             ImGui::Checkbox("Rendered", &ui->showFrame);    ImGui::SameLine();
+            if (selectedPatch.is_valid()) {
+                if (auto* s = selectedPatch.try_get_mut<Patch::Settings>()) {
+                    if (ImGui::Checkbox("Highlight", &s->highlightSelected)) {
+                        selectedPatch.add<Patch::ProgramDirty>();
+                    }
+                    ImGui::SameLine();
+                }
+            }
             ImGui::Checkbox("Auto Zoom", &ui->autoZoom); ImGui::SameLine();
             if(ImGui::Button("Zoom to Fit") && selectedPatch.is_valid()){
                 if(const auto* ra = selectedPatch.try_get<Patch::RenderArea>())
@@ -614,7 +628,8 @@ void import(flecs::world& w){
                             [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress&){
                                 const auto* pd = fixture.try_get<Fixture::PixelData>();
                                 if (pd) {
-                                    glm::vec2 sz(2);
+                                    float hsz = ui->pixelSize * 0.5f;
+                                    glm::vec2 sz(hsz);
                                     for(int i = 0; i < (int)pd->positions.size(); i++){
                                         auto p = canvas.canvasToScreen(pd->positions[i]);
                                         ColorRGBW c{0, 0, 0, 255};
@@ -1004,8 +1019,31 @@ void import(flecs::world& w){
                     e |= ImGui::Checkbox("Enable ArtNet Sending", &s->networkEnabled);
                     int sp = s->sourcePort;
                     if(ImGui::InputInt("Source Port", &sp)){ s->sourcePort = std::clamp(sp,1,65535); e = true; }
+                    {
+                        std::lock_guard<std::mutex> lock(App::rtNetworkStatusMutex);
+                        ImGui::TextColored({0.7f, 0.7f, 1.0f, 1.0f}, "Status: %s", App::rtNetworkStatus);
+                    }
                     ImGui::SeparatorText("Timing");
                     e |= ImGui::SliderFloat("Refresh Rate (Hz)", &s->refreshRate, 1.f, 120.f, "%.1f Hz");
+                    
+                    ImGui::SeparatorText("Identify / Find");
+                    e |= ImGui::Checkbox("Highlight Selected Fixtures (Find)", &s->highlightSelected);
+                    e |= ImGui::SliderFloat("Highlight Frequency", &s->highlightFrequency, 0.1f, 10.f, "%.1f Hz");
+                    
+                    ImGui::SeparatorText("White Channel (RGBW)");
+                    const char* whiteModes[] = {"Auto (extract from RGB)", "Off (W=0)", "Pass-through (raw)"};
+                    int wm = (int)s->whiteMode;
+                    if (ImGui::Combo("White Mode", &wm, whiteModes, 3)) {
+                        s->whiteMode = (Patch::WhiteMode)wm;
+                        e = true;
+                    }
+                    if (s->whiteMode == Patch::WhiteMode::AUTO) {
+                        ImGui::TextWrapped("W = min(R,G,B), RGB -= W");
+                    } else if (s->whiteMode == Patch::WhiteMode::OFF) {
+                        ImGui::TextWrapped("White LED disabled");
+                    } else {
+                        ImGui::TextWrapped("Shader alpha -> White channel");
+                    }
                     
                     ImGui::SeparatorText("Virtual Framebuffer");
                     int vfbRes = s->vfbResolution;

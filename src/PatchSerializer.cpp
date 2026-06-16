@@ -96,6 +96,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
         uiEl->SetAttribute("showPixels", config->showPixels ? 1 : 0);
         uiEl->SetAttribute("showFrame", config->showFrame ? 1 : 0);
         uiEl->SetAttribute("autoZoom", config->autoZoom ? 1 : 0);
+        uiEl->SetAttribute("pixelSize", config->pixelSize);
         uiEl->SetAttribute("editingCueIndex", config->editingCueIndex);
         uiEl->SetAttribute("editingBankIndex", config->editingBankIndex);
         root->InsertEndChild(uiEl);
@@ -113,9 +114,12 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             sEl->SetAttribute("networkEnabled", settings->networkEnabled ? 1 : 0);
             sEl->SetAttribute("sourcePort",     (int)settings->sourcePort);
             sEl->SetAttribute("renderMode",     (int)settings->renderMode);
+            sEl->SetAttribute("whiteMode",      (int)settings->whiteMode);
             sEl->SetAttribute("vfbResolution",  settings->vfbResolution);
             sEl->SetAttribute("luaScriptPath",  settings->luaScriptPath);
             sEl->SetAttribute("shaderPath",     settings->shaderPath);
+            sEl->SetAttribute("highlightSelected", settings->highlightSelected ? 1 : 0);
+            sEl->SetAttribute("highlightFrequency", settings->highlightFrequency);
             patchEl->InsertEndChild(sEl);
         }
 
@@ -318,6 +322,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             uiEl->QueryIntAttribute("showPixels", &spix);
             uiEl->QueryIntAttribute("showFrame", &sfrm);
             uiEl->QueryIntAttribute("autoZoom", &sazm);
+            uiEl->QueryFloatAttribute("pixelSize", &config->pixelSize);
             uiEl->QueryFloatAttribute("previewOpacity", &config->previewOpacity);
             uiEl->QueryIntAttribute("editingCueIndex", &config->editingCueIndex);
             uiEl->QueryIntAttribute("editingBankIndex", &config->editingBankIndex);
@@ -357,13 +362,20 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             auto* settings = patch.try_get_mut<Patch::Settings>();
             if (settings) {
                 sEl->QueryFloatAttribute("refreshRate",   &settings->refreshRate);
-                int netEn = 0, rm = 0, vfbRes = 256;
+                int netEn = 0, rm = 0, wm = 0, vfbRes = 256, hlSel = 1;
+                float hlFreq = 1.0f;
                 sEl->QueryIntAttribute("networkEnabled",  &netEn);
                 sEl->QueryIntAttribute("renderMode",      &rm);
+                sEl->QueryIntAttribute("whiteMode",       &wm);
                 sEl->QueryIntAttribute("vfbResolution",   &vfbRes);
+                sEl->QueryIntAttribute("highlightSelected", &hlSel);
+                sEl->QueryFloatAttribute("highlightFrequency", &hlFreq);
                 settings->networkEnabled = (netEn != 0);
                 settings->renderMode     = (Patch::RenderMode)rm;
+                settings->whiteMode      = (Patch::WhiteMode)wm;
                 settings->vfbResolution  = vfbRes;
+                settings->highlightSelected = (hlSel != 0);
+                settings->highlightFrequency = hlFreq;
 
                 int srcPort = 6454;
                 sEl->QueryIntAttribute("sourcePort", &srcPort);

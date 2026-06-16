@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" patchLocked="1" previewOpacity="0.5" showGrid="0" showFixtures="0" showPixels="1" showFrame="1" autoZoom="1" editingCueIndex="-2" editingBankIndex="5"/>
+    <UIConfig currentLayout="0" showFixturesWindow="1" showPatchEditor="1" showArtnetData="1" showNetworkSettings="1" showArtnetDevices="1" showScriptEditor="0" showCuesWindow="0" showOfflinePreviewWindow="0" showEffectBankWindow="0" patchLocked="0" previewOpacity="0.37" showGrid="1" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" editingCueIndex="-2" editingBankIndex="3"/>
     <Patch name="Patch 1">
-        <Settings refreshRate="20" networkEnabled="1" sourcePort="6454" renderMode="2" vfbResolution="512" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag"/>
+        <Settings refreshRate="13.6" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" vfbResolution="126" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -50,26 +50,17 @@ void main() {
 }
 ]]></GlslSource>
         <Fixtures>
-            <Fixture name="Line Fixture 6" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="125" startY="398" startZ="0" endX="225" endY="498" endZ="0"/>
-            <Fixture name="Line Fixture 7" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="64" shape="Line" startX="146" startY="70" startZ="0" endX="246" endY="170" endZ="0"/>
-            <Fixture name="Line Fixture 8" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="128" shape="Line" startX="91" startY="261" startZ="0" endX="191" endY="361" endZ="0"/>
-            <Fixture name="Line Fixture 9" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="192" shape="Line" startX="54" startY="430" startZ="0" endX="154" endY="530" endZ="0"/>
-            <Fixture name="Line Fixture 10" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="256" shape="Line" startX="152" startY="379" startZ="0" endX="252" endY="479" endZ="0"/>
-            <Fixture name="Circle Fixture 11" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="320" shape="Circle" centerX="21" centerY="106" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 12" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="384" shape="Circle" centerX="135" centerY="3" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 13" pixelCount="16" channelsPerPixel="4" dmxUniverse="0" dmxAddress="448" shape="Circle" centerX="301" centerY="198" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 14" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="0" shape="Circle" centerX="334" centerY="297" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 15" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Circle" centerX="199" centerY="206" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 16" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="128" shape="Circle" centerX="69" centerY="364" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 17" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="192" shape="Circle" centerX="243" centerY="367" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 18" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="256" shape="Circle" centerX="282" centerY="92" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 19" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="320" shape="Circle" centerX="96" centerY="190" centerZ="0" radius="50"/>
-            <Fixture name="Circle Fixture 20" pixelCount="16" channelsPerPixel="4" dmxUniverse="1" dmxAddress="384" shape="Circle" centerX="200" centerY="243" centerZ="0" radius="50"/>
+            <Fixture name="Line Fixture 21" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="-159.36525" startY="-46.439713" startZ="0" endX="159.28264" endY="-37.575241" endZ="0"/>
+            <Fixture name="Line Fixture 22" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="144" shape="Line" startX="-207.73996" startY="61.919609" startZ="0" endX="192.26004" endY="61.919609" endZ="0"/>
+            <Fixture name="Line Fixture 23" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="288" shape="Line" startX="-200" startY="17.41489" startZ="0" endX="200" endY="17.41489" endZ="0"/>
+            <Fixture name="Line Fixture 24" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="432" shape="Line" startX="-193.71126" startY="-63.854591" startZ="0" endX="206.28874" endY="-63.854591" endZ="0"/>
+            <Fixture name="Line Fixture 25" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Line" startX="-200" startY="-5.8049631" startZ="0" endX="200" endY="-5.8049631" endZ="0"/>
+            <Fixture name="Line Fixture 26" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="208" shape="Line" startX="-180.6501" startY="34.346031" startZ="0" endX="168.0726" endY="29.992313" endZ="0"/>
         </Fixtures>
         <ArtNetDevices>
-            <Device name="Device 1" ip="16.115.47.33" startUniverse="1" universeCount="0"/>
+            <Device name="Device 1" ip="2.0.0.10" startUniverse="0" universeCount="2"/>
         </ArtNetDevices>
-        <CueList autoAdvance="1" loop="1" activeIndex="5">
+        <CueList autoAdvance="1" loop="1" activeIndex="4">
             <Cue name="Cue 1" holdSeconds="2" fadeSeconds="1" targetEffectId="0"/>
             <Cue name="Cue 2" holdSeconds="2" fadeSeconds="1" targetEffectId="1"/>
             <Cue name="Cue 3" holdSeconds="2" fadeSeconds="1" targetEffectId="2"/>

@@ -8,6 +8,7 @@
 #include "EffectBank.h"
 #include "FileWatcher.h"
 #include "utils/FlecsUtils.h"
+#include "Network.h"
 
 
 #include <thread>
@@ -31,6 +32,8 @@ namespace App {
 
     std::atomic<float> rtFps{0.0f};
     std::atomic<float> rtBitrateMbps{0.0f};
+    char rtNetworkStatus[512] = "Not sending yet";
+    std::mutex rtNetworkStatusMutex;
     float pendingCrossfadeDuration = 0.0f;
 
     flecs::entity get(const flecs::world& w){
@@ -141,6 +144,7 @@ namespace App {
     void terminate(){
         b_rtPatchRunner = false;
         if(rtPatchRunner.joinable()) rtPatchRunner.join();
+        Network::terminate();
     }
 
     static int compareOrder(flecs::entity_t e1, const Fixture::Order* o1,
@@ -371,6 +375,45 @@ namespace App {
             App::pushNewProgram(PatchProgram::compile(patch));
         });
 
+        // ─────────────────────── UPDATE RT SELECTION FLAGS ───────────────────
+        // Runs in PreStore. Checks selected fixtures and updates pixelSelected array in PatchProgram.
+        w.system<>("UpdateRtSelectionFlags").kind(flecs::PreStore)
+        .run([](flecs::iter& it) {
+            auto program = std::atomic_load(&App::currentPatchProgram);
+            if (!program || !program->pixelSelected) return;
+
+            auto app = App::get(it.world());
+            auto selectedPatch = Patch::getSelected(app);
+            if (!selectedPatch.is_valid()) {
+                for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                    program->pixelSelected[i].store(false);
+                }
+                return;
+            }
+
+            const auto* settings = selectedPatch.try_get<Patch::Settings>();
+            bool highlightEnabled = settings ? settings->highlightSelected : true;
+
+            auto selFix = Fixture::getSelected(selectedPatch);
+            const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
+
+            for (uint32_t i = 0; i < program->fixtureCount; ++i) {
+                const auto& cf = program->fixtures[i];
+                bool isSelected = false;
+                if (highlightEnabled) {
+                    if (selFix.is_valid() && cf.entityId == selFix.id()) {
+                        isSelected = true;
+                    } else if (ms && ms->ids.count(cf.entityId) > 0) {
+                        isSelected = true;
+                    }
+                }
+                
+                for (uint32_t p = 0; p < cf.pixelCount; ++p) {
+                    program->pixelSelected[cf.pixelStart + p].store(isSelected);
+                }
+            }
+        });
+
         // ──────────────────────── FILE WATCH SYSTEM ──────────────────────────
         // Runs in PreStore, once per second. Checks Lua + GLSL file timestamps.
         // On change: reloads source into ScriptData, sets ProgramDirty.
@@ -424,6 +467,7 @@ namespace App {
             }
         });
 
+        Network::init();
         App::rtPatchRunner = std::thread([](){
             App::runPatch();
         });

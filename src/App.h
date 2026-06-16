@@ -43,6 +43,7 @@ namespace App {
         bool showPixels = true;
         bool showFrame = true;
         bool autoZoom = false;
+        float pixelSize = 4.0f;
     };
 
     struct Queries {
@@ -62,6 +63,8 @@ namespace App {
     /// Real-time thread stats (updated by the RT thread, read by the GUI)
     extern std::atomic<float> rtFps;         ///< RT render/send cycles per second
     extern std::atomic<float> rtBitrateMbps; ///< ArtNet bits per second (Mbit/s)
+    extern char rtNetworkStatus[512];
+    extern std::mutex rtNetworkStatusMutex;
 
     /// Set by the GUI/CueList before adding ProgramDirty to request a crossfade.
     /// Consumed (and reset to 0) by pushNewProgram(). Thread-safe: only written

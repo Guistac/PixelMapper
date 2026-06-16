@@ -33,6 +33,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/glm.cmake)
 set(ioDepsFolder ${DEPENDENCIES_DIRECTORY}/System)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/flecs.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/tinyxml2.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/asio.cmake)
 
 # Scripting & Editor
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/lua.cmake)
@@ -48,6 +49,7 @@ set(PixelMapperDeps
 	lua
 	sol2
 	imguitextedit
+	asio
 )
 
 
@@ -65,6 +67,8 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/Fixture.cpp
 	${PROJECT_SRC_DIR}/CanvasBinding.h
 	${PROJECT_SRC_DIR}/CanvasBinding.cpp
+	${PROJECT_SRC_DIR}/Network.h
+	${PROJECT_SRC_DIR}/Network.cpp
 	${PROJECT_SRC_DIR}/Artnet.h
 	${PROJECT_SRC_DIR}/Artnet.cpp
 	${PROJECT_SRC_DIR}/ArtnetSender.h
