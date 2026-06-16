@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="0" showFixturesWindow="1" showPatchEditor="1" showArtnetData="1" showNetworkSettings="1" showArtnetDevices="1" showScriptEditor="0" showCuesWindow="0" showOfflinePreviewWindow="0" showEffectBankWindow="0" patchLocked="0" previewOpacity="0.37" showGrid="1" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" editingCueIndex="-2" editingBankIndex="3"/>
+    <UIConfig currentLayout="0" showFixturesWindow="1" showPatchEditor="1" showArtnetData="1" showNetworkSettings="1" showArtnetDevices="1" showScriptEditor="0" showCuesWindow="0" showOfflinePreviewWindow="0" showEffectBankWindow="0" patchLocked="0" previewOpacity="0.43000001" showGrid="1" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" editingCueIndex="-2" editingBankIndex="1"/>
     <Patch name="Patch 1">
-        <Settings refreshRate="13.6" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" vfbResolution="126" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
+        <Settings refreshRate="114.2" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="0" vfbResolution="126" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -50,17 +50,60 @@ void main() {
 }
 ]]></GlslSource>
         <Fixtures>
-            <Fixture name="Line Fixture 21" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="-159.36525" startY="-46.439713" startZ="0" endX="159.28264" endY="-37.575241" endZ="0"/>
-            <Fixture name="Line Fixture 22" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="144" shape="Line" startX="-207.73996" startY="61.919609" startZ="0" endX="192.26004" endY="61.919609" endZ="0"/>
-            <Fixture name="Line Fixture 23" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="288" shape="Line" startX="-200" startY="17.41489" startZ="0" endX="200" endY="17.41489" endZ="0"/>
-            <Fixture name="Line Fixture 24" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="432" shape="Line" startX="-193.71126" startY="-63.854591" startZ="0" endX="206.28874" endY="-63.854591" endZ="0"/>
-            <Fixture name="Line Fixture 25" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Line" startX="-200" startY="-5.8049631" startZ="0" endX="200" endY="-5.8049631" endZ="0"/>
-            <Fixture name="Line Fixture 26" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="208" shape="Line" startX="-180.6501" startY="34.346031" startZ="0" endX="168.0726" endY="29.992313" endZ="0"/>
+            <Fixture name="C1 P1 Branche 1a" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="-429.55188" startY="-83.421562" startZ="0" endX="-437.73755" endY="117.01646" endZ="0"/>
+            <Fixture name="C1 P1 Branche 1b" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="144" shape="Line" startX="-435.53534" startY="135.36183" startZ="0" endX="-438.84506" endY="329.5481" endZ="0"/>
+            <Fixture name="C1 P1 Branche 2a" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="288" shape="Line" startX="-380.49365" startY="-85.90213" startZ="0" endX="-378.82425" endY="116.99762" endZ="0"/>
+            <Fixture name="C1 P1 Branche 2b" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="432" shape="Line" startX="-382.91833" startY="135.31076" startZ="0" endX="-386.228" endY="322.02829" endZ="0"/>
+            <Fixture name="C1 P1 Branche 3a" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Line" startX="-336.92618" startY="-84.226318" startZ="0" endX="-340.23593" endY="114.93901" endZ="0"/>
+            <Fixture name="C1 P1 Branche 3b" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="208" shape="Line" startX="-341.22708" startY="136.41827" startZ="0" endX="-338.55411" endY="325.00586" endZ="0"/>
+            <Fixture name="C1 P2 Branche 4a" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="0" shape="Line" startX="-261.60077" startY="-76.748489" startZ="0" endX="-262.5105" endY="115.12278" endZ="0"/>
+            <Fixture name="C1 P2 Branche 4b" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="144" shape="Line" startX="-262.61063" startY="134.30986" startZ="0" endX="-263.52039" endY="326.181" endZ="0"/>
+            <Fixture name="C1 P2 Branche 5a" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="288" shape="Line" startX="-221.20683" startY="-75.738647" startZ="0" endX="-222.11664" endY="118.15233" endZ="0"/>
+            <Fixture name="C1 P2 Branche 5b" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="432" shape="Line" startX="-221.20692" startY="132.29016" startZ="0" endX="-224.13638" endY="322.14169" endZ="0"/>
+            <Fixture name="C1 P2 Branche 6a" pixelCount="36" channelsPerPixel="4" dmxUniverse="3" dmxAddress="64" shape="Line" startX="-192.93106" startY="-75.738647" startZ="0" endX="-192.83098" endY="119.16213" endZ="0"/>
+            <Fixture name="C1 P2 Branche 7a" pixelCount="36" channelsPerPixel="4" dmxUniverse="3" dmxAddress="208" shape="Line" startX="-191.92123" startY="132.29016" startZ="0" endX="-188.79164" endY="319.11206" endZ="0"/>
+            <Fixture name="C1 P3 Branche 8a" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="0" shape="Line" startX="-124.26138" startY="-67.659874" startZ="0" endX="-121.13191" endY="116.13262" endZ="0"/>
+            <Fixture name="C1 P3 Branche 8b" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="144" shape="Line" startX="-124.2614" startY="132.29016" startZ="0" endX="-118.10233" endY="315.07285" endZ="0"/>
+            <Fixture name="C1 P3 Branche 9a" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="288" shape="Line" startX="-90.936348" startY="-63.620483" startZ="0" endX="-86.79702" endY="118.1523" endZ="0"/>
+            <Fixture name="C1 P3 Branche 9b" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="432" shape="Line" startX="-89.926453" startY="133.29997" startZ="0" endX="-82.757652" endY="309.0137" endZ="0"/>
+            <Fixture name="C1 P3 Branche 10a" pixelCount="36" channelsPerPixel="4" dmxUniverse="5" dmxAddress="64" shape="Line" startX="-62.660599" startY="-61.600777" startZ="0" endX="-52.462166" endY="119.16216" endZ="0"/>
+            <Fixture name="C1 P3 Branche 10b" pixelCount="36" channelsPerPixel="4" dmxUniverse="5" dmxAddress="208" shape="Line" startX="-55.591599" startY="136.32951" startZ="0" endX="-49.432632" endY="310.02371" endZ="0"/>
+            <Fixture name="C1 P4 Branche 11a" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="0" shape="Line" startX="0.95988369" startY="-59.581085" startZ="0" endX="1.0597944" endY="120.17199" endZ="0"/>
+            <Fixture name="C1 P4 Branche 11b" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="144" shape="Line" startX="1.969717" startY="136.32954" startZ="0" endX="0.049996376" endY="317.09253" endZ="0"/>
+            <Fixture name="C1 P4 Branche 12a" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="288" shape="Line" startX="26.206055" startY="-58.571213" startZ="0" endX="35.394638" endY="123.20155" endZ="0"/>
+            <Fixture name="C1 P4 Branche 12b" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="432" shape="Line" startX="31.255352" startY="136.32954" startZ="0" endX="36.404541" endY="314.06299" endZ="0"/>
+            <Fixture name="C1 P4 Branche 13a" pixelCount="36" channelsPerPixel="4" dmxUniverse="7" dmxAddress="64" shape="Line" startX="50.442429" startY="-56.551514" startZ="0" endX="66.699928" endY="124.2114" endZ="0"/>
+            <Fixture name="C1 P4 Branche 13b" pixelCount="36" channelsPerPixel="4" dmxUniverse="7" dmxAddress="208" shape="Line" startX="69.629585" startY="139.35927" startZ="0" endX="72.759018" endY="306.9939" endZ="0"/>
+            <Fixture name="C2 P1 Branche 14a" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="0" shape="Line" startX="130.44812" startY="-83.421562" startZ="0" endX="122.26245" endY="117.01646" endZ="0"/>
+            <Fixture name="C2 P1 Branche 14b" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="144" shape="Line" startX="124.46466" startY="135.36183" startZ="0" endX="121.15494" endY="329.5481" endZ="0"/>
+            <Fixture name="C2 P1 Branche 15a" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="288" shape="Line" startX="179.50635" startY="-85.90213" startZ="0" endX="181.17575" endY="116.99762" endZ="0"/>
+            <Fixture name="C2 P1 Branche 15b" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="432" shape="Line" startX="177.08167" startY="135.31076" startZ="0" endX="173.772" endY="322.02829" endZ="0"/>
+            <Fixture name="C2 P1 Branche 16a" pixelCount="36" channelsPerPixel="4" dmxUniverse="9" dmxAddress="64" shape="Line" startX="223.07382" startY="-84.226318" startZ="0" endX="219.76407" endY="114.93901" endZ="0"/>
+            <Fixture name="C2 P1 Branche 16b" pixelCount="36" channelsPerPixel="4" dmxUniverse="9" dmxAddress="208" shape="Line" startX="218.77292" startY="136.41827" startZ="0" endX="221.44589" endY="325.00586" endZ="0"/>
+            <Fixture name="C2 P2 Branche 17a" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="0" shape="Line" startX="298.39923" startY="-76.748489" startZ="0" endX="297.4895" endY="115.12278" endZ="0"/>
+            <Fixture name="C2 P2 Branche 17b" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="144" shape="Line" startX="297.38937" startY="134.30986" startZ="0" endX="296.47961" endY="326.181" endZ="0"/>
+            <Fixture name="C2 P2 Branche 18a" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="288" shape="Line" startX="338.79318" startY="-75.738647" startZ="0" endX="337.88336" endY="118.15233" endZ="0"/>
+            <Fixture name="C2 P2 Branche 18b" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="432" shape="Line" startX="338.79309" startY="132.29016" startZ="0" endX="335.86362" endY="322.14169" endZ="0"/>
+            <Fixture name="C2 P2 Branche 19a" pixelCount="36" channelsPerPixel="4" dmxUniverse="11" dmxAddress="64" shape="Line" startX="367.06894" startY="-75.738647" startZ="0" endX="367.16901" endY="119.16213" endZ="0"/>
+            <Fixture name="C2 P2 Branche 19b" pixelCount="36" channelsPerPixel="4" dmxUniverse="11" dmxAddress="208" shape="Line" startX="368.07877" startY="132.29016" startZ="0" endX="371.20837" endY="319.11206" endZ="0"/>
+            <Fixture name="C2 P3 Branche 20a" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="0" shape="Line" startX="435.73862" startY="-67.659874" startZ="0" endX="438.8681" endY="116.13262" endZ="0"/>
+            <Fixture name="C2 P3 Branche 20b" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="144" shape="Line" startX="435.73859" startY="132.29016" startZ="0" endX="441.89767" endY="315.07285" endZ="0"/>
+            <Fixture name="C2 P3 Branche 21a" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="288" shape="Line" startX="469.06366" startY="-63.620483" startZ="0" endX="473.20297" endY="118.1523" endZ="0"/>
+            <Fixture name="C2 P3 Branche 21b" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="432" shape="Line" startX="470.07355" startY="133.29997" startZ="0" endX="477.24234" endY="309.0137" endZ="0"/>
+            <Fixture name="C2 P3 Branche 22a" pixelCount="36" channelsPerPixel="4" dmxUniverse="13" dmxAddress="64" shape="Line" startX="497.33939" startY="-61.600777" startZ="0" endX="507.53784" endY="119.16216" endZ="0"/>
+            <Fixture name="C2 P3 Branche 22b" pixelCount="36" channelsPerPixel="4" dmxUniverse="13" dmxAddress="208" shape="Line" startX="504.40839" startY="136.32951" startZ="0" endX="510.56738" endY="310.02371" endZ="0"/>
+            <Fixture name="C2 P4 Branche 23a" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="0" shape="Line" startX="560.9599" startY="-59.581085" startZ="0" endX="561.05981" endY="120.17199" endZ="0"/>
+            <Fixture name="C2 P4 Branche 23b" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="144" shape="Line" startX="561.96973" startY="136.32954" startZ="0" endX="560.04999" endY="317.09253" endZ="0"/>
+            <Fixture name="C2 P4 Branche 24a" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="288" shape="Line" startX="586.20605" startY="-58.571213" startZ="0" endX="595.39465" endY="123.20155" endZ="0"/>
+            <Fixture name="C2 P4 Branche 24b" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="432" shape="Line" startX="591.25537" startY="136.32954" startZ="0" endX="596.40454" endY="314.06299" endZ="0"/>
+            <Fixture name="C2 P4 Branche 25a" pixelCount="36" channelsPerPixel="4" dmxUniverse="15" dmxAddress="64" shape="Line" startX="610.44244" startY="-56.551514" startZ="0" endX="626.69995" endY="124.2114" endZ="0"/>
+            <Fixture name="C2 P4 Branche 25b" pixelCount="36" channelsPerPixel="4" dmxUniverse="15" dmxAddress="208" shape="Line" startX="629.62958" startY="139.35927" startZ="0" endX="632.75903" endY="306.9939" endZ="0"/>
         </Fixtures>
         <ArtNetDevices>
-            <Device name="Device 1" ip="2.0.0.10" startUniverse="0" universeCount="2"/>
+            <Device name="Device 1" ip="2.0.0.10" startUniverse="0" universeCount="8"/>
+            <Device name="Device 2" ip="2.0.0.11" startUniverse="8" universeCount="8"/>
         </ArtNetDevices>
-        <CueList autoAdvance="1" loop="1" activeIndex="4">
+        <CueList autoAdvance="0" loop="1" activeIndex="0">
             <Cue name="Cue 1" holdSeconds="2" fadeSeconds="1" targetEffectId="0"/>
             <Cue name="Cue 2" holdSeconds="2" fadeSeconds="1" targetEffectId="1"/>
             <Cue name="Cue 3" holdSeconds="2" fadeSeconds="1" targetEffectId="2"/>

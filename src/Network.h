@@ -17,7 +17,6 @@ namespace Network{
 	std::unique_ptr<asio::ip::udp::socket> getSenderUdpSocket();
 	std::unique_ptr<asio::ip::udp::socket> getReceiverSenderUdpSocket(int listeningPort);
 
-	uint32_t getLocalIpForDestination(uint32_t destIp, uint16_t port);
 
 
 class UdpSocket {

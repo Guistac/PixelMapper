@@ -23,7 +23,6 @@ public:
 private:
     std::unique_ptr<Network::UdpSocket> udpSocket;
     uint16_t activeSourcePort = 0;
-    uint32_t activeLocalBindIp = 0;
 
     std::mutex errorMutex;
     bool hadSendError = false;

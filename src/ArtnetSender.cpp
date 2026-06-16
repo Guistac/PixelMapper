@@ -16,7 +16,7 @@
 
 namespace PixelMapper {
 
-ArtnetSender::ArtnetSender() : activeSourcePort(0), activeLocalBindIp(0), hadSendError(false) {
+ArtnetSender::ArtnetSender() : activeSourcePort(0), hadSendError(false) {
     udpSocket = std::make_unique<Network::UdpSocket>();
     
     // Register the callback to update the error state asynchronously
@@ -36,7 +36,6 @@ void ArtnetSender::closeSocket() {
         udpSocket->close();
     }
     activeSourcePort = 0;
-    activeLocalBindIp = 0;
 }
 
 static void updateNetworkStatus(const std::string& status) {
@@ -58,24 +57,16 @@ void ArtnetSender::send(const PatchProgram* program) {
         hadSendError = false;
     }
 
-    // 2. Resolve the correct local interface IP to bind to based on target device IP
-    uint32_t localBindIp = 0; // default to any interface (0.0.0.0)
-    if (program->deviceCount > 0) {
-        uint32_t targetIp = ntohl(program->devices[0].ipAddress);
-        localBindIp = Network::getLocalIpForDestination(targetIp, 6454);
-    }
-
-    // 3. Manage socket setup/re-binding if source port or local interface IP changes
-    if (!udpSocket->isOpen() || activeSourcePort != program->sourcePort || activeLocalBindIp != localBindIp) {
+    // 2. Manage socket setup/re-binding if source port changes
+    if (!udpSocket->isOpen() || activeSourcePort != program->sourcePort) {
         if (udpSocket->isOpen()) {
             closeSocket();
         }
 
         udpSocket->open();
         if (udpSocket->isOpen()) {
-            if (!udpSocket->bind(localBindIp, program->sourcePort)) {
-                std::cerr << "[ArtnetSender] Warning: bind to local IP " << Network::uint32ToIpv4(localBindIp)
-                          << " port " << program->sourcePort << " failed. Retrying with any IP and ephemeral port...\n";
+            if (!udpSocket->bind(0, program->sourcePort)) {
+                std::cerr << "[ArtnetSender] Warning: bind to port " << program->sourcePort << " failed. Retrying with ephemeral port...\n";
                 
                 closeSocket();
                 udpSocket->open();
@@ -86,7 +77,6 @@ void ArtnetSender::send(const PatchProgram* program) {
                 }
             }
             activeSourcePort = program->sourcePort;
-            activeLocalBindIp = localBindIp;
         } else {
             updateNetworkStatus("Socket creation failed");
             return;

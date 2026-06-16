@@ -62,17 +62,6 @@ void terminate() {
 	if(io_context_handler.joinable()) io_context_handler.join();
 }
 
-uint32_t getLocalIpForDestination(uint32_t destIp, uint16_t port) {
-	try {
-		asio::ip::udp::socket tempSocket(io_context);
-		tempSocket.open(asio::ip::udp::v4());
-		tempSocket.connect(asio::ip::udp::endpoint(asio::ip::make_address_v4(destIp), port));
-		return tempSocket.local_endpoint().address().to_v4().to_uint();
-	} catch (...) {
-		return 0;
-	}
-}
-
 //bind the socket to be able to listen on the listening port
 std::unique_ptr<asio::ip::udp::socket> getUdpSocket(int listeningPort, std::vector<int> remoteIp, int remotePort) {
 	using namespace asio::ip;
