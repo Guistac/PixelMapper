@@ -1,22 +1,23 @@
 #pragma once
 #include <flecs.h>
 #include <string>
-#include <vector>
 
 namespace PixelMapper {
 namespace EffectBank {
 
-struct Effect {
-    std::string name;
-    std::string glslSource;
-};
+    struct Is {};
+    struct EffectFolder {};
 
-struct Bank {
-    std::vector<Effect> effects;
-    int activeIndex = -1;
-};
+    namespace Effect {
+        struct Is {};
+        struct GlslSource { std::string value; };
+    }
 
-void import(flecs::world& w);
+    struct SessionState {
+        int activeIndex = -1;
+    };
+
+    void import(flecs::world& w);
 
 } // namespace EffectBank
 } // namespace PixelMapper
