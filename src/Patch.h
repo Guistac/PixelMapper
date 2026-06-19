@@ -69,6 +69,11 @@ namespace Patch {
         std::string compilerLog;
     };
 
+    struct FixtureSetupScript {
+        std::string source;
+        std::string compilerLog;
+    };
+
     struct RenderArea {
         glm::vec3 min;
         glm::vec3 max;

@@ -89,6 +89,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
         uiEl->SetAttribute("showCuesWindow", config->showCuesWindow ? 1 : 0);
         uiEl->SetAttribute("showOfflinePreviewWindow", config->showOfflinePreviewWindow ? 1 : 0);
         uiEl->SetAttribute("showEffectBankWindow", config->showEffectBankWindow ? 1 : 0);
+        uiEl->SetAttribute("showFixtureSetupScriptWindow", config->showFixtureSetupScriptWindow ? 1 : 0);
         uiEl->SetAttribute("patchLocked", config->patchLocked ? 1 : 0);
         uiEl->SetAttribute("previewOpacity", config->previewOpacity);
         uiEl->SetAttribute("showGrid", config->showGrid ? 1 : 0);
@@ -136,6 +137,13 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             XMLElement* glslEl = doc.NewElement("GlslSource");
             setElementText(doc, glslEl, sd->glslSource);
             patchEl->InsertEndChild(glslEl);
+        }
+
+        // ── Fixture Setup Script ──
+        if (const auto* fss = patch.try_get<Patch::FixtureSetupScript>()) {
+            XMLElement* setupEl = doc.NewElement("FixtureSetupScript");
+            setElementText(doc, setupEl, fss->source);
+            patchEl->InsertEndChild(setupEl);
         }
 
         // ── Fixtures ──
@@ -309,7 +317,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
         auto* config = &pixelMapper.get_mut<App::UIConfig>();
         if (config) {
             uiEl->QueryIntAttribute("currentLayout", &config->currentLayout);
-            int sf=1, sp=1, sd=1, sn=1, sdev=1, sse=0, sc=0, sop=0, seb=0, pl=0, sg=1;
+            int sf=1, sp=1, sd=1, sn=1, sdev=1, sse=0, sc=0, sop=0, seb=0, sfss=0, pl=0, sg=1;
             int sfix=1, spix=1, sfrm=1, sazm=0, sc3d=0;
             uiEl->QueryIntAttribute("showFixturesWindow", &sf);
             uiEl->QueryIntAttribute("showPatchEditor", &sp);
@@ -320,6 +328,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             uiEl->QueryIntAttribute("showCuesWindow", &sc);
             uiEl->QueryIntAttribute("showOfflinePreviewWindow", &sop);
             uiEl->QueryIntAttribute("showEffectBankWindow", &seb);
+            uiEl->QueryIntAttribute("showFixtureSetupScriptWindow", &sfss);
             uiEl->QueryIntAttribute("patchLocked", &pl);
             uiEl->QueryIntAttribute("showGrid", &sg);
             uiEl->QueryIntAttribute("showFixtures", &sfix);
@@ -342,6 +351,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             config->showCuesWindow = (sc != 0);
             config->showOfflinePreviewWindow = (sop != 0);
             config->showEffectBankWindow = (seb != 0);
+            config->showFixtureSetupScriptWindow = (sfss != 0);
             config->patchLocked = (pl != 0);
             config->showGrid = (sg != 0);
             config->showFixtures = (sfix != 0);
@@ -404,6 +414,13 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             if (sd) {
                 sd->luaSource  = getElementText(patchEl->FirstChildElement("LuaSource"));
                 sd->glslSource = getElementText(patchEl->FirstChildElement("GlslSource"));
+            }
+        }
+
+        // ── Fixture Setup Script ──
+        {
+            if (XMLElement* setupEl = patchEl->FirstChildElement("FixtureSetupScript")) {
+                patch.set<Patch::FixtureSetupScript>({getElementText(setupEl), ""});
             }
         }
 

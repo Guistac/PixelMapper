@@ -34,6 +34,7 @@ namespace App {
         bool showCuesWindow = false;
         bool showOfflinePreviewWindow = false;
         bool showEffectBankWindow = false;
+        bool showFixtureSetupScriptWindow = false;
         bool patchLocked = false;
         float previewOpacity = 1.0f;
         bool showGrid = true;

@@ -29,10 +29,41 @@ namespace Patch {
         if(!patchFolder.is_valid()) return flecs::entity::null();
         const auto& world = pixelMapper.world();
 
+        static const std::string defaultSetupScript =
+            "-- Fixture Setup Script\n"
+            "-- Exposes operations on the patch:\n"
+            "--   patch:clear_fixtures()\n"
+            "--   patch:create_line(name, startX, startY, startZ, endX, endY, endZ, numPixels, channels)\n"
+            "--   patch:get_fixtures() -> array of Fixtures\n"
+            "--\n"
+            "-- Exposes operations on a Fixture:\n"
+            "--   f:id() -> number\n"
+            "--   f:name() -> string\n"
+            "--   f:set_name(name)\n"
+            "--   f:get_shape_type() -> string (\"Line\" / \"Circle\" / \"None\")\n"
+            "--   f:get_line_properties() -> startX, startY, startZ, endX, endY, endZ\n"
+            "--   f:set_line_properties(startX, startY, startZ, endX, endY, endZ)\n"
+            "--   f:get_layout() -> pixelCount, channels\n"
+            "--   f:set_layout(pixelCount, channels)\n"
+            "--   f:get_dmx() -> universe, startAddress\n"
+            "--   f:set_dmx(universe, startAddress)\n"
+            "--   f:remove()\n"
+            "\n"
+            "-- Example: clear patch and create 4 parallel line fixtures\n"
+            "patch:clear_fixtures()\n"
+            "\n"
+            "for i = 1, 4 do\n"
+            "    local y = (i - 1) * 30\n"
+            "    local name = \"Line \" .. i\n"
+            "    local f = patch:create_line(name, 0, y, 0, 100, y, 0, 16, 4)\n"
+            "    f:set_dmx(0, (i - 1) * 64)\n"
+            "end\n";
+
         auto newPatch = world.entity()
             .add<Patch::Is>()
             .set<Patch::Settings>({})
             .set<Patch::ScriptData>({})
+            .set<Patch::FixtureSetupScript>({defaultSetupScript, ""})
             .add<Patch::RenderArea>()
             .set<Patch::GPUResources>({})
             .set<Patch::GPUProgram>({})
@@ -97,6 +128,7 @@ namespace Patch {
         w.component<RenderAreaDirty>();
         w.component<Settings>();
         w.component<ScriptData>();
+        w.component<FixtureSetupScript>();
         w.component<RenderArea>();
         w.component<MultiSelection>();
 
@@ -493,9 +525,15 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->pixelCount += layout.pixelCount;
         program->fixtureCount++;
     });
-    program->pixelColors = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
-    program->pixelColorsTemp = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
-    program->pixelPositions = (glm::vec3*)malloc(program->pixelCount * sizeof(glm::vec3));
+    if (program->pixelCount > 0) {
+        program->pixelColors = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
+        program->pixelColorsTemp = (ColorRGBW*)malloc(program->pixelCount * sizeof(ColorRGBW));
+        program->pixelPositions = (glm::vec3*)malloc(program->pixelCount * sizeof(glm::vec3));
+    } else {
+        program->pixelColors = nullptr;
+        program->pixelColorsTemp = nullptr;
+        program->pixelPositions = nullptr;
+    }
 
     if (program->fixtureCount > 0) {
         program->fixtures = (PatchProgram::CompiledFixture*)malloc(program->fixtureCount * sizeof(PatchProgram::CompiledFixture));
@@ -532,7 +570,9 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         fixtureIdx++;
 
         if(const auto* pixelData = fixture.try_get<Fixture::PixelData>()){
-            memcpy(program->pixelPositions + pixelIndex, pixelData->positions.data(), pixelData->positions.size() * sizeof(glm::vec3));
+            if (layout.pixelCount > 0 && !pixelData->positions.empty()) {
+                memcpy(program->pixelPositions + pixelIndex, pixelData->positions.data(), pixelData->positions.size() * sizeof(glm::vec3));
+            }
         }
 
         int universeId = addr.universe;

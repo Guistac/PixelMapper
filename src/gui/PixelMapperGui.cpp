@@ -1,4 +1,5 @@
 #include "PixelMapper.h"
+#include <sol/sol.hpp>
 
 #include "ImGuiCanvas.h"
 #include "ImGuiHexView.h"
@@ -32,6 +33,11 @@ static std::unique_ptr<TextEditor> luaEditor;
 static std::unique_ptr<TextEditor> glslEditor;
 static bool editorsInitialized = false;
 static flecs::id_t currentPatchId = 0;
+
+static std::unique_ptr<TextEditor> setupScriptEditor;
+static bool setupEditorInitialized = false;
+static bool setupScriptHasUncompiledChanges = false;
+static bool showSetupHelpWindow = false;
 
 static bool autoCompile = true;
 static bool hasUncompiledChanges = false;
@@ -108,6 +114,7 @@ static void applyLayout(flecs::entity app, App::UIConfig* ui, GuiLayout layout) 
         ui->showCuesWindow        = false;
         ui->showOfflinePreviewWindow = false;
         ui->showEffectBankWindow  = false;
+        ui->showFixtureSetupScriptWindow = false;
     } else if (layout == GuiLayout::EffectsControl) {
         ui->showScriptEditor      = true;
         ui->showCuesWindow        = true;
@@ -118,6 +125,7 @@ static void applyLayout(flecs::entity app, App::UIConfig* ui, GuiLayout layout) 
         ui->showArtnetData        = false;
         ui->showOfflinePreviewWindow = true;
         ui->showEffectBankWindow  = true;
+        ui->showFixtureSetupScriptWindow = false;
     }
 }
 
@@ -299,6 +307,7 @@ void import(flecs::world& w){
                 ImGui::MenuItem("Patch & Network Settings",nullptr, &ui->showNetworkSettings);
                 ImGui::MenuItem("Artnet Devices",          nullptr, &ui->showArtnetDevices);
                 ImGui::MenuItem("Effect Editor",           nullptr, &ui->showScriptEditor);
+                ImGui::MenuItem("Fixture Setup Script",    nullptr, &ui->showFixtureSetupScriptWindow);
                 ImGui::MenuItem("Cue List",                nullptr, &ui->showCuesWindow);
                 ImGui::MenuItem("Effect Preview",          nullptr, &ui->showOfflinePreviewWindow);
                 ImGui::MenuItem("Effect Bank",             nullptr, &ui->showEffectBankWindow);
@@ -503,12 +512,17 @@ void import(flecs::world& w){
                     }
                     if(selectedFixture.has<Fixture::DmxAddress>()){
                         Fixture::DmxAddress dmx = selectedFixture.get<Fixture::DmxAddress>();
-                        bool e = false;
-                        ImGui::SeparatorText("Dmx Address");
-                        uint16_t s1 = 1, s10 = 10;
-                        e |= ImGui::InputScalar("Universe", ImGuiDataType_U16, &dmx.universe, &s1, &s10);
-                        e |= ImGui::InputScalar("Address",  ImGuiDataType_U16, &dmx.address,  &s1, &s10);
-                        if(e) selectedFixture.set<Fixture::DmxAddress>(dmx);
+                        if (selectedFixture.get<Fixture::Layout>().pixelCount == 0) {
+                            ImGui::SeparatorText("Dmx Address");
+                            ImGui::TextDisabled("N/A (Visual Indicator)");
+                        } else {
+                            bool e = false;
+                            ImGui::SeparatorText("Dmx Address");
+                            uint16_t s1 = 1, s10 = 10;
+                            e |= ImGui::InputScalar("Universe", ImGuiDataType_U16, &dmx.universe, &s1, &s10);
+                            e |= ImGui::InputScalar("Address",  ImGuiDataType_U16, &dmx.address,  &s1, &s10);
+                            if(e) selectedFixture.set<Fixture::DmxAddress>(dmx);
+                        }
                     }
                     auto shapeType = selectedFixture.target<Fixture::WithShape>();
                     if(shapeType == selectedFixture.world().id<Shape::Line>()){
@@ -2127,6 +2141,823 @@ void import(flecs::world& w){
     });
 
     // ─────────────── Offline Preview Window ───────────────────────
+struct SetupScriptPreset {
+    const char* name;
+    const char* script;
+};
+
+static const SetupScriptPreset kSetupPresets[] = {
+    { "2D: Grid", 
+      "-- 2D Grid Layout\n"
+      "patch:clear_fixtures()\n"
+      "local cols = 5\n"
+      "local rows = 5\n"
+      "local index = 0\n"
+      "for r = 0, rows - 1 do\n"
+      "    for c = 0, cols - 1 do\n"
+      "        local x = c * 40\n"
+      "        local y = r * 40\n"
+      "        local f = patch:create_line(\"Grid_\"..r..\"_\"..c, x, y, 0, x + 20, y, 0, 8, 4)\n"
+      "        f:set_dmx(0, index * 32)\n"
+      "        index = index + 1\n"
+      "    end\n"
+      "end\n" },
+    { "2D: Starburst / Radial",
+      "-- 2D Starburst Layout\n"
+      "patch:clear_fixtures()\n"
+      "local count = 12\n"
+      "local radius = 80\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "for i = 0, count - 1 do\n"
+      "    local angle = i * (2 * math.pi / count)\n"
+      "    local sx = centerX\n"
+      "    local sy = centerY\n"
+      "    local ex = centerX + math.cos(angle) * radius\n"
+      "    local ey = centerY + math.sin(angle) * radius\n"
+      "    local f = patch:create_line(\"Ray_\"..i, sx, sy, 0, ex, ey, 0, 16, 4)\n"
+      "    f:set_dmx(0, i * 64)\n"
+      "end\n" },
+    { "2D: Spiral",
+      "-- 2D Spiral Layout\n"
+      "patch:clear_fixtures()\n"
+      "local count = 15\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "for i = 1, count do\n"
+      "    local angle = i * 0.8\n"
+      "    local radius = i * 8\n"
+      "    local sx = centerX + math.cos(angle) * radius\n"
+      "    local sy = centerY + math.sin(angle) * radius\n"
+      "    local ex = centerX + math.cos(angle + 0.4) * (radius + 6)\n"
+      "    local ey = centerY + math.sin(angle + 0.4) * (radius + 6)\n"
+      "    local f = patch:create_line(\"Spiral_\"..i, sx, sy, 0, ex, ey, 0, 8, 4)\n"
+      "    f:set_dmx(0, (i - 1) * 32)\n"
+      "end\n" },
+    { "2D: Concentric Squares",
+      "-- 2D Concentric Squares\n"
+      "patch:clear_fixtures()\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "local index = 0\n"
+      "for size = 20, 100, 20 do\n"
+      "    local half = size / 2\n"
+      "    local f1 = patch:create_line(\"Square_Top_\"..size, centerX - half, centerY - half, 0, centerX + half, centerY - half, 0, 8, 4)\n"
+      "    f1:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "    local f2 = patch:create_line(\"Square_Bot_\"..size, centerX - half, centerY + half, 0, centerX + half, centerY + half, 0, 8, 4)\n"
+      "    f2:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "end\n" },
+    { "2D: Cross / X Pattern",
+      "-- 2D Cross Pattern\n"
+      "patch:clear_fixtures()\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "local size = 80\n"
+      "local index = 0\n"
+      "for i = 1, 4 do\n"
+      "    local step = size / 4\n"
+      "    local f1 = patch:create_line(\"Diag1_\"..i, centerX - size/2 + (i-1)*step, centerY - size/2 + (i-1)*step, 0, centerX - size/2 + i*step, centerY - size/2 + i*step, 0, 8, 4)\n"
+      "    f1:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "    local f2 = patch:create_line(\"Diag2_\"..i, centerX - size/2 + (i-1)*step, centerY + size/2 - (i-1)*step, 0, centerX - size/2 + i*step, centerY + size/2 - i*step, 0, 8, 4)\n"
+      "    f2:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "end\n" },
+    { "3D: Cube Grid",
+      "-- 3D Volumetric Cube Grid\n"
+      "patch:clear_fixtures()\n"
+      "local index = 0\n"
+      "for z = 0, 2 do\n"
+      "    local zPos = z * 40\n"
+      "    for y = 0, 2 do\n"
+      "        local yPos = y * 40\n"
+      "        local f = patch:create_line(\"Cube_X_\"..z..\"_\"..y, 0, yPos, zPos, 80, yPos, zPos, 16, 4)\n"
+      "        f:set_dmx(0, index * 64)\n"
+      "        index = index + 1\n"
+      "    end\n"
+      "end\n" },
+    { "3D: Helix / Cylinder",
+      "-- 3D Volumetric Helix\n"
+      "patch:clear_fixtures()\n"
+      "local steps = 16\n"
+      "local radius = 60\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "for i = 0, steps - 1 do\n"
+      "    local angle = i * (4 * math.pi / steps)\n"
+      "    local z = i * 10\n"
+      "    local sx = centerX + math.cos(angle) * radius\n"
+      "    local sy = centerY + math.sin(angle) * radius\n"
+      "    local ex = centerX + math.cos(angle + 0.5) * radius\n"
+      "    local ey = centerY + math.sin(angle + 0.5) * radius\n"
+      "    local f = patch:create_line(\"Helix_\"..i, sx, sy, z, ex, ey, z + 8, 8, 4)\n"
+      "    f:set_dmx(0, i * 32)\n"
+      "end\n" },
+    { "3D: Pyramid",
+      "-- 3D Volumetric Pyramid\n"
+      "patch:clear_fixtures()\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "local baseSize = 80\n"
+      "local apexZ = 120\n"
+      "local f1 = patch:create_line(\"Pyr_Base1\", centerX - baseSize/2, centerY - baseSize/2, 0, centerX + baseSize/2, centerY - baseSize/2, 0, 8, 4)\n"
+      "f1:set_dmx(0, 0)\n"
+      "local f2 = patch:create_line(\"Pyr_Base2\", centerX + baseSize/2, centerY - baseSize/2, 0, centerX + baseSize/2, centerY + baseSize/2, 0, 8, 4)\n"
+      "f2:set_dmx(0, 32)\n"
+      "local f3 = patch:create_line(\"Pyr_Base3\", centerX + baseSize/2, centerY + baseSize/2, 0, centerX - baseSize/2, centerY + baseSize/2, 0, 8, 4)\n"
+      "f3:set_dmx(0, 64)\n"
+      "local f4 = patch:create_line(\"Pyr_Base4\", centerX - baseSize/2, centerY + baseSize/2, 0, centerX - baseSize/2, centerY - baseSize/2, 0, 8, 4)\n"
+      "f4:set_dmx(0, 96)\n"
+      "local e1 = patch:create_line(\"Pyr_Edge1\", centerX - baseSize/2, centerY - baseSize/2, 0, centerX, centerY, apexZ, 16, 4)\n"
+      "e1:set_dmx(0, 128)\n"
+      "local e2 = patch:create_line(\"Pyr_Edge2\", centerX + baseSize/2, centerY - baseSize/2, 0, centerX, centerY, apexZ, 16, 4)\n"
+      "e2:set_dmx(0, 192)\n"
+      "local e3 = patch:create_line(\"Pyr_Edge3\", centerX + baseSize/2, centerY + baseSize/2, 0, centerX, centerY, apexZ, 16, 4)\n"
+      "e3:set_dmx(0, 256)\n"
+      "local e4 = patch:create_line(\"Pyr_Edge4\", centerX - baseSize/2, centerY + baseSize/2, 0, centerX, centerY, apexZ, 16, 4)\n"
+      "e4:set_dmx(0, 320)\n" },
+    { "3D: Wave Ribbon",
+      "-- 3D Volumetric Wave Ribbon\n"
+      "patch:clear_fixtures()\n"
+      "local count = 12\n"
+      "for i = 0, count - 1 do\n"
+      "    local x = i * 20\n"
+      "    local y = 50 + math.sin(i * 0.5) * 30\n"
+      "    local z = math.cos(i * 0.5) * 40\n"
+      "    local f = patch:create_line(\"Wave_\"..i, x, y, z, x + 15, y, z + 10, 8, 4)\n"
+      "    f:set_dmx(0, i * 32)\n"
+      "end\n" },
+    { "3D: Sphere Projection",
+      "-- 3D Volumetric Sphere Projection\n"
+      "patch:clear_fixtures()\n"
+      "local count = 12\n"
+      "local radius = 70\n"
+      "local centerX = 100\n"
+      "local centerY = 100\n"
+      "local centerZ = 50\n"
+      "local index = 0\n"
+      "for i = 0, count - 1 do\n"
+      "    local theta = i * math.pi * (3.0 - math.sqrt(5.0))\n"
+      "    local z = (i / (count - 1)) * 2.0 - 1.0\n"
+      "    local r = math.sqrt(1.0 - z * z)\n"
+      "    local ex = centerX + math.cos(theta) * r * radius\n"
+      "    local ey = centerY + math.sin(theta) * r * radius\n"
+      "    local ez = centerZ + z * radius\n"
+      "    local f = patch:create_line(\"Sphere_Ray_\"..i, centerX, centerY, centerZ, ex, ey, ez, 8, 4)\n"
+      "    f:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "end\n" },
+    { "3D: Fractal Tree",
+      "-- 3D Fractal Tree Layout\n"
+      "patch:clear_fixtures()\n"
+      "local count = 0\n"
+      "\n"
+      "function make_branch(x, y, z, dx, dy, dz, length, depth)\n"
+      "    if depth <= 0 or count >= 50 then return end\n"
+      "    \n"
+      "    local ex = x + dx * length\n"
+      "    local ey = y + dy * length\n"
+      "    local ez = z + dz * length\n"
+      "    \n"
+      "    local f = patch:create_line(\"Branch_\"..count, x, y, z, ex, ey, ez, 8, 4)\n"
+      "    f:set_dmx(0, count * 32)\n"
+      "    count = count + 1\n"
+      "    \n"
+      "    local scale = 0.7\n"
+      "    local angle_step = 2 * math.pi / 3\n"
+      "    \n"
+      "    local px, py, pz\n"
+      "    if math.abs(dx) < 0.9 then\n"
+      "        px, py, pz = 1, 0, 0\n"
+      "    else\n"
+      "        px, py, pz = 0, 1, 0\n"
+      "    end\n"
+      "    local tx = dy * pz - dz * py\n"
+      "    local ty = dz * px - dx * pz\n"
+      "    local tz = dx * py - dy * px\n"
+      "    local len = math.sqrt(tx*tx + ty*ty + tz*tz)\n"
+      "    tx, ty, tz = tx/len, ty/len, tz/len\n"
+      "    \n"
+      "    local ux = dy * tz - dz * ty\n"
+      "    local uy = dz * tx - dx * tz\n"
+      "    local uz = dx * ty - dy * tx\n"
+      "    \n"
+      "    for i = 0, 2 do\n"
+      "        local angle = i * angle_step + depth * 0.5\n"
+      "        local cx = dx * 0.7 + (math.cos(angle) * tx + math.sin(angle) * ux) * 0.5\n"
+      "        local cy = dy * 0.7 + (math.cos(angle) * ty + math.sin(angle) * uy) * 0.5\n"
+      "        local cz = dz * 0.7 + (math.cos(angle) * tz + math.sin(angle) * uz) * 0.5\n"
+      "        local clen = math.sqrt(cx*cx + cy*cy + cz*cz)\n"
+      "        cx, cy, cz = cx/clen, cy/clen, cz/clen\n"
+      "        \n"
+      "        make_branch(ex, ey, ez, cx, cy, cz, length * scale, depth - 1)\n"
+      "    end\n"
+      "end\n"
+      "\n"
+      "make_branch(100, 100, 0, 0, 0, 1, 40, 4)\n" },
+    { "3D: Iso Sphere (Icosahedron)",
+      "-- 3D Triangular Ico Sphere Outline\n"
+      "patch:clear_fixtures()\n"
+      "local phi = (1 + math.sqrt(5)) / 2\n"
+      "local r = 50\n"
+      "local cx, cy, cz = 100, 100, 50\n"
+      "\n"
+      "local vertices = {\n"
+      "    {-1,  phi, 0}, { 1,  phi, 0}, {-1, -phi, 0}, { 1, -phi, 0},\n"
+      "    {0, -1,  phi}, {0,  1,  phi}, {0, -1, -phi}, {0,  1, -phi},\n"
+      "    { phi, 0, -1}, { phi, 0,  1}, {-phi, 0, -1}, {-phi, 0,  1}\n"
+      "}\n"
+      "\n"
+      "for i = 1, #vertices do\n"
+      "    local v = vertices[i]\n"
+      "    local len = math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])\n"
+      "    v[1] = cx + (v[1] / len) * r\n"
+      "    v[2] = cy + (v[2] / len) * r\n"
+      "    v[3] = cz + (v[3] / len) * r\n"
+      "end\n"
+      "\n"
+      "local edges = {\n"
+      "    {1,2}, {1,6}, {1,8}, {1,11}, {1,12},\n"
+      "    {2,6}, {2,8}, {2,9}, {2,10},\n"
+      "    {3,4}, {3,5}, {3,7}, {3,11}, {3,12},\n"
+      "    {4,5}, {4,7}, {4,9}, {4,10},\n"
+      "    {5,6}, {5,10}, {5,12},\n"
+      "    {6,10}, {6,12},\n"
+      "    {7,8}, {7,9}, {7,11},\n"
+      "    {8,9}, {8,11},\n"
+      "    {9,10}, {11,12}\n"
+      "}\n"
+      "\n"
+      "for i = 1, #edges do\n"
+      "    local e = edges[i]\n"
+      "    local v1 = vertices[e[1]]\n"
+      "    local v2 = vertices[e[2]]\n"
+      "    local f = patch:create_line(\"IsoEdge_\"..i, v1[1], v1[2], v1[3], v2[1], v2[2], v2[3], 8, 4)\n"
+      "    f:set_dmx(0, (i - 1) * 32)\n"
+      "end\n" },
+    { "2D: Hilbert Curve",
+      "-- 2D Hilbert Curve L-System\n"
+      "patch:clear_fixtures()\n"
+      "local angle = 0\n"
+      "local x, y = 30, 30\n"
+      "local step = 20\n"
+      "local index = 0\n"
+      "\n"
+      "local function forward()\n"
+      "    local rad = angle * math.pi / 180\n"
+      "    local nx = x + math.cos(rad) * step\n"
+      "    local ny = y + math.sin(rad) * step\n"
+      "    local f = patch:create_line(\"Hil_\"..index, x, y, 0, nx, ny, 0, 8, 4)\n"
+      "    f:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "    x, y = nx, ny\n"
+      "end\n"
+      "\n"
+      "local function turn(a)\n"
+      "    angle = (angle + a) % 360\n"
+      "end\n"
+      "\n"
+      "local function A(d)\n"
+      "    if d <= 0 then return end\n"
+      "    turn(90)\n"
+      "    B(d - 1)\n"
+      "    forward()\n"
+      "    turn(-90)\n"
+      "    A(d - 1)\n"
+      "    forward()\n"
+      "    A(d - 1)\n"
+      "    turn(-90)\n"
+      "    forward()\n"
+      "    B(d - 1)\n"
+      "    turn(90)\n"
+      "end\n"
+      "\n"
+      "function B(d)\n"
+      "    if d <= 0 then return end\n"
+      "    turn(-90)\n"
+      "    A(d - 1)\n"
+      "    forward()\n"
+      "    turn(90)\n"
+      "    B(d - 1)\n"
+      "    forward()\n"
+      "    B(d - 1)\n"
+      "    turn(90)\n"
+      "    forward()\n"
+      "    A(d - 1)\n"
+      "    turn(-90)\n"
+      "end\n"
+      "\n"
+      "A(3)\n" },
+    { "2D: Spongebob Outline",
+      "-- 2D Spongebob Outline Drawing\n"
+      "patch:clear_fixtures()\n"
+      "local index = 0\n"
+      "\n"
+      "local function add_seg(name, x1, y1, x2, y2)\n"
+      "    local f = patch:create_line(name, x1, y1, 0, x2, y2, 0, 8, 4)\n"
+      "    f:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "end\n"
+      "\n"
+      "add_seg(\"Head_Top\", 40, 40, 120, 40)\n"
+      "add_seg(\"Head_Right\", 120, 40, 120, 110)\n"
+      "add_seg(\"Head_Left\", 40, 40, 40, 110)\n"
+      "add_seg(\"Shirt_Top\", 40, 110, 120, 110)\n"
+      "add_seg(\"Pants_Bot\", 40, 125, 120, 125)\n"
+      "add_seg(\"Pants_Left\", 40, 110, 40, 125)\n"
+      "add_seg(\"Pants_Right\", 120, 110, 120, 125)\n"
+      "add_seg(\"Tie_1\", 80, 110, 77, 118)\n"
+      "add_seg(\"Tie_2\", 80, 110, 83, 118)\n"
+      "add_seg(\"Tie_3\", 77, 118, 80, 123)\n"
+      "add_seg(\"Tie_4\", 83, 118, 80, 123)\n"
+      "add_seg(\"Belt_1\", 50, 118, 60, 118)\n"
+      "add_seg(\"Belt_2\", 70, 118, 75, 118)\n"
+      "add_seg(\"Belt_3\", 85, 118, 90, 118)\n"
+      "add_seg(\"Belt_4\", 100, 118, 110, 118)\n"
+      "local cx1, cy1, cx2, cy2 = 65, 65, 95, 65\n"
+      "local r = 10\n"
+      "for i = 0, 7 do\n"
+      "    local a1 = i * math.pi / 4\n"
+      "    local a2 = (i + 1) * math.pi / 4\n"
+      "    add_seg(\"Eye1_\"..i, cx1 + math.cos(a1)*r, cy1 + math.sin(a1)*r, cx1 + math.cos(a2)*r, cy1 + math.sin(a2)*r)\n"
+      "    add_seg(\"Eye2_\"..i, cx2 + math.cos(a1)*r, cy2 + math.sin(a1)*r, cx2 + math.cos(a2)*r, cy2 + math.sin(a2)*r)\n"
+      "end\n"
+      "add_seg(\"Nose_1\", 80, 68, 85, 75)\n"
+      "add_seg(\"Nose_2\", 85, 75, 80, 77)\n"
+      "add_seg(\"Smile_1\", 55, 85, 65, 95)\n"
+      "add_seg(\"Smile_2\", 65, 95, 95, 95)\n"
+      "add_seg(\"Smile_3\", 95, 95, 105, 85)\n"
+      "add_seg(\"Tooth1_L\", 73, 95, 73, 103)\n"
+      "add_seg(\"Tooth1_B\", 73, 103, 78, 103)\n"
+      "add_seg(\"Tooth1_R\", 78, 103, 78, 95)\n"
+      "add_seg(\"Tooth2_L\", 82, 95, 82, 103)\n"
+      "add_seg(\"Tooth2_B\", 82, 103, 87, 103)\n"
+      "add_seg(\"Tooth2_R\", 87, 103, 87, 95)\n"
+      "add_seg(\"Leg_L\", 60, 125, 60, 150)\n"
+      "add_seg(\"Leg_R\", 100, 125, 100, 150)\n"
+      "add_seg(\"Shoe_L\", 55, 150, 65, 150)\n"
+      "add_seg(\"Shoe_R\", 95, 150, 105, 150)\n"
+      "add_seg(\"Arm_L\", 40, 85, 20, 100)\n"
+      "add_seg(\"Arm_R\", 120, 85, 140, 100)\n" },
+    { "2D: Spongebob Wireframe",
+      "-- 2D Spongebob Wireframe Face Mesh\n"
+      "patch:clear_fixtures()\n"
+      "local index = 0\n"
+      "\n"
+      "local function add_seg(name, x1, y1, x2, y2)\n"
+      "    local f = patch:create_line(name, x1, y1, 0, x2, y2, 0, 8, 4)\n"
+      "    f:set_dmx(0, index * 32)\n"
+      "    index = index + 1\n"
+      "end\n"
+      "\n"
+      "add_seg(\"Mesh_Border_T\", 40, 40, 120, 40)\n"
+      "add_seg(\"Mesh_Border_R\", 120, 40, 120, 120)\n"
+      "add_seg(\"Mesh_Border_B\", 120, 120, 40, 120)\n"
+      "add_seg(\"Mesh_Border_L\", 40, 120, 40, 40)\n"
+      "add_seg(\"Mesh_Diag_TL_Center\", 40, 40, 80, 80)\n"
+      "add_seg(\"Mesh_Diag_TR_Center\", 120, 40, 80, 80)\n"
+      "add_seg(\"Mesh_Diag_BL_Center\", 40, 120, 80, 80)\n"
+      "add_seg(\"Mesh_Diag_BR_Center\", 120, 120, 80, 80)\n"
+      "add_seg(\"Mesh_TL_EyeL\", 40, 40, 65, 65)\n"
+      "add_seg(\"Mesh_TR_EyeR\", 120, 40, 95, 65)\n"
+      "add_seg(\"Mesh_BL_MouthL\", 40, 120, 55, 90)\n"
+      "add_seg(\"Mesh_BR_MouthR\", 120, 120, 105, 90)\n"
+      "add_seg(\"Mesh_Center_EyeL\", 80, 80, 65, 65)\n"
+      "add_seg(\"Mesh_Center_EyeR\", 80, 80, 95, 65)\n"
+      "add_seg(\"Mesh_Center_MouthL\", 80, 80, 55, 90)\n"
+      "add_seg(\"Mesh_Center_MouthR\", 80, 80, 105, 90)\n"
+      "add_seg(\"Mesh_EyeL_EyeR\", 65, 65, 95, 65)\n"
+      "add_seg(\"Mesh_MouthL_MouthR\", 55, 90, 105, 90)\n"
+      "add_seg(\"Mesh_EyeL_MouthL\", 65, 65, 55, 90)\n"
+      "add_seg(\"Mesh_EyeR_MouthR\", 95, 65, 105, 90)\n"
+      "add_seg(\"Mesh_MouthL_ToothL\", 55, 90, 75, 100)\n"
+      "add_seg(\"Mesh_MouthR_ToothR\", 105, 90, 85, 100)\n"
+      "add_seg(\"Mesh_ToothL_ToothR\", 75, 100, 85, 100)\n"
+      "add_seg(\"Mesh_Center_ToothL\", 80, 80, 75, 100)\n"
+      "add_seg(\"Mesh_Center_ToothR\", 80, 80, 85, 100)\n"
+      "add_seg(\"Mesh_BL_ToothL\", 40, 120, 75, 100)\n"
+      "add_seg(\"Mesh_BR_ToothR\", 120, 120, 85, 100)\n" },
+    { "Custom: Hanging Volumetric Branches",
+      "-- Custom: Hanging Volumetric Branches\n"
+      "patch:clear_fixtures()\n"
+      "\n"
+      "-- Editable Parameters (in millimeters)\n"
+      "local fixtureLength = 1500 -- 150cm\n"
+      "local pixelsPerFixture = 36\n"
+      "local channelsPerPixel = 4\n"
+      "local numCircles = 4\n"
+      "local branchesPerCircle = 6\n"
+      "\n"
+      "local distBaseToMid = 3000  -- 300cm from branch base to middle fixture\n"
+      "local distMidToTip = 2000   -- 200cm from middle fixture to tip fixture\n"
+      "local heights = { 20, 420, 820, 1420 } -- heights of each floor circle\n"
+      "local radii = { 680, 550, 450, 400 }   -- radii of each floor circle\n"
+      "local angles = { 30, 22, 15, 5 }         -- outward angle of branch (degrees)\n"
+      "local offsets = { 0, 25, 50, 75 }         -- rotational start offset of circle (degrees)\n"
+      "\n"
+      "local dmxUniverse = 0\n"
+      "local dmxAddress = 0\n"
+      "\n"
+      "local generateHelpers = true -- Set to false to disable helper structures (circles/branches)\n"
+      "\n"
+      "local function patch_fixture(f)\n"
+      "    f:set_dmx(dmxUniverse, dmxAddress)\n"
+      "    dmxAddress = dmxAddress + (pixelsPerFixture * channelsPerPixel)\n"
+      "    if dmxAddress >= 512 then\n"
+      "        dmxUniverse = dmxUniverse + 1\n"
+      "        dmxAddress = 0\n"
+      "    end\n"
+      "end\n"
+      "\n"
+      "for c = 1, numCircles do\n"
+      "    local h = heights[c]\n"
+      "    local r = radii[c]\n"
+      "    local alpha = angles[c] * math.pi / 180\n"
+      "    local offset = offsets[c] * math.pi / 180\n"
+      "    \n"
+      "    for b = 1, branchesPerCircle do\n"
+      "        local theta = (b - 1) * (2 * math.pi / branchesPerCircle) + offset\n"
+      "        local dx = math.cos(theta)\n"
+      "        local dz = math.sin(theta)\n"
+      "        \n"
+      "        -- Plant base coordinate\n"
+      "        local plantX = r * dx\n"
+      "        local plantY = -h\n"
+      "        local plantZ = r * dz\n"
+      "        \n"
+      "        -- Branch direction vector (angled outwards)\n"
+      "        local bx = math.sin(alpha) * dx\n"
+      "        local by = -math.cos(alpha)\n"
+      "        local bz = math.sin(alpha) * dz\n"
+      "        \n"
+      "        -- Middle attachment point\n"
+      "        local midX = plantX + distBaseToMid * bx\n"
+      "        local midY = plantY + distBaseToMid * by\n"
+      "        local midZ = plantZ + distBaseToMid * bz\n"
+      "        \n"
+      "        -- Tip attachment point\n"
+      "        local tipX = plantX + (distBaseToMid + distMidToTip) * bx\n"
+      "        local tipY = plantY + (distBaseToMid + distMidToTip) * by\n"
+      "        local tipZ = plantZ + (distBaseToMid + distMidToTip) * bz\n"
+      "        \n"
+      "        -- Create middle fixture hanging vertically downwards along positive Y\n"
+      "        local midName = \"Floor_\"..c..\"_Branch_\"..b..\"_Mid\"\n"
+      "        local fMid = patch:create_line(midName, midX, midY, midZ, midX, midY + fixtureLength, midZ, pixelsPerFixture, channelsPerPixel)\n"
+      "        patch_fixture(fMid)\n"
+      "        \n"
+      "        -- Create tip fixture hanging vertically downwards along positive Y\n"
+      "        local tipName = \"Floor_\"..c..\"_Branch_\"..b..\"_Tip\"\n"
+      "        local fTip = patch:create_line(tipName, tipX, tipY, tipZ, tipX, tipY + fixtureLength, tipZ, pixelsPerFixture, channelsPerPixel)\n"
+      "        patch_fixture(fTip)\n"
+      "        \n"
+      "        if generateHelpers then\n"
+      "            -- DRAW DUMMY BRANCH STRUCTURE (Base to Tip)\n"
+      "            local branchStructName = \"Floor_\"..c..\"_Struct_Branch_\"..b\n"
+      "            local fStruct = patch:create_line(branchStructName, plantX, plantY, plantZ, tipX, tipY, tipZ, 2, 1)\n"
+      "            fStruct:set_dmx(98, b)\n"
+      "            \n"
+      "            -- DRAW DUMMY BASE RING (Base to Next Base forming a hexagon)\n"
+      "            local nextB = (b % branchesPerCircle) + 1\n"
+      "            local nextTheta = (nextB - 1) * (2 * math.pi / branchesPerCircle) + offset\n"
+      "            local nextX = r * math.cos(nextTheta)\n"
+      "            local nextY = -h\n"
+      "            local nextZ = r * math.sin(nextTheta)\n"
+      "            \n"
+      "            local ringName = \"Floor_\"..c..\"_Struct_Ring_\"..b\n"
+      "            local fRing = patch:create_line(ringName, plantX, plantY, plantZ, nextX, nextY, nextZ, 2, 1)\n"
+      "            fRing:set_dmx(99, b)\n"
+      "        end\n"
+      "    end\n"
+      "end\n" }
+};
+static const int kSetupPresetsCount = sizeof(kSetupPresets) / sizeof(kSetupPresets[0]);
+
+class LuaFixture {
+public:
+    flecs::entity entity;
+    LuaFixture(flecs::entity e) : entity(e) {}
+
+    uint64_t id() const { return entity.id(); }
+    std::string name() const {
+        if (!entity.is_valid() || !entity.is_alive()) return "";
+        const char* n = entity.name();
+        return n ? n : "";
+    }
+    void set_name(const std::string& name) {
+        if (!entity.is_valid() || !entity.is_alive()) return;
+        entity.set_name(name.c_str());
+    }
+    void remove() {
+        if (!entity.is_valid() || !entity.is_alive()) return;
+        flecs::entity patch = Fixture::getPatch(entity);
+        entity.destruct();
+        if (patch.is_valid()) {
+            patch.add<Patch::DmxMapDirty>();
+            patch.add<Patch::RenderAreaDirty>();
+        }
+    }
+    std::string get_shape_type() const {
+        if (!entity.is_valid() || !entity.is_alive()) return "None";
+        flecs::entity shapeType = entity.target<Fixture::WithShape>();
+        if (shapeType == entity.world().id<Shape::Line>()) return "Line";
+        if (shapeType == entity.world().id<Shape::Circle>()) return "Circle";
+        return "None";
+    }
+    sol::object get_line_properties(sol::this_state s) const {
+        sol::state_view lua(s);
+        if (!entity.is_valid() || !entity.is_alive()) return sol::lua_nil;
+        flecs::entity shapeType = entity.target<Fixture::WithShape>();
+        if (shapeType == entity.world().id<Shape::Line>()) {
+            if (const auto* l = entity.try_get<Fixture::WithShape, Shape::Line>()) {
+                return sol::make_object(lua, std::make_tuple(l->start.x, l->start.y, l->start.z, l->end.x, l->end.y, l->end.z));
+            }
+        }
+        return sol::lua_nil;
+    }
+    void set_line_properties(float sx, float sy, float sz, float ex, float ey, float ez) {
+        if (!entity.is_valid() || !entity.is_alive()) return;
+        entity.set<Fixture::WithShape, Shape::Line>({{sx, sy, sz}, {ex, ey, ez}});
+        entity.add<Fixture::PixelPositionsDirty>();
+        flecs::entity patch = Fixture::getPatch(entity);
+        if (patch.is_valid()) {
+            patch.add<Patch::RenderAreaDirty>();
+        }
+    }
+    sol::object get_layout(sol::this_state s) const {
+        sol::state_view lua(s);
+        if (!entity.is_valid() || !entity.is_alive()) return sol::lua_nil;
+        if (const auto* l = entity.try_get<Fixture::Layout>()) {
+            return sol::make_object(lua, std::make_tuple(l->pixelCount, l->channelsPerPixel));
+        }
+        return sol::lua_nil;
+    }
+    void set_layout(int pixelCount, int channels) {
+        if (!entity.is_valid() || !entity.is_alive()) return;
+        Fixture::Layout layout{pixelCount, channels};
+        entity.set<Fixture::Layout>(layout);
+    }
+    sol::object get_dmx(sol::this_state s) const {
+        sol::state_view lua(s);
+        if (!entity.is_valid() || !entity.is_alive()) return sol::lua_nil;
+        if (const auto* dmx = entity.try_get<Fixture::DmxAddress>()) {
+            return sol::make_object(lua, std::make_tuple(dmx->universe, dmx->address));
+        }
+        return sol::lua_nil;
+    }
+    void set_dmx(int universe, int address) {
+        if (!entity.is_valid() || !entity.is_alive()) return;
+        Fixture::setDmxProperties(entity, universe, address);
+    }
+};
+
+class LuaPatch {
+public:
+    flecs::entity patch;
+    LuaPatch(flecs::entity p) : patch(p) {}
+
+    void clear_fixtures() {
+        if (!patch.is_valid() || !patch.is_alive()) return;
+        auto fixtureFolder = patch.target<Patch::FixtureFolder>();
+        if (!fixtureFolder.is_valid()) return;
+
+        std::vector<flecs::entity> toDelete;
+        fixtureFolder.children([&](flecs::entity child){
+            if (child.has<Fixture::Is>()) {
+                toDelete.push_back(child);
+            }
+        });
+
+        for (auto f : toDelete) {
+            if (f.name()) {
+                std::string tempName = std::string(f.name()) + "_dying_" + std::to_string(f.id());
+                f.set_name(tempName.c_str());
+            }
+            f.destruct();
+        }
+        patch.add<Patch::DmxMapDirty>();
+        patch.add<Patch::RenderAreaDirty>();
+    }
+
+    LuaFixture create_line(const std::string& name, float sx, float sy, float sz, float ex, float ey, float ez, int numPixels, int channels) {
+        if (!patch.is_valid() || !patch.is_alive()) return LuaFixture(flecs::entity::null());
+        flecs::entity f = Fixture::createLine(patch, {sx, sy, sz}, {ex, ey, ez}, numPixels, channels);
+        if (f.is_valid() && !name.empty()) {
+            f.set_name(name.c_str());
+        }
+        return LuaFixture(f);
+    }
+
+    std::vector<LuaFixture> get_fixtures() {
+        std::vector<LuaFixture> res;
+        if (!patch.is_valid() || !patch.is_alive()) return res;
+        Fixture::iterateWithDmx(patch, [&](flecs::entity f, const Fixture::Layout&, const Fixture::DmxAddress&){
+            res.push_back(LuaFixture(f));
+        });
+        return res;
+    }
+};
+
+    w.system<>("WindowFixtureSetupScript").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showFixtureSetupScriptWindow) return;
+        auto selectedPatch = Patch::getSelected(app);
+
+        if(!setupEditorInitialized){
+            setupScriptEditor = std::make_unique<TextEditor>();
+            setupScriptEditor->SetLanguage(TextEditor::Language::Lua());
+            setupEditorInitialized = true;
+        }
+
+        if(ImGui::Begin("Fixture Setup Script", &ui->showFixtureSetupScriptWindow)){
+            if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch selected."); ImGui::End(); return; }
+
+            auto* setupScript = selectedPatch.try_get_mut<Patch::FixtureSetupScript>();
+            if(!setupScript){ ImGui::End(); return; }
+
+            static flecs::id_t lastPatchId = 0;
+            static std::string lastSetupEditorText = "";
+
+            bool setupTargetChanged = (selectedPatch.id() != lastPatchId);
+
+            if (setupTargetChanged) {
+                lastPatchId = selectedPatch.id();
+                setupScriptEditor->SetText(setupScript->source);
+                lastSetupEditorText = setupScript->source;
+                setupScriptHasUncompiledChanges = false;
+            }
+
+            // ── Auto-compile debouncing logic ──
+            static double lastSetupChangeTime = 0.0;
+            std::string currentSetupText = setupScriptEditor->GetText();
+            if (!setupTargetChanged && currentSetupText != lastSetupEditorText) {
+                lastSetupEditorText = currentSetupText;
+                setupScriptHasUncompiledChanges = true;
+                lastSetupChangeTime = ImGui::GetTime();
+            }
+
+            if (setupScriptHasUncompiledChanges && (ImGui::GetTime() - lastSetupChangeTime > 0.3)) {
+                std::string newSource = setupScriptEditor->GetText();
+                setupScript->source = newSource;
+                
+                sol::state valLua;
+                valLua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::table, sol::lib::string);
+                sol::load_result loadRes = valLua.load(newSource);
+                if (!loadRes.valid()) {
+                    sol::error err = loadRes;
+                    setupScript->compilerLog = err.what();
+                } else {
+                    setupScript->compilerLog = "Syntax OK!";
+                }
+                setupScriptHasUncompiledChanges = false;
+            }
+
+            // Buttons row
+            if (ImGui::Button("Run")) {
+                sol::state runLua;
+                runLua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::table, sol::lib::string);
+                
+                runLua.new_usertype<LuaFixture>("Fixture",
+                    "id", &LuaFixture::id,
+                    "name", &LuaFixture::name,
+                    "set_name", &LuaFixture::set_name,
+                    "remove", &LuaFixture::remove,
+                    "get_shape_type", &LuaFixture::get_shape_type,
+                    "get_line_properties", &LuaFixture::get_line_properties,
+                    "set_line_properties", &LuaFixture::set_line_properties,
+                    "get_layout", &LuaFixture::get_layout,
+                    "set_layout", &LuaFixture::set_layout,
+                    "get_dmx", &LuaFixture::get_dmx,
+                    "set_dmx", &LuaFixture::set_dmx
+                );
+
+                runLua.new_usertype<LuaPatch>("Patch",
+                    "clear_fixtures", &LuaPatch::clear_fixtures,
+                    "create_line", &LuaPatch::create_line,
+                    "get_fixtures", &LuaPatch::get_fixtures
+                );
+
+                runLua["patch"] = LuaPatch(selectedPatch);
+                
+                std::string sourceCode = setupScriptEditor->GetText();
+                setupScript->source = sourceCode;
+
+                sol::protected_function_result result = runLua.safe_script(sourceCode, sol::script_pass_on_error);
+                if (!result.valid()) {
+                    sol::error err = result;
+                    setupScript->compilerLog = "Runtime Error: " + std::string(err.what());
+                } else {
+                    setupScript->compilerLog = "Run successful!";
+                }
+                
+                selectedPatch.add<Patch::DmxMapDirty>();
+                selectedPatch.add<Patch::RenderAreaDirty>();
+                selectedPatch.add<Patch::ProgramDirty>();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Help")) {
+                showSetupHelpWindow = !showSetupHelpWindow;
+            }
+            ImGui::SameLine();
+            static int setupPresetIdx = -1;
+            auto setupPresetGetter = [](void*, int i, const char** out) -> bool { *out = kSetupPresets[i].name; return true; };
+            ImGui::SetNextItemWidth(180);
+            if (ImGui::Combo("Presets", &setupPresetIdx, setupPresetGetter, nullptr, kSetupPresetsCount) && setupPresetIdx >= 0) {
+                std::string presetCode = kSetupPresets[setupPresetIdx].script;
+                setupScriptEditor->SetText(presetCode);
+                setupScript->source = presetCode;
+                setupScript->compilerLog = "Syntax OK!";
+                setupScriptHasUncompiledChanges = false;
+            }
+
+            ImGui::Separator();
+
+            const float kLogHeight = 100.f;
+            const float kSepHeight = ImGui::GetStyle().ItemSpacing.y + 1.f;
+            float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f;
+            if(editorHeight < 80.f) editorHeight = 80.f;
+
+            setupScriptEditor->Render("SetupScriptEd", ImVec2(0, editorHeight));
+
+            ImGui::Separator();
+            if (setupScriptHasUncompiledChanges) {
+                ImGui::TextColored({1.0f, 0.5f, 0.0f, 1.0f}, "* Unsaved Changes (validating...)");
+            } else {
+                ImGui::TextColored({0.2f, 1.0f, 0.2f, 1.0f}, "Saved & Checked");
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Status / Error Log:");
+            ImGui::BeginChild("##SetupLog", ImVec2(0, kLogHeight), true);
+            std::string displayLog = setupScript->compilerLog;
+
+            bool ok = (displayLog == "Syntax OK!" || displayLog == "Run successful!");
+            if(ok)
+                ImGui::TextColored({0.2f,1,0.2f,1}, "%s", displayLog.c_str());
+            else if(!displayLog.empty())
+                ImGui::TextColored({1,0.3f,0.3f,1}, "%s", displayLog.c_str());
+            else
+                ImGui::TextDisabled("No log yet.");
+            ImGui::EndChild();
+
+            if (showSetupHelpWindow) {
+                ImGui::SetNextWindowSize(ImVec2(600, 450), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Fixture Setup Script Documentation", &showSetupHelpWindow)) {
+                    ImGui::TextWrapped("This documentation reference guide covers the Lua API bindings available for programmatically configuring fixtures inside the current Patch.");
+                    ImGui::Separator();
+
+                    if (ImGui::CollapsingHeader("1. Patch Interface")) {
+                        ImGui::Text("Exposed as global variable 'patch':");
+                        ImGui::BulletText("patch:clear_fixtures() - Deletes all fixtures in the current patch.");
+                        ImGui::BulletText("patch:create_line(name, startX, startY, startZ, endX, endY, endZ, numPixels, channels) - Creates a new Line Fixture and returns a Fixture object wrapper.");
+                        ImGui::BulletText("patch:get_fixtures() - Returns a standard Lua array (table) of all Fixture objects currently in this patch.");
+                    }
+
+                    if (ImGui::CollapsingHeader("2. Fixture Interface")) {
+                        ImGui::Text("Exposed on individual Fixture object wrappers:");
+                        ImGui::BulletText("f:id() - Returns the unique numerical Flecs entity ID for the fixture.");
+                        ImGui::BulletText("f:name() - Returns the fixture's name string.");
+                        ImGui::BulletText("f:set_name(name) - Sets a new name string for the fixture.");
+                        ImGui::BulletText("f:remove() - Deletes this fixture from the patch.");
+                        ImGui::BulletText("f:get_shape_type() - Returns shape type string ('Line', 'Circle', or 'None').");
+                        ImGui::BulletText("f:get_line_properties() - Returns 6 values: startX, startY, startZ, endX, endY, endZ (multiple returns).");
+                        ImGui::BulletText("f:set_line_properties(startX, startY, startZ, endX, endY, endZ) - Configures the Line shape properties.");
+                        ImGui::BulletText("f:get_layout() - Returns 2 values: pixelCount, channelsPerPixel.");
+                        ImGui::BulletText("f:set_layout(pixelCount, channelsPerPixel) - Sets layout (e.g. RGB is 3 channels, RGBW is 4 channels).");
+                        ImGui::BulletText("f:get_dmx() - Returns 2 values: universe, startAddress.");
+                        ImGui::BulletText("f:set_dmx(universe, startAddress) - Sets the DMX patch address.");
+                    }
+
+                    if (ImGui::CollapsingHeader("3. Volumetric Setup Example")) {
+                        ImGui::TextWrapped("The example script below clears the patch and lays out a grid of Line fixtures:");
+                        ImGui::Separator();
+                        ImGui::TextDisabled(
+                            "-- Clear and create a 3x3 array of lines\n"
+                            "patch:clear_fixtures()\n\n"
+                            "local count = 1\n"
+                            "for row = 0, 2 do\n"
+                            "    for col = 0, 2 do\n"
+                            "        local x = col * 40\n"
+                            "        local y = row * 40\n"
+                            "        local name = \"Grid_\" .. row .. \"_\" .. col\n"
+                            "        local f = patch:create_line(name, x, y, 0, x + 30, y, 0, 8, 4)\n"
+                            "        -- Sequentially patch DMX universes\n"
+                            "        f:set_dmx(0, (count - 1) * 32)\n"
+                            "        count = count + 1\n"
+                            "    end\n"
+                            "end"
+                        );
+                    }
+                }
+                ImGui::End();
+            }
+        }
+        ImGui::End();
+    });
+
     w.system<>("WindowOfflinePreview").kind(flecs::OnStore)
     .run([&](flecs::iter& it){
         auto app          = App::get(it.world());
@@ -2162,3 +2993,8 @@ void import(flecs::world& w){
 } // import()
 
 } // namespace PixelMapper::Gui
+
+
+
+
+

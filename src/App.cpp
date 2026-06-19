@@ -244,7 +244,8 @@ namespace App {
         w.observer<Fixture::Layout>("ObserveFixtureLayout").event(flecs::OnSet)
         .with<Fixture::Is>()
         .each([](flecs::entity e, Fixture::Layout& l) {
-            l.pixelCount = std::clamp<int>(l.pixelCount, 1, INT_MAX);
+            int minPixels = e.has<Fixture::WithShape, Shape::Line>() ? 0 : 1;
+            l.pixelCount = std::clamp<int>(l.pixelCount, minPixels, INT_MAX);
             l.channelsPerPixel = std::clamp<int>(l.channelsPerPixel, 1, 4);
             e.add<Fixture::LayoutDirty>();
         });
@@ -339,6 +340,7 @@ namespace App {
 
             Fixture::iterateWithDmx(patch,
                 [&](flecs::entity fixture, const Fixture::Layout& layout, const Fixture::DmxAddress& dmxAddress){
+                    if (layout.pixelCount <= 0) return;
                     int fixtureUniverseCount = 1;
                     int channels = dmxAddress.address + layout.pixelCount * layout.channelsPerPixel;
                     while(channels > 512){ fixtureUniverseCount++; channels -= 512; }
