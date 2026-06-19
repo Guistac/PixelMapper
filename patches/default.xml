@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="1" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="1" showFixtures="0" showPixels="1" showFrame="0" autoZoom="0" pixelSize="7" canvas3dMode="1" canvasRotationX="5" canvasRotationY="9" editingCueIndex="-2" editingBankIndex="15"/>
+    <UIConfig currentLayout="1" showFixturesWindow="1" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="1" showFixtures="0" showPixels="1" showFrame="0" autoZoom="0" pixelSize="7" canvas3dMode="1" canvasRotationX="32" canvasRotationY="41" editingCueIndex="-2" editingBankIndex="15"/>
     <Patch name="Patch 1">
         <Settings refreshRate="50.299999" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="0" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
