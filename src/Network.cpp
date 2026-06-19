@@ -48,10 +48,10 @@ void init() {
 	io_context_handler = std::thread([&]() {
 		//pthread_setname_np("Asio Network Thread");
 		b_initialized = true;
-		Logger::debug("===== Started IP Network IO Context");
+		//Logger::debug("===== Started IP Network IO Context");
 		io_context.run();  // will now keep running as long as work_guard exists
 		b_initialized = false;
-		Logger::debug("===== Stopped IP Network IO Context");
+		//Logger::debug("===== Stopped IP Network IO Context");
 	});
 
 }
@@ -79,7 +79,7 @@ std::unique_ptr<asio::ip::udp::socket> getUdpSocket(int listeningPort, std::vect
         socket->async_connect(remoteEndpoint, [](asio::error_code) {});
     }
     catch (std::exception e) {
-        Logger::error("UDP Socket Creation Network Error: {}", e.what());
+        //Logger::error("UDP Socket Creation Network Error: {}", e.what());
         return nullptr;
     }
     return socket;
@@ -100,7 +100,7 @@ std::unique_ptr<asio::ip::udp::socket> getUdpSocket(std::vector<int> remoteIp, i
 		socket->async_connect(remoteEndpoint, [](asio::error_code) {});
 	}
 	catch (std::exception e) {
-		Logger::error("UDP Socket Creation Network Error: {}", e.what());
+		//Logger::error("UDP Socket Creation Network Error: {}", e.what());
 		return nullptr;
 	}
 	return socket;
@@ -116,7 +116,7 @@ std::unique_ptr<asio::ip::udp::socket> getUdpBroadcastSocket(){
         socket->set_option(asio::socket_base::broadcast(true));
         return socket;
     }catch(std::exception e){
-        Logger::warn("Coult not create udp broadcast socket : {}", e.what());
+        //Logger::warn("Coult not create udp broadcast socket : {}", e.what());
         return nullptr;
     }
 }
@@ -280,14 +280,14 @@ void UdpSocket::send(const void* data, size_t size, const asio::ip::udp::endpoin
 	asio::post(io_context, [this, buf, dest, errCb]() {
 		if (!socket) return;
 
-		Logger::debug("ASIO sending to " + dest.address().to_string() + ":" + std::to_string(dest.port()));
+		//Logger::debug("ASIO sending to " + dest.address().to_string() + ":" + std::to_string(dest.port()));
 
 		socket->async_send_to(
 			asio::buffer(*buf),
 			dest,
 			[buf, errCb](const asio::error_code& ec, size_t /*sent*/) {
 				if (ec) {
-					Logger::error("UDP send error: {}", ec.message());
+					//Logger::error("UDP send error: {}", ec.message());
 					if (errCb) {
 						errCb(ec.message());
 					}
@@ -362,7 +362,7 @@ bool UdpSocket::internalBind(uint32_t localIp, uint16_t port) {
 	socket->set_option(asio::socket_base::broadcast(true), ec);
 	socket->bind(asio::ip::udp::endpoint(asio::ip::address_v4(localIp), port), ec);
 	if (ec) {
-		Logger::warn("UDP bind error: {}", ec.message());
+		////Logger::warn("UDP bind error: {}", ec.message());
 		return false;
 	}
 	return true;
@@ -379,7 +379,7 @@ void UdpSocket::internalOpen() {
 	asio::error_code ec;
 	socket->open(asio::ip::udp::v4(), ec);
 	if (ec) {
-		Logger::warn("UDP open error: {}", ec.message());
+		//Logger::warn("UDP open error: {}", ec.message());
 		socket.reset();
 		return;
 	}
@@ -404,7 +404,7 @@ void UdpSocket::internalStartReceiving(
 	asio::error_code ec;
 	socket->bind(asio::ip::udp::endpoint(asio::ip::udp::v4(), port), ec);
 	if (ec) {
-		Logger::warn("UDP bind error: {}", ec.message());
+		//Logger::warn("UDP bind error: {}", ec.message());
 		return;
 	}
 
@@ -442,7 +442,7 @@ void UdpSocket::internalStartMulticastReceiving(
 	socket->bind(asio::ip::udp::endpoint(asio::ip::udp::v4(), port), ec);
 	
 	if (ec) {
-		Logger::error("Multicast bind error: {}", ec.message());
+		//Logger::error("Multicast bind error: {}", ec.message());
 		return;
 	}
 
@@ -453,7 +453,7 @@ void UdpSocket::internalStartMulticastReceiving(
 	socket->set_option(asio::ip::multicast::join_group(groupAddr, interfaceAddr), ec);
 	
 	if (ec) {
-		Logger::error("Multicast join error: {}", ec.message());
+		//Logger::error("Multicast join error: {}", ec.message());
 		return;
 	}
 
