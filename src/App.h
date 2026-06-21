@@ -17,6 +17,13 @@ namespace Gui {
 }
 
 namespace App {
+    enum class AppMode {
+        Standalone,
+        Server,
+        Client
+    };
+    extern AppMode g_appMode;
+
     extern GLFWwindow* sharedContextWindow;
     extern std::shared_ptr<PatchProgram> currentPatchProgram;
     struct Is {};
@@ -80,6 +87,12 @@ namespace App {
     /// Consumed (and reset to 0) by pushNewProgram(). Thread-safe: only written
     /// on the main thread (same thread that calls pushNewProgram via compile system).
     extern float pendingCrossfadeDuration;
+
+    // Client-side Telemetry Cache (UDP reassembly targets)
+    extern Generative::EngineStateUBO clientTelemetryUbo;
+    extern std::vector<ColorRGBW> clientTelemetryPixels;
+    extern std::mutex clientTelemetryMutex;
+    extern bool clientTelemetryDataNew;
 }
 
 } // namespace PixelMapper

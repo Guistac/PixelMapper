@@ -89,6 +89,14 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/GenerativeEngine.h
 	${PROJECT_SRC_DIR}/GenerativeEngine.cpp
 
+	${PROJECT_SRC_DIR}/network/TelemetryProtocol.h
+	${PROJECT_SRC_DIR}/network/CommandProtocol.h
+	${PROJECT_SRC_DIR}/network/SimpleJson.h
+	${PROJECT_SRC_DIR}/network/AsioNetworkManager.h
+	${PROJECT_SRC_DIR}/network/AsioNetworkManager.cpp
+	${PROJECT_SRC_DIR}/network/CommandHandlers.h
+	${PROJECT_SRC_DIR}/network/CommandHandlers.cpp
+
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
 )
 

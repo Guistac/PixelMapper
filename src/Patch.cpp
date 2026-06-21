@@ -71,26 +71,26 @@ namespace Patch {
 
         newPatch.set_name(patchName.c_str());
 
-        auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
-        auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
-        auto artnetDeviceFolder = world.entity("ArtnetDeviceFolder").child_of(newPatch);
+        auto fixtureFolder = world.entity().child_of(newPatch).set_name("FixtureFolder");
+        auto dmxOutputFolder = world.entity().child_of(newPatch).set_name("DmxOutputFolder");
+        auto artnetDeviceFolder = world.entity().child_of(newPatch).set_name("ArtnetDeviceFolder");
 
         newPatch.add<Patch::FixtureFolder>(fixtureFolder);
         newPatch.add<Patch::DmxUniverseFolder>(dmxOutputFolder);
         newPatch.add<Patch::ArtnetDeviceFolder>(artnetDeviceFolder);
 
-        auto cueListFolder = world.entity("CueListFolder").child_of(newPatch);
+        auto cueListFolder = world.entity().child_of(newPatch).set_name("CueListFolder");
         cueListFolder.add<CueList::Is>();
         cueListFolder.set<CueList::SessionState>({});
 
-        auto effectBankFolder = world.entity("EffectBankFolder").child_of(newPatch);
+        auto effectBankFolder = world.entity().child_of(newPatch).set_name("EffectBankFolder");
         effectBankFolder.add<EffectBank::Is>();
         effectBankFolder.set<EffectBank::SessionState>({});
 
-        auto paletteFolder = world.entity("PaletteFolder").child_of(newPatch);
+        auto paletteFolder = world.entity().child_of(newPatch).set_name("PaletteFolder");
         paletteFolder.add<Generative::PaletteFolder>();
 
-        auto motiveFolder = world.entity("MotiveFolder").child_of(newPatch);
+        auto motiveFolder = world.entity().child_of(newPatch).set_name("MotiveFolder");
         motiveFolder.add<Generative::MotiveFolder>();
 
         newPatch.add<CueList::CueFolder>(cueListFolder);

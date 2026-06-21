@@ -9,6 +9,7 @@
 #include "FileWatcher.h"
 #include "utils/FlecsUtils.h"
 #include "Network.h"
+#include "network/AsioNetworkManager.h"
 
 
 #include <thread>
@@ -26,15 +27,23 @@
 namespace PixelMapper {
 namespace App {
 
+    AppMode g_appMode = AppMode::Standalone;
     GLFWwindow* sharedContextWindow = nullptr;
     std::shared_ptr<PatchProgram> currentPatchProgram{nullptr};
     bool b_rtPatchRunner = false;
+    bool b_initializedAppThreads = false;
 
     std::atomic<float> rtFps{0.0f};
     std::atomic<float> rtBitrateMbps{0.0f};
     char rtNetworkStatus[512] = "Not sending yet";
     std::mutex rtNetworkStatusMutex;
     float pendingCrossfadeDuration = 0.0f;
+
+    // Client-side Telemetry Cache definitions
+    Generative::EngineStateUBO clientTelemetryUbo{};
+    std::vector<ColorRGBW> clientTelemetryPixels;
+    std::mutex clientTelemetryMutex;
+    bool clientTelemetryDataNew = false;
 
     flecs::entity get(const flecs::world& w){
         return w.target<Is>();
@@ -111,6 +120,14 @@ namespace App {
                     render(program.get());
                     encode(program.get());
 
+                    // Stream UDP telemetry to clients
+                    PixelMapper::Network::AsioNetworkManager::getInstance().streamTelemetry(
+                        rtFrameCount,
+                        program->generativeRuntime->getUboState(),
+                        program->vfbPixels,
+                        program->pixelCount
+                    );
+
                     // Increment crossfade progress
                     float progress = program->crossfadeProgress.load();
                     float duration = program->crossfadeDuration.load();
@@ -170,7 +187,8 @@ namespace App {
     void terminate(){
         b_rtPatchRunner = false;
         if(rtPatchRunner.joinable()) rtPatchRunner.join();
-        Network::terminate();
+        ::Network::terminate();
+        b_initializedAppThreads = false;
     }
 
     static int compareOrder(flecs::entity_t e1, const Fixture::Order* o1,
@@ -495,10 +513,13 @@ namespace App {
             }
         });
 
-        Network::init();
-        App::rtPatchRunner = std::thread([](){
-            App::runPatch();
-        });
+        if (!b_initializedAppThreads && (g_appMode == AppMode::Server || g_appMode == AppMode::Standalone)) {
+            b_initializedAppThreads = true;
+            ::Network::init();
+            App::rtPatchRunner = std::thread([](){
+                App::runPatch();
+            });
+        }
     }
 
 } // namespace App

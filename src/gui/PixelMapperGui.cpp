@@ -1,4 +1,5 @@
 #include "PixelMapper.h"
+#include "network/CommandHandlers.h"
 #include <sol/sol.hpp>
 
 #include "ImGuiCanvas.h"
@@ -339,9 +340,9 @@ void import(flecs::world& w){
 
             if(ImGui::BeginMenu("File")){
                 if(ImGui::MenuItem("Save Patch", "Cmd+S"))
-                    PatchSerializer::save(app, "patches/default.xml");
+                    PixelMapper::Network::sendFileIORequest("SAVE", "patches/default.xml");
                 if(ImGui::MenuItem("Load Patch"))
-                    PatchSerializer::load(app, "patches/default.xml");
+                    PixelMapper::Network::sendFileIORequest("LOAD", "patches/default.xml");
                 ImGui::EndMenu();
             }
 
@@ -408,7 +409,7 @@ void import(flecs::world& w){
     .run([&](flecs::iter& it){
         auto app = App::get(it.world());
         if(ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_LeftSuper)){
-            if(ImGui::IsKeyPressed(ImGuiKey_S, false)) PatchSerializer::save(app, "patches/default.xml");
+            if(ImGui::IsKeyPressed(ImGuiKey_S, false)) PixelMapper::Network::sendFileIORequest("SAVE", "patches/default.xml");
         }
     });
 
