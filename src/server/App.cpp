@@ -253,6 +253,57 @@ namespace App {
             Fixture::getPatch(fixture).add<Patch::DmxMapDirty>();
         });
 
+        w.observer<Fixture::WithShape, Shape::Line>("ObserveFixtureWithShapeLine").event(flecs::OnSet)
+        .with<Fixture::Is>()
+        .each([](flecs::entity fixture, Fixture::WithShape, Shape::Line&){
+            fixture.add<Fixture::PixelPositionsDirty>();
+        });
+
+        w.observer<Fixture::WithShape, Shape::Circle>("ObserveFixtureWithShapeCircle").event(flecs::OnSet)
+        .with<Fixture::Is>()
+        .each([](flecs::entity fixture, Fixture::WithShape, Shape::Circle&){
+            fixture.add<Fixture::PixelPositionsDirty>();
+        });
+
+        w.observer<Generative::Settings>("ObserveGenerativeSettings").event(flecs::OnSet)
+        .with<Patch::Is>()
+        .each([](flecs::entity patch, Generative::Settings&){
+            patch.add<Patch::ProgramDirty>();
+        });
+
+        w.observer("ObserveCueTargetEffect").event(flecs::OnSet)
+        .term().first<CueList::Cue::TargetEffect>().second(flecs::Wildcard)
+        .each([](flecs::iter& it, size_t i) {
+            flecs::entity cue = it.entity(i);
+            flecs::entity targetFx = it.id(1).second();
+            // Remove other TargetEffect relations if any (excluding the one just set)
+            cue.each([&](flecs::id id){
+                if (id.is_pair() && id.first() == cue.world().id<CueList::Cue::TargetEffect>() && id.second() != targetFx) {
+                    cue.remove(id);
+                }
+            });
+            // Also mark patch as ProgramDirty
+            flecs::entity folder = cue.parent();
+            if (folder.is_valid()) {
+                flecs::entity patch = folder.parent();
+                if (patch.is_valid() && patch.has<Patch::Is>()) {
+                    patch.add<Patch::ProgramDirty>();
+                }
+            }
+        });
+
+        w.observer<CueList::Cue::IndexOrder>("ObserveCueIndexOrder").event(flecs::OnSet)
+        .with<CueList::Cue::Is>()
+        .each([](flecs::entity cue, CueList::Cue::IndexOrder&){
+            flecs::entity folder = cue.parent();
+            if (folder.is_valid()) {
+                flecs::entity patch = folder.parent();
+                if (patch.is_valid() && patch.has<Patch::Is>()) {
+                    patch.add<Patch::ProgramDirty>();
+                }
+            }
+        });
+
         //————————————————————— SYSTEMS ———————————————————————
         w.system<Fixture::Layout, Fixture::PixelData>("UpdateFixtureLayout").with<Fixture::LayoutDirty>()
         .kind(flecs::OnLoad)

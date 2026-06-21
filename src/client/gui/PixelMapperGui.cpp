@@ -27,6 +27,26 @@ bool Circle_guiProps(const void*){ return false; }
 
 namespace PixelMapper::Gui{
 
+template <typename T>
+static void setComponent(flecs::entity entity, const T& value) {
+    if (PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Client ||
+        PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Standalone) {
+        PixelMapper::Network::sendEntityMutation<T>(entity, &value);
+    } else {
+        entity.set<T>(value);
+    }
+}
+
+template <typename Relation, typename Object>
+static void setComponentPair(flecs::entity entity, const Object& value) {
+    if (PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Client ||
+        PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Standalone) {
+        PixelMapper::Network::sendEntityMutationPair<Relation, Object>(entity, &value);
+    } else {
+        entity.set<Relation, Object>(value);
+    }
+}
+
 ImGuiCanvas canvas;
 
 static std::unique_ptr<TextEditor> luaEditor;
@@ -232,7 +252,11 @@ static void reorderCues(flecs::entity patch, flecs::entity dragCue, flecs::entit
     auto dropIt = std::find(list.begin(), list.end(), dropCue);
     if (dragIt == list.end() || dropIt == list.end()) return;
 
-    auto* session = &cueFolder.get_mut<CueList::SessionState>();
+    const auto* session = cueFolder.try_get<CueList::SessionState>();
+    CueList::SessionState sessionCopy;
+    if (session) {
+        sessionCopy = *session;
+    }
     flecs::entity activeCueEntity;
     if (session && session->activeIndex >= 0 && session->activeIndex < (int)list.size()) {
         activeCueEntity = list[session->activeIndex];
@@ -242,10 +266,14 @@ static void reorderCues(flecs::entity patch, flecs::entity dragCue, flecs::entit
     dropIt = std::find(list.begin(), list.end(), dropCue);
     list.insert(dropIt, dragCue);
 
+    bool sessionChanged = false;
     for (int i = 0; i < (int)list.size(); ++i) {
-        list[i].set<CueList::Cue::IndexOrder>({i});
+        setComponent<CueList::Cue::IndexOrder>(list[i], {i});
         if (list[i] == activeCueEntity && session) {
-            session->activeIndex = i;
+            if (sessionCopy.activeIndex != i) {
+                sessionCopy.activeIndex = i;
+                sessionChanged = true;
+            }
             auto program = std::atomic_load(&App::currentPatchProgram);
             if (program) {
                 program->activeCueIndex.store(i);
@@ -253,7 +281,14 @@ static void reorderCues(flecs::entity patch, flecs::entity dragCue, flecs::entit
         }
     }
 
-    patch.add<Patch::ProgramDirty>();
+    if (sessionChanged) {
+        setComponent<CueList::SessionState>(cueFolder, sessionCopy);
+    }
+
+    if (PixelMapper::App::g_appMode != PixelMapper::App::AppMode::Client &&
+        PixelMapper::App::g_appMode != PixelMapper::App::AppMode::Standalone) {
+        patch.add<Patch::ProgramDirty>();
+    }
 }
 
 static flecs::entity getCueEntityByIndex(flecs::entity cueFolder, int idx) {
@@ -530,13 +565,11 @@ void import(flecs::world& w){
                                     float avgZ = (l.start.z + l.end.z) * 0.5f;
                                     l.start.z -= avgZ;
                                     l.end.z -= avgZ;
-                                    mf.set<Fixture::WithShape, Shape::Line>(l);
-                                    mf.add<Fixture::PixelPositionsDirty>();
+                                    setComponentPair<Fixture::WithShape, Shape::Line>(mf, l);
                                 } else if(mst == mf.world().id<Shape::Circle>()){
                                     auto c = mf.get<Fixture::WithShape, Shape::Circle>();
                                     c.center.z = 0.0f;
-                                    mf.set<Fixture::WithShape, Shape::Circle>(c);
-                                    mf.add<Fixture::PixelPositionsDirty>();
+                                    setComponentPair<Fixture::WithShape, Shape::Circle>(mf, c);
                                 }
                             }
                         }
@@ -555,13 +588,11 @@ void import(flecs::world& w){
                                     float deltaZ = multiZ - avgZ;
                                     l.start.z += deltaZ;
                                     l.end.z += deltaZ;
-                                    mf.set<Fixture::WithShape, Shape::Line>(l);
-                                    mf.add<Fixture::PixelPositionsDirty>();
+                                    setComponentPair<Fixture::WithShape, Shape::Line>(mf, l);
                                 } else if(mst == mf.world().id<Shape::Circle>()){
                                     auto c = mf.get<Fixture::WithShape, Shape::Circle>();
                                     c.center.z = multiZ;
-                                    mf.set<Fixture::WithShape, Shape::Circle>(c);
-                                    mf.add<Fixture::PixelPositionsDirty>();
+                                    setComponentPair<Fixture::WithShape, Shape::Circle>(mf, c);
                                 }
                             }
                         }
@@ -583,7 +614,7 @@ void import(flecs::world& w){
                         e |= ImGui::InputInt("Pixel Count", &f.pixelCount);
                         e |= ImGui::InputInt("Color Channels", &f.channelsPerPixel);
                         ImGui::Text("%i Bytes", f.pixelCount * f.channelsPerPixel);
-                        if(e) selectedFixture.set<Fixture::Layout>(f);
+                        if(e) setComponent<Fixture::Layout>(selectedFixture, f);
                     }
                     if(selectedFixture.has<Fixture::DmxAddress>()){
                         Fixture::DmxAddress dmx = selectedFixture.get<Fixture::DmxAddress>();
@@ -596,7 +627,7 @@ void import(flecs::world& w){
                             uint16_t s1 = 1, s10 = 10;
                             e |= ImGui::InputScalar("Universe", ImGuiDataType_U16, &dmx.universe, &s1, &s10);
                             e |= ImGui::InputScalar("Address",  ImGuiDataType_U16, &dmx.address,  &s1, &s10);
-                            if(e) selectedFixture.set<Fixture::DmxAddress>(dmx);
+                            if(e) setComponent<Fixture::DmxAddress>(selectedFixture, dmx);
                         }
                     }
                     auto shapeType = selectedFixture.target<Fixture::WithShape>();
@@ -616,7 +647,7 @@ void import(flecs::world& w){
                             e = true;
                         }
                         
-                        if(e){ selectedFixture.get_mut<Fixture::WithShape, Shape::Line>() = l; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
+                        if(e){ setComponentPair<Fixture::WithShape, Shape::Line>(selectedFixture, l); }
                     } else if(shapeType == selectedFixture.world().id<Shape::Circle>()){
                         Shape::Circle c = selectedFixture.get<Fixture::WithShape, Shape::Circle>();
                         bool e = false;
@@ -626,7 +657,7 @@ void import(flecs::world& w){
                         
                         e |= ImGui::SliderFloat("Z Height", &c.center.z, -500.0f, 500.0f, "%.1fmm");
                         
-                        if(e){ selectedFixture.get_mut<Fixture::WithShape, Shape::Circle>() = c; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
+                        if(e){ setComponentPair<Fixture::WithShape, Shape::Circle>(selectedFixture, c); }
                     }
                 } else {
                     ImGui::TextDisabled("Select a fixture.");
@@ -956,7 +987,7 @@ void import(flecs::world& w){
                             bool d1 = canvas.dragHandle("##S", l.start, 10.f, &handleActive);
                             bool d2 = canvas.dragHandle("##E", l.end,   10.f, &handleActive);
                             edited = d1 || d2;
-                            if(edited){ selectedFixture.get_mut<Fixture::WithShape, Shape::Line>() = l; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
+                            if(edited){ setComponentPair<Fixture::WithShape, Shape::Line>(selectedFixture, l); }
                             if(edited && d1) prevDragAnchor = l.start;
                         } else if(st == selectedFixture.world().id<Shape::Circle>()){
                             Shape::Circle c = selectedFixture.get<Fixture::WithShape, Shape::Circle>();
@@ -965,12 +996,12 @@ void import(flecs::world& w){
                             bool dr = canvas.dragHandle("##R", rH, 10.f, &handleActive);
                             if(dr) c.radius = glm::distance(c.center, rH);
                             edited = dc || dr;
-                            if(edited){ selectedFixture.get_mut<Fixture::WithShape, Shape::Circle>() = c; selectedFixture.add<Fixture::PixelPositionsDirty>(); }
+                            if(edited){ setComponentPair<Fixture::WithShape, Shape::Circle>(selectedFixture, c); }
                             if(edited && dc) prevDragAnchor = c.center;
                         }
                         handleDragged = edited;
                         ImGui::PopStyleColor(3);
-
+ 
                         // ── Group drag: propagate delta to multi-selected fixtures ──
                         if(handleDragged && msCount(selectedPatch) > 0){
                             auto st2 = selectedFixture.target<Fixture::WithShape>();
@@ -979,11 +1010,11 @@ void import(flecs::world& w){
                                 newAnchor = selectedFixture.get<Fixture::WithShape, Shape::Line>().start;
                             else if(st2 == selectedFixture.world().id<Shape::Circle>())
                                 newAnchor = selectedFixture.get<Fixture::WithShape, Shape::Circle>().center;
-
+ 
                             if(!wasDragging){ prevDragAnchor = newAnchor; wasDragging = true; }
                             glm::vec3 delta = newAnchor - prevDragAnchor;
                             prevDragAnchor  = newAnchor;
-
+ 
                             if(glm::length(delta) > 0.001f){
                                 const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
                                 if(ms) for(auto fid : ms->ids){
@@ -993,13 +1024,11 @@ void import(flecs::world& w){
                                     if(mst == mf.world().id<Shape::Line>()){
                                         Shape::Line ml = mf.get<Fixture::WithShape, Shape::Line>();
                                         ml.start += delta; ml.end += delta;
-                                        mf.get_mut<Fixture::WithShape, Shape::Line>() = ml;
-                                        mf.add<Fixture::PixelPositionsDirty>();
+                                        setComponentPair<Fixture::WithShape, Shape::Line>(mf, ml);
                                     } else if(mst == mf.world().id<Shape::Circle>()){
                                         Shape::Circle mc = mf.get<Fixture::WithShape, Shape::Circle>();
                                         mc.center += delta;
-                                        mf.get_mut<Fixture::WithShape, Shape::Circle>() = mc;
-                                        mf.add<Fixture::PixelPositionsDirty>();
+                                        setComponentPair<Fixture::WithShape, Shape::Circle>(mf, mc);
                                     }
                                 }
                             }
@@ -2136,9 +2165,14 @@ void import(flecs::world& w){
                             for (auto& fx : fxList) {
                                 bool isSel = (fx == targetEffect);
                                 if (ImGui::Selectable(fx.name().c_str(), isSel)) {
-                                    cueEntry.entity.remove<CueList::Cue::TargetEffect>(flecs::Wildcard);
-                                    cueEntry.entity.add<CueList::Cue::TargetEffect>(fx);
-                                    selectedPatch.add<Patch::ProgramDirty>();
+                                    if (PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Client ||
+                                        PixelMapper::App::g_appMode == PixelMapper::App::AppMode::Standalone) {
+                                        PixelMapper::Network::sendEntityMutationPairDynamic(cueEntry.entity, cueEntry.entity.world().entity<CueList::Cue::TargetEffect>(), fx);
+                                    } else {
+                                        cueEntry.entity.remove<CueList::Cue::TargetEffect>(flecs::Wildcard);
+                                        cueEntry.entity.add<CueList::Cue::TargetEffect>(fx);
+                                        selectedPatch.add<Patch::ProgramDirty>();
+                                    }
                                 }
                                 if (isSel) {
                                     ImGui::SetItemDefaultFocus();
@@ -2151,14 +2185,14 @@ void import(flecs::world& w){
                         float hold = cueEntry.hold;
                         ImGui::SetNextItemWidth(70);
                         if (ImGui::InputFloat("##h", &hold, 0.0f, 0.0f, "%.1fs")) {
-                            cueEntry.entity.set<CueList::Cue::HoldDuration>({std::max(0.0f, hold)});
+                            setComponent<CueList::Cue::HoldDuration>(cueEntry.entity, {std::max(0.0f, hold)});
                         }
 
                         ImGui::TableNextColumn();
                         float fade = cueEntry.fade;
                         ImGui::SetNextItemWidth(70);
                         if (ImGui::InputFloat("##f", &fade, 0.0f, 0.0f, "%.1fs")) {
-                            cueEntry.entity.set<CueList::Cue::FadeDuration>({std::max(0.0f, fade)});
+                            setComponent<CueList::Cue::FadeDuration>(cueEntry.entity, {std::max(0.0f, fade)});
                         }
 
                         ImGui::TableNextColumn();
@@ -2908,11 +2942,14 @@ public:
     }
     void set_line_properties(float sx, float sy, float sz, float ex, float ey, float ez) {
         if (!entity.is_valid() || !entity.is_alive()) return;
-        entity.set<Fixture::WithShape, Shape::Line>({{sx, sy, sz}, {ex, ey, ez}});
-        entity.add<Fixture::PixelPositionsDirty>();
-        flecs::entity patch = Fixture::getPatch(entity);
-        if (patch.is_valid()) {
-            patch.add<Patch::RenderAreaDirty>();
+        setComponentPair<Fixture::WithShape, Shape::Line>(entity, {{sx, sy, sz}, {ex, ey, ez}});
+        if (PixelMapper::App::g_appMode != PixelMapper::App::AppMode::Client &&
+            PixelMapper::App::g_appMode != PixelMapper::App::AppMode::Standalone) {
+            entity.add<Fixture::PixelPositionsDirty>();
+            flecs::entity patch = Fixture::getPatch(entity);
+            if (patch.is_valid()) {
+                patch.add<Patch::RenderAreaDirty>();
+            }
         }
     }
     sol::object get_layout(sol::this_state s) const {
@@ -2926,7 +2963,7 @@ public:
     void set_layout(int pixelCount, int channels) {
         if (!entity.is_valid() || !entity.is_alive()) return;
         Fixture::Layout layout{pixelCount, channels};
-        entity.set<Fixture::Layout>(layout);
+        setComponent<Fixture::Layout>(entity, layout);
     }
     sol::object get_dmx(sol::this_state s) const {
         sol::state_view lua(s);
@@ -2938,7 +2975,8 @@ public:
     }
     void set_dmx(int universe, int address) {
         if (!entity.is_valid() || !entity.is_alive()) return;
-        Fixture::setDmxProperties(entity, universe, address);
+        Fixture::DmxAddress dmxVal{static_cast<uint16_t>(universe), static_cast<uint16_t>(address)};
+        setComponent<Fixture::DmxAddress>(entity, dmxVal);
     }
 };
 
@@ -3299,25 +3337,27 @@ public:
                         }
                     }
  
-                    auto* modeBComp = selectedPal.try_get_mut<Generative::Palette::IsModeB>();
+                    const auto* modeBComp = selectedPal.try_get<Generative::Palette::IsModeB>();
                     if (modeBComp) {
-                        if (ImGui::Checkbox("Discrete Crossfade (Mode B Index-based)", &modeBComp->value)) {
+                        bool val = modeBComp->value;
+                        if (ImGui::Checkbox("Discrete Crossfade (Mode B Index-based)", &val)) {
                             auto prog = std::atomic_load(&App::currentPatchProgram);
                             if (prog) {
                                 std::lock_guard<std::mutex> lock(prog->generativeMutex);
                                 for (auto& cp : prog->palettePool) {
                                     if (cp.name == selectedPal.name().c_str()) {
-                                        cp.isModeB = modeBComp->value;
+                                        cp.isModeB = val;
                                         break;
                                     }
                                 }
                             }
+                            setComponent<Generative::Palette::IsModeB>(selectedPal, {val});
                         }
                     }
  
-                    auto* stopsComp = selectedPal.try_get_mut<Generative::Palette::Stops>();
+                    const auto* stopsComp = selectedPal.try_get<Generative::Palette::Stops>();
                     if (stopsComp) {
-                        std::vector<Generative::ColorStop>& stops = stopsComp->value;
+                        std::vector<Generative::ColorStop> stops = stopsComp->value;
  
                         // ── Gradient visual bar rendering ──
                         ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -3606,6 +3646,7 @@ public:
                                     }
                                 }
                             }
+                            setComponent<Generative::Palette::Stops>(selectedPal, {stops});
                         }
                     }
                 } else {
@@ -3642,8 +3683,10 @@ public:
         if(ImGui::Begin("Generative Dashboard", &ui->showGenerativeDashboardWindow)){
             if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
 
-            auto* settings = selectedPatch.try_get_mut<Generative::Settings>();
-            if (!settings) { ImGui::TextDisabled("No generative settings component on patch."); ImGui::End(); return; }
+            const auto* settingsPtr = selectedPatch.try_get<Generative::Settings>();
+            if (!settingsPtr) { ImGui::TextDisabled("No generative settings component on patch."); ImGui::End(); return; }
+            Generative::Settings settingsCopy = *settingsPtr;
+            Generative::Settings* settings = &settingsCopy;
 
             auto prog = std::atomic_load(&App::currentPatchProgram);
             bool isRunning = prog && prog->generativeSettings.masterEnabled && prog->generativeRuntime;
@@ -4011,7 +4054,7 @@ public:
                     std::lock_guard<std::mutex> lock(activeProg->generativeMutex);
                     activeProg->generativeSettings = *settings;
                 }
-                selectedPatch.set<Generative::Settings>(*settings);
+                setComponent<Generative::Settings>(selectedPatch, *settings);
             }
         }
         ImGui::End();
@@ -4297,8 +4340,9 @@ public:
                         }
                     }
 
-                    auto* params = selectedMotive.try_get_mut<Generative::Motive::Params>();
+                    const auto* params = selectedMotive.try_get<Generative::Motive::Params>();
                     if (params) {
+                        Generative::Motive::Params paramsCopy = *params;
                         bool paramsChanged = false;
 
                         ImGui::Spacing();
@@ -4334,12 +4378,12 @@ public:
                                 ImGui::PopID();
                             };
 
-                            drawParamRow("Velocity", params->velocity, params->wanderAmp[0], params->wanderFreq[0]);
-                            drawParamRow("Complexity", params->complexity, params->wanderAmp[1], params->wanderFreq[1]);
-                            drawParamRow("Scale", params->scale, params->wanderAmp[2], params->wanderFreq[2]);
-                            drawParamRow("Distortion", params->distortion, params->wanderAmp[3], params->wanderFreq[3]);
-                            drawParamRow("Asymmetry", params->asymmetry, params->wanderAmp[4], params->wanderFreq[4]);
-                            drawParamRow("Intensity", params->intensity, params->wanderAmp[5], params->wanderFreq[5]);
+                            drawParamRow("Velocity", paramsCopy.velocity, paramsCopy.wanderAmp[0], paramsCopy.wanderFreq[0]);
+                            drawParamRow("Complexity", paramsCopy.complexity, paramsCopy.wanderAmp[1], paramsCopy.wanderFreq[1]);
+                            drawParamRow("Scale", paramsCopy.scale, paramsCopy.wanderAmp[2], paramsCopy.wanderFreq[2]);
+                            drawParamRow("Distortion", paramsCopy.distortion, paramsCopy.wanderAmp[3], paramsCopy.wanderFreq[3]);
+                            drawParamRow("Asymmetry", paramsCopy.asymmetry, paramsCopy.wanderAmp[4], paramsCopy.wanderFreq[4]);
+                            drawParamRow("Intensity", paramsCopy.intensity, paramsCopy.wanderAmp[5], paramsCopy.wanderFreq[5]);
 
                             ImGui::EndTable();
                         }
@@ -4350,18 +4394,19 @@ public:
                                 std::lock_guard<std::mutex> lock(prog->generativeMutex);
                                 for (auto& cm : prog->motivePool) {
                                     if (cm.name == selectedMotive.name().c_str()) {
-                                        cm.velocity = params->velocity;
-                                        cm.complexity = params->complexity;
-                                        cm.scale = params->scale;
-                                        cm.distortion = params->distortion;
-                                        cm.asymmetry = params->asymmetry;
-                                        cm.intensity = params->intensity;
-                                        std::memcpy(cm.wanderAmp, params->wanderAmp, sizeof(cm.wanderAmp));
-                                        std::memcpy(cm.wanderFreq, params->wanderFreq, sizeof(cm.wanderFreq));
+                                        cm.velocity = paramsCopy.velocity;
+                                        cm.complexity = paramsCopy.complexity;
+                                        cm.scale = paramsCopy.scale;
+                                        cm.distortion = paramsCopy.distortion;
+                                        cm.asymmetry = paramsCopy.asymmetry;
+                                        cm.intensity = paramsCopy.intensity;
+                                        std::memcpy(cm.wanderAmp, paramsCopy.wanderAmp, sizeof(cm.wanderAmp));
+                                        std::memcpy(cm.wanderFreq, paramsCopy.wanderFreq, sizeof(cm.wanderFreq));
                                         break;
                                     }
                                 }
                             }
+                            setComponent<Generative::Motive::Params>(selectedMotive, paramsCopy);
                         }
                     }
                 } else {

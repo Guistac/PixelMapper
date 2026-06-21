@@ -22,10 +22,55 @@ void sendEntityMutation(flecs::entity entity) {
 
     std::unordered_map<std::string, std::string> kvs;
     kvs["entityPath"] = entity.path().c_str();
-    kvs["componentName"] = w.entity<T>().name().c_str();
+    kvs["componentName"] = w.entity<T>().path().c_str(); // Use path() for absolute resolution
     kvs["componentData"] = compJson;
 
     // Dispatch via TCP
+    sendCommandToServer(CommandType::EntityMutation, SimpleJson::build(kvs));
+}
+
+template <typename T>
+void sendEntityMutation(flecs::entity entity, const T* componentPtr) {
+    if (!entity.is_valid() || !componentPtr) return;
+    flecs::world w = entity.world();
+    std::string compJson = w.to_json<T>(componentPtr).c_str();
+
+    std::unordered_map<std::string, std::string> kvs;
+    kvs["entityPath"] = entity.path().c_str();
+    kvs["componentName"] = w.entity<T>().path().c_str(); // Use path() for absolute resolution
+    kvs["componentData"] = compJson;
+
+    sendCommandToServer(CommandType::EntityMutation, SimpleJson::build(kvs));
+}
+
+template <typename Relation, typename Object>
+void sendEntityMutationPair(flecs::entity entity, const Object* componentPtr) {
+    if (!entity.is_valid() || !componentPtr) return;
+    flecs::world w = entity.world();
+    flecs::entity_t tid = w.id(w.entity<Relation>(), w.entity<Object>());
+    std::string compJson = w.to_json(tid, componentPtr).c_str();
+
+    std::unordered_map<std::string, std::string> kvs;
+    kvs["entityPath"] = entity.path().c_str();
+    std::string compName = std::string("(") + w.entity<Relation>().path().c_str() + "," + w.entity<Object>().path().c_str() + ")";
+    kvs["componentName"] = compName;
+    kvs["componentData"] = compJson;
+
+    sendCommandToServer(CommandType::EntityMutation, SimpleJson::build(kvs));
+}
+
+inline void sendEntityMutationPairDynamic(flecs::entity entity, flecs::entity relation, flecs::entity object) {
+    if (!entity.is_valid() || !relation.is_valid() || !object.is_valid()) return;
+    flecs::world w = entity.world();
+    flecs::entity_t tid = w.id(relation, object);
+    std::string compJson = "{}";
+
+    std::unordered_map<std::string, std::string> kvs;
+    kvs["entityPath"] = entity.path().c_str();
+    std::string compName = std::string("(") + relation.path().c_str() + "," + object.path().c_str() + ")";
+    kvs["componentName"] = compName;
+    kvs["componentData"] = compJson;
+
     sendCommandToServer(CommandType::EntityMutation, SimpleJson::build(kvs));
 }
 
