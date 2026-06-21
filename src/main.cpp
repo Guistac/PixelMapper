@@ -12,10 +12,14 @@
 #include <glad/glad.h>
 #define GL_SILENCE_DEPRECATION
 
-#include "PixelMapper.h"
-#include "utils/Profiling.h"
-#include "network/AsioNetworkManager.h"
-#include "network/CommandHandlers.h"
+#include "shared/PixelMapper.h"
+#include "shared/utils/Profiling.h"
+#include "shared/network/AsioNetworkManager.h"
+#include "server/network/ServerCommandHandlers.h"
+#include "client/network/ClientCommandHandlers.h"
+#include "server/App.h"
+#include "server/PatchSerializer.h"
+
 
 enum class AppMode {
     Standalone,
@@ -231,7 +235,7 @@ int main(int argc, char* argv[]) {
     else if (g_appMode == AppMode::Client) {
         // Setup Client mirrored Flecs world
         clientWorld.import<flecs::stats>();
-        PixelMapper::App::import(clientWorld); // Register components and systems locally
+        PixelMapper::App::importComponents(clientWorld); // Register components locally
         PixelMapper::Gui::import(clientWorld);
 
         // Start Client network manager
@@ -289,7 +293,7 @@ int main(int argc, char* argv[]) {
         PixelMapper::App::import(serverWorld);
 
         clientWorld.import<flecs::stats>();
-        PixelMapper::App::import(clientWorld); // Register components and systems locally
+        PixelMapper::App::importComponents(clientWorld); // Register components locally
         PixelMapper::Gui::import(clientWorld);
 
         // Server socket and callbacks

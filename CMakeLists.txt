@@ -59,50 +59,155 @@ set(PixelMapperDeps
 set(PROJECT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(PROJECT_SRC_FILES
-	${PROJECT_SRC_DIR}/main.cpp
-	${PROJECT_SRC_DIR}/PixelMapper.h
-	${PROJECT_SRC_DIR}/Common.h
-	${PROJECT_SRC_DIR}/Shape.h
-	${PROJECT_SRC_DIR}/Fixture.h
-	${PROJECT_SRC_DIR}/Fixture.cpp
-	${PROJECT_SRC_DIR}/CanvasBinding.h
-	${PROJECT_SRC_DIR}/CanvasBinding.cpp
-	${PROJECT_SRC_DIR}/Network.h
-	${PROJECT_SRC_DIR}/Network.cpp
-	${PROJECT_SRC_DIR}/Artnet.h
-	${PROJECT_SRC_DIR}/Artnet.cpp
-	${PROJECT_SRC_DIR}/ArtnetSender.h
-	${PROJECT_SRC_DIR}/ArtnetSender.cpp
-	${PROJECT_SRC_DIR}/Patch.h
-	${PROJECT_SRC_DIR}/Patch.cpp
-	${PROJECT_SRC_DIR}/App.h
-	${PROJECT_SRC_DIR}/App.cpp
-	${PROJECT_SRC_DIR}/PatchSerializer.h
-	${PROJECT_SRC_DIR}/PatchSerializer.cpp
-	${PROJECT_SRC_DIR}/FileWatcher.h
-	${PROJECT_SRC_DIR}/Presets.h
-	${PROJECT_SRC_DIR}/CueList.h
-	${PROJECT_SRC_DIR}/CueList.cpp
-	${PROJECT_SRC_DIR}/EffectBank.h
-	${PROJECT_SRC_DIR}/EffectBank.cpp
+    # Shared headers
+    ${PROJECT_SRC_DIR}/shared/Common.h
+    ${PROJECT_SRC_DIR}/shared/Shape.h
+    ${PROJECT_SRC_DIR}/shared/PixelMapper.h
+    ${PROJECT_SRC_DIR}/shared/Presets.h
+    ${PROJECT_SRC_DIR}/shared/EffectBank.h
+    ${PROJECT_SRC_DIR}/shared/Fixture.h
+    ${PROJECT_SRC_DIR}/shared/Artnet.h
+    ${PROJECT_SRC_DIR}/shared/Network.h
+    ${PROJECT_SRC_DIR}/shared/network/CommandProtocol.h
+    ${PROJECT_SRC_DIR}/shared/network/TelemetryProtocol.h
+    ${PROJECT_SRC_DIR}/shared/network/SimpleJson.h
+    ${PROJECT_SRC_DIR}/shared/network/AsioNetworkManager.h
+    ${PROJECT_SRC_DIR}/shared/utils/FlecsUtils.h
+    ${PROJECT_SRC_DIR}/shared/utils/Profiling.h
+    ${PROJECT_SRC_DIR}/shared/components/PatchComponents.h
+    ${PROJECT_SRC_DIR}/shared/components/AppComponents.h
+    ${PROJECT_SRC_DIR}/shared/components/CueListComponents.h
 
-	${PROJECT_SRC_DIR}/GenerativeEngine.h
-	${PROJECT_SRC_DIR}/GenerativeEngine.cpp
+    # Shared sources
+    ${PROJECT_SRC_DIR}/shared/Artnet.cpp
+    ${PROJECT_SRC_DIR}/shared/EffectBank.cpp
+    ${PROJECT_SRC_DIR}/shared/Fixture.cpp
+    ${PROJECT_SRC_DIR}/shared/Network.cpp
+    ${PROJECT_SRC_DIR}/shared/network/AsioNetworkManager.cpp
+    ${PROJECT_SRC_DIR}/shared/components/AppComponents.cpp
+    ${PROJECT_SRC_DIR}/shared/components/PatchComponents.cpp
 
-	${PROJECT_SRC_DIR}/network/TelemetryProtocol.h
-	${PROJECT_SRC_DIR}/network/CommandProtocol.h
-	${PROJECT_SRC_DIR}/network/SimpleJson.h
-	${PROJECT_SRC_DIR}/network/AsioNetworkManager.h
-	${PROJECT_SRC_DIR}/network/AsioNetworkManager.cpp
-	${PROJECT_SRC_DIR}/network/CommandHandlers.h
-	${PROJECT_SRC_DIR}/network/CommandHandlers.cpp
+    # Server headers
+    ${PROJECT_SRC_DIR}/server/App.h
+    ${PROJECT_SRC_DIR}/server/ArtnetSender.h
+    ${PROJECT_SRC_DIR}/server/CanvasBinding.h
+    ${PROJECT_SRC_DIR}/server/CueList.h
+    ${PROJECT_SRC_DIR}/server/FileWatcher.h
+    ${PROJECT_SRC_DIR}/server/GenerativeEngine.h
+    ${PROJECT_SRC_DIR}/server/Patch.h
+    ${PROJECT_SRC_DIR}/server/PatchSerializer.h
+    ${PROJECT_SRC_DIR}/server/network/ServerCommandHandlers.h
 
-	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
+    # Server sources
+    ${PROJECT_SRC_DIR}/server/App.cpp
+    ${PROJECT_SRC_DIR}/server/ArtnetSender.cpp
+    ${PROJECT_SRC_DIR}/server/CanvasBinding.cpp
+    ${PROJECT_SRC_DIR}/server/CueList.cpp
+    ${PROJECT_SRC_DIR}/server/GenerativeEngine.cpp
+    ${PROJECT_SRC_DIR}/server/Patch.cpp
+    ${PROJECT_SRC_DIR}/server/PatchSerializer.cpp
+    ${PROJECT_SRC_DIR}/server/network/ServerCommandHandlers.cpp
+
+    # Client headers
+    ${PROJECT_SRC_DIR}/client/gui/ImGuiCanvas.h
+    ${PROJECT_SRC_DIR}/client/gui/ImGuiHexView.h
+    ${PROJECT_SRC_DIR}/client/utils/imguiconfig.h
+    ${PROJECT_SRC_DIR}/client/network/ClientCommandHandlers.h
+
+    # Client sources
+    ${PROJECT_SRC_DIR}/client/gui/PixelMapperGui.cpp
+    ${PROJECT_SRC_DIR}/client/network/ClientCommandHandlers.cpp
+
+    # Main
+    ${PROJECT_SRC_DIR}/main.cpp
 )
 
 # utility to match source file hierarchy in IDE
 source_group(TREE ${PROJECT_SRC_DIR} FILES ${PROJECT_SRC_FILES})
 
-add_executable(PixelMapper ${PROJECT_SRC_FILES})
+# Library source lists
+set(COMMON_SRC_FILES
+    ${PROJECT_SRC_DIR}/shared/Artnet.cpp
+    ${PROJECT_SRC_DIR}/shared/EffectBank.cpp
+    ${PROJECT_SRC_DIR}/shared/Fixture.cpp
+    ${PROJECT_SRC_DIR}/shared/Network.cpp
+    ${PROJECT_SRC_DIR}/shared/network/AsioNetworkManager.cpp
+    ${PROJECT_SRC_DIR}/shared/components/AppComponents.cpp
+    ${PROJECT_SRC_DIR}/shared/components/PatchComponents.cpp
+)
+
+set(SERVER_SRC_FILES
+    ${PROJECT_SRC_DIR}/server/App.cpp
+    ${PROJECT_SRC_DIR}/server/ArtnetSender.cpp
+    ${PROJECT_SRC_DIR}/server/CanvasBinding.cpp
+    ${PROJECT_SRC_DIR}/server/CueList.cpp
+    ${PROJECT_SRC_DIR}/server/GenerativeEngine.cpp
+    ${PROJECT_SRC_DIR}/server/Patch.cpp
+    ${PROJECT_SRC_DIR}/server/PatchSerializer.cpp
+    ${PROJECT_SRC_DIR}/server/network/ServerCommandHandlers.cpp
+)
+
+set(CLIENT_SRC_FILES
+    ${PROJECT_SRC_DIR}/client/gui/PixelMapperGui.cpp
+    ${PROJECT_SRC_DIR}/client/network/ClientCommandHandlers.cpp
+)
+
+# 1. PixelMapper_CommonLib
+add_library(PixelMapper_CommonLib OBJECT ${COMMON_SRC_FILES})
+target_include_directories(PixelMapper_CommonLib PUBLIC ${PROJECT_SRC_DIR})
+target_link_libraries(PixelMapper_CommonLib PUBLIC
+    flecs
+    asio
+    glm
+    sol2
+    lua
+)
+
+# 2. PixelMapper_ServerLib
+add_library(PixelMapper_ServerLib OBJECT ${SERVER_SRC_FILES})
+target_include_directories(PixelMapper_ServerLib PUBLIC ${PROJECT_SRC_DIR})
+target_link_libraries(PixelMapper_ServerLib PUBLIC
+    PixelMapper_CommonLib
+    flecs
+    glad
+    glfw
+    sol2
+    lua
+    tinyxml2
+    glm
+)
+
+# 3. PixelMapper_ClientLib
+add_library(PixelMapper_ClientLib OBJECT ${CLIENT_SRC_FILES})
+target_include_directories(PixelMapper_ClientLib PUBLIC ${PROJECT_SRC_DIR})
+target_include_directories(dearimgui PUBLIC ${PROJECT_SRC_DIR}/client/utils)
+target_link_libraries(PixelMapper_ClientLib PUBLIC
+    PixelMapper_CommonLib
+    dearimgui
+    imguitextedit
+    glad
+    glfw
+    sol2
+    lua
+    glm
+    flecs
+)
+
+# Executable target linking object libraries and dependencies
+add_executable(PixelMapper ${PROJECT_SRC_DIR}/main.cpp)
 target_include_directories(PixelMapper PUBLIC ${PROJECT_SRC_DIR})
-target_link_libraries(PixelMapper PRIVATE ${PixelMapperDeps})
+target_link_libraries(PixelMapper PRIVATE
+    PixelMapper_CommonLib
+    PixelMapper_ServerLib
+    PixelMapper_ClientLib
+    glfw
+    glad
+    glm
+    flecs
+    tinyxml2
+    asio
+    lua
+    sol2
+    imguitextedit
+    dearimgui
+)
