@@ -35,6 +35,10 @@ namespace App {
         bool showOfflinePreviewWindow = false;
         bool showEffectBankWindow = false;
         bool showFixtureSetupScriptWindow = false;
+        bool showPalettesWindow = false;
+        bool showMotivesWindow = false;
+        bool showGenerativeDashboardWindow = false;
+        bool showGenerativeTelemetryWindow = false;
         bool patchLocked = false;
         float previewOpacity = 1.0f;
         bool showGrid = true;
@@ -48,6 +52,8 @@ namespace App {
         bool canvas3dMode = false;
         float canvasRotationX = 0.0f;
         float canvasRotationY = 0.0f;
+        bool editorPreviewOverrideActive = false;
+        int editorPreviewOverridePaletteIdx = -1;
     };
 
     struct Queries {

@@ -70,7 +70,8 @@ graph TD
 ### 3.2 The Real-Time Thread (`rtPatchRunner`)
 - Spawns as a detached worker thread executing `App::runPatch()`.
 - Runs continuously with a target cycle time of ~3ms (~330 Hz output capability) to ensure low latency.
-- **Lock-Free Execution:** Thread synchronization is achieved via `std::atomic<std::shared_ptr<PatchProgram>>`. The real-time thread retrieves the active program using `std::atomic_load` and processes it without acquiring global mutex locks.
+- **Lock-Free Execution & Mutex Synchronization:** The primary `PatchProgram` swap is lock-free using `std::atomic<std::shared_ptr<PatchProgram>>`. However, thread synchronization for the Generative Visual Engine state updates, motive telemetry, and transition progress is coordinated via `generativeMutex`. The GUI thread holds the mutex during manual timeline changes (e.g. triggering next shader), and the RT thread locks it during runtime updates and when reading active indices and progress factors.
+
 - Performs pattern rendering (`render`), async PBO readbacks, channel mapping (`encode`), and delegates sending to the network socket.
 
 ### 3.3 The ASIO Network Thread
@@ -92,6 +93,8 @@ PixelMapper represents its data hierarchies and logical states through **Flecs**
       - `ArtnetDeviceFolder` -> holds `Artnet::Device` entities.
       - `CueFolder` -> holds `CueList::Cue` entities.
       - `EffectFolder` -> holds `EffectBank::Effect` entities.
+      - `PaletteFolder` -> holds `Generative::Palette::Is` entities.
+      - `MotiveFolder` -> holds `Generative::Motive::Is` entities.
 
 ### 4.2 Key Components
 
@@ -113,7 +116,13 @@ PixelMapper represents its data hierarchies and logical states through **Flecs**
 | `EffectBank::Effect::GlslSource` | Effect | String storing the GLSL fragment shader code for the effect. |
 | `Patch::Settings` | Patch | Stores patch configurations like refresh rate, network settings, white mode, highlight settings, and file paths. |
 | `Patch::MultiSelection` | Patch | Holds a list of entity IDs representing the currently multi-selected fixtures in the patch. |
-| `App::UIConfig` | App | Stores visible windows, layout choices, grid settings, viewport toggles (show fixtures, pixels, bounds), auto-zoom configurations, pixel size, and active editor indexes. |
+| `App::UIConfig` | App | Stores visible windows (including Generative Dashboard, Palettes, and Motives panels), layout choices, grid settings, viewport toggles, auto-zoom configurations, pixel size, active editor indexes, and editor generative preview override flags. |
+| `Generative::Settings` | Patch | Stores timings, parameters, and manual index overrides for the Generative Visual Engine timelines. |
+| `Generative::Palette::Is` | Palette | Tag component identifying a generative color palette. |
+| `Generative::Palette::Stops` | Palette | Holds the vector of `ColorStop` structures defining gradient values. |
+| `Generative::Palette::IsModeB` | Palette | Boolean configuring custom palette interpolation properties. |
+| `Generative::Motive::Is` | Motive | Tag component identifying a generative motive preset. |
+| `Generative::Motive::Params` | Motive | Component containing base parameters (velocity, complexity, scale, distortion, asymmetry, intensity) and noise wander configurations. |
 
 ### 4.3 Relationship Pairs & Exclusive Tags
 Flecs relationship pairs specify routing, connections, and selection states:
@@ -192,13 +201,23 @@ The compilation phase creates a flat, cache-friendly representation `PatchProgra
 - **`pixelSelected` (Array of std::atomic<bool>):** Indicators signaling which pixels are currently selected in the GUI.
 - **`whiteMode` (WhiteMode enum):** Dictates how raw RGB colors are mapped to RGBW outputs (Auto, Off, or Pass-through).
 - **`highlightFrequency` (float):** Flash frequency for identifying selected fixtures.
+- **`generativeSettings` (`Generative::Settings`):** Real-time settings for timing, sub-timeline enabled options, and manual override state.
+- **`palettePool` (Array of `CompiledPalette`):** Pre-compiled gradients flattened for high-performance timeline selection.
+- **`motivePool` (Array of `CompiledMotive`):** Pre-compiled set of physics-based generative parameters and wander noise amplitudes.
+- **`generativeRuntime` (`std::shared_ptr<GenerativeEngineRuntime>`):** Scheduler and state machine processing palette, motive, and shader queue updates.
+- **`glslUboId` (unsigned int):** OpenGL Uniform Buffer Object buffer handle allocated to host the `EngineState` block.
+- **`editorPreviewOverrideActive` (bool):** Active override flag toggled by the shader editor sandbox preview.
+- **`editorPreviewOverrideUbo` (`Generative::EngineStateUBO`):** Standard UBO mirror state holding overridden palette stop selections and motive slider values.
+- **`generativeMutex` (`std::mutex`):** Coordinates safe, race-free read/write access to the engine runtime from the GUI thread and real-time execution thread.
 
 ### 6.1 GPU Point-Rendering & Previews
 When the active render mode is GLSL, the real-time thread executes the following operations:
 1. **1D GPU Point-Rendering:** Binds the active 1D FBO (`glslFbo`) and configures the viewport to `(pixelCount, 1)`. It renders the pixels as a point list using `glDrawArrays(GL_POINTS, 0, pixelCount)`. The vertex shader assigns raw 3D positions (`vPixelPos3D`) and CPU-projected 2D coordinates (`vPixelPos2D`) to variables, mapping each point to exactly 1 fragment in the 1D viewport.
 2. **Double-Buffered PBO Readback:** Employs double-buffered Pixel Buffer Objects (PBOs) to copy the rendered 1D pixel buffer back to the CPU array (`vfbPixels`) asynchronously. Since the buffer size is extremely small (e.g. `pixelCount * sizeof(ColorRGBW)`), readback overhead is negligible.
 3. **2D Offline Preview FBO:** Renders a 2D quad of size `previewWidth x previewHeight` to the editor preview FBO (`glslEditorFbo`) using `glslPreviewProgram` and the current `zSlice` uniform value. This is displayed in the **Effect Preview** window, and its dimensions are configured via the "Preview Resolution" slider, matching the aspect ratio of the RenderArea.
-4. **2D Playback Preview FBO:** Renders the active playback program into the `previewWidth x previewHeight` 2D playback preview FBO (`glslPlaybackPreviewFbo`) to display the live pattern as the canvas background. To optimize GPU performance, it is only rendered when the "Rendered" checkbox is enabled, the canvas is in 2D mode, and the Patch Editor window is open.
+4. **2D Playback Preview FBO:** Renders the active playback program into the `previewWidth x previewHeight` 2D playback preview FBO (`glslPlaybackPreviewFbo`) to display the live pattern as the canvas background. To optimize GPU performance, it is only rendered when the "Rendered" checkbox is enabled, the canvas is in 2D mode, and the Patch Editor window is open. The final rendered result is copied on the GPU to a double-buffered display texture to prevent concurrent GUI thread read races.
+
+5. **Uniform Buffer Object binding (UBO):** A GPU-backed dynamic Uniform Buffer (`glslUboId`) containing the serialized `EngineStateUBO` structure is bound to uniform binding point `0` using `glBindBufferBase(GL_UNIFORM_BUFFER, 0, glslUboId)`. During compilation, the shader compiler automatically injects the corresponding `EngineState` block declaration and helper color lookup routines (`samplePalette(pos)` and `samplePaletteWrapped(pos)`) into all custom fragment shaders. When the editor override is active, custom UBO contents are briefly uploaded to bind to the offline preview FBO pass thread-safely before being swapped back to standard runtime parameters.
 
 ### 6.2 Post-Rendering Filters
 After generating pixel colors via GPU or CPU (Lua/C++), the real-time thread runs post-processing steps:
@@ -216,7 +235,11 @@ During cue transitions in non-GLSL modes (Lua, C++), the real-time thread perfor
 ### 6.4 GPU-Side Crossfading
 During sequence transitions, the real-time thread performs GPU-side crossfading for both primary outputs and 2D playback previews:
 - **Primary 1D Outputs**: The outgoing and active cues are rendered to separate 1D textures (`glslFboTexOld` and `glslFboTex`), blended via `glslBlendProgram` into `glslFboTexBlend` using the active cue's transition `mixFactor`, and read back via PBOs.
-- **2D Playback Previews**: The outgoing and active 2D previews are rendered to separate `previewWidth x previewHeight` textures (`glslPlaybackPreviewFboTexOld` and `glslPlaybackPreviewFboTex`), blended via `glslBlendProgram` into `glslPlaybackPreviewFboTexBlend` using the transition progress, and bound as the background image in the GUI.
+- **2D Playback Previews & Double-Buffered Presentation**: The outgoing and active 2D previews are rendered to separate `previewWidth x previewHeight` textures (`glslPlaybackPreviewFboTexOld` and `glslPlaybackPreviewFboTex`), blended via `glslBlendProgram` into `glslPlaybackPreviewFboTexBlend` using the transition progress, and bound as the background image in the GUI. To prevent thread concurrency race conditions and 1-frame rendering stutters in the GUI, a double-buffered presentation mechanism is used:
+  - The final rendered FBO (either the blend FBO or the active preview FBO) is blitted on the GPU using `glBlitFramebuffer` to a presentation display backbuffer texture (`glslPlaybackPreviewDisplayTex[writeIdx]`).
+  - The RT thread atomically swaps the read/write presentation indices and exposes the fully completed, static texture to `glslCurrentPlaybackPreviewTexID`.
+  - The GUI thread displays the texture ID stored in `glslCurrentPlaybackPreviewTexID`, ensuring it never reads a texture while the GPU is actively rendering to it.
+
 
 ### 6.5 Encoding
 Copies pixel color channels to universe buffers using pre-compiled instructions:
@@ -283,3 +306,45 @@ A built-in script editor is embedded using the modern [goossens/ImGuiColorTextEd
   - Error markers are placed on the exact source line in the ImGui editor workspace.
   - A persistent "Log Console" window is shown at the bottom of the editor displaying full stack traces and debug output.
 - Code folding and search/replace functionality.
+
+---
+
+## 9. Generative Visual Engine & Show Control
+
+PixelMapper integrates a non-linear, fluid Generative Visual Engine running on the real-time execution thread. The engine orchestrates three decoupled queues: Palettes, Motives, and Shaders.
+
+### 9.1 The Three Timelines (Queues)
+1. **Palette Queue:** Manages the continuous morphing of color gradients.
+2. **Motive Queue:** Animates the structural physics parameters (Velocity, Complexity, Scale, Distortion, Asymmetry, and Intensity) of the scene using Perlin Noise wandering LFOs.
+3. **Shader Queue:** Transitions through active GLSL programs using linear, luma wipe, or sweep transitions. The Shader Queue pulls compiled shader programs directly from the Cue List (`compiledCues`), allowing the cue list to act as the master "bag" of shaders for the show loop.
+
+### 9.2 Zero-Width Spawning & Spatial Morphing
+To execute smooth, continuous transitions between color palettes of varying stop counts without visual "mud" or final snapping jumps, the engine implements a zero-width duplicate stop padding algorithm:
+- **Phase 1: Initialization**
+  - Identifies the maximum stop count: `M = max(PaletteA.numStops, PaletteB.numStops)` (capped at 16).
+  - Enforces the **Pre-Flight Looping Constraint**: If a palette starts and ends with similar colors (indicating it is designed to wrap), the engine guarantees `stops[0].position == 0.0`, `stops[numStops-1].position == 1.0`, and `stops[0].color == stops[numStops-1].color`.
+  - Pads the smaller palette to size `M` by cloning existing stops using the index mapping formula:
+    $$source\_index = \text{round}\left(\frac{i}{M - 1} \times (N - 1)\right)$$
+    This creates zero-distance boundaries that are visually identical to the original palette.
+  - Immediately sets the UBO `activeStops` count to `M`.
+- **Phase 2: Per-Frame Update**
+  - Wraps the transition's linear progress in a `smoothstep(0.0f, 1.0f, progress)` easing function.
+  - Linearly interpolates the positions, smoothness, and colors of the padded stops, and uploads them to the GPU.
+- **Phase 3: Finalization**
+  - Resets the transition variables.
+  - Restores `activeStops` back down to the target palette size (`PaletteB.numStops`) to cull overlapping zero-width duplicate stops and save GPU cycles.
+
+### 9.3 Show Control & Cue List Transitions
+- **Priority:** When a Cue is triggered manually or automatically from the Cue List sequencer (`activeCueIndex >= 0`), the Cue's GLSL shader takes absolute rendering priority. The generative shader queue transitions are suspended, while the generative Palette and Motive queues remain active and uploaded to the UBO, allowing cue shaders to use the animated palettes and noise telemetry.
+- **Stop Transport Control:** A "Stop" button in the Cue List transport bar resets the active cue index to `-1`, which cleanly terminates sequence playback and allows the generative shader queue to immediately resume automatic show cycling.
+
+### 9.4 Editor Generative Preview Overrides
+To facilitate offline shader programming, the **Effect Editor** features an "Override Generative Data for Preview" panel at the top:
+- When checked, it isolates the **Effect Preview** window from the live generative show loop.
+- It displays a custom palette selector combo box and six motive sliders (Velocity, Complexity, Scale, Distortion, Asymmetry, Intensity).
+- During the offline render pass, the rendering pipeline overrides the standard UBO contents with these custom sliders and uploads them to the GPU, restoring the live UBO state immediately afterwards to keep the output running on fixtures uninterrupted.
+
+### 9.5 Real-Time Diagnostic Visualizers
+- **Dashboard Stops Preview:** Displays circles filled with each stop's real-time color and draws thin vertical alignment lines up to the gradient bar to visually track spatial sliding and morphing.
+- **Generative Visualizer Preset:** A diagnostic GLSL shader preset that warps a plasma wave based on the live motive variables and overlays 6 horizontal color-coded gauges representing parameter values.
+

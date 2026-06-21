@@ -90,6 +90,10 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
         uiEl->SetAttribute("showOfflinePreviewWindow", config->showOfflinePreviewWindow ? 1 : 0);
         uiEl->SetAttribute("showEffectBankWindow", config->showEffectBankWindow ? 1 : 0);
         uiEl->SetAttribute("showFixtureSetupScriptWindow", config->showFixtureSetupScriptWindow ? 1 : 0);
+        uiEl->SetAttribute("showPalettesWindow", config->showPalettesWindow ? 1 : 0);
+        uiEl->SetAttribute("showMotivesWindow", config->showMotivesWindow ? 1 : 0);
+        uiEl->SetAttribute("showGenerativeDashboardWindow", config->showGenerativeDashboardWindow ? 1 : 0);
+        uiEl->SetAttribute("showGenerativeTelemetryWindow", config->showGenerativeTelemetryWindow ? 1 : 0);
         uiEl->SetAttribute("patchLocked", config->patchLocked ? 1 : 0);
         uiEl->SetAttribute("previewOpacity", config->previewOpacity);
         uiEl->SetAttribute("showGrid", config->showGrid ? 1 : 0);
@@ -278,6 +282,103 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
                 ebEl->InsertEndChild(fxEl);
             }
         }
+
+        // ── Generative Settings ──
+        if (const auto* genSettings = patch.try_get<Generative::Settings>()) {
+            XMLElement* gsEl = doc.NewElement("GenerativeSettings");
+            gsEl->SetAttribute("masterEnabled", genSettings->masterEnabled ? 1 : 0);
+            gsEl->SetAttribute("paletteEnabled", genSettings->paletteEnabled ? 1 : 0);
+            gsEl->SetAttribute("motiveEnabled", genSettings->motiveEnabled ? 1 : 0);
+            gsEl->SetAttribute("shaderEnabled", genSettings->shaderEnabled ? 1 : 0);
+            gsEl->SetAttribute("paletteInterval", genSettings->paletteInterval);
+            gsEl->SetAttribute("paletteJitter", genSettings->paletteJitter);
+            gsEl->SetAttribute("paletteCrossfade", genSettings->paletteCrossfade);
+            gsEl->SetAttribute("motiveInterval", genSettings->motiveInterval);
+            gsEl->SetAttribute("motiveJitter", genSettings->motiveJitter);
+            gsEl->SetAttribute("motiveCrossfade", genSettings->motiveCrossfade);
+            gsEl->SetAttribute("shaderInterval", genSettings->shaderInterval);
+            gsEl->SetAttribute("shaderJitter", genSettings->shaderJitter);
+            gsEl->SetAttribute("shaderCrossfade", genSettings->shaderCrossfade);
+            gsEl->SetAttribute("enableLinear", genSettings->enableLinearDissolve ? 1 : 0);
+            gsEl->SetAttribute("enableLuma", genSettings->enableLumaWipe ? 1 : 0);
+            gsEl->SetAttribute("enableSweep", genSettings->enableSweep ? 1 : 0);
+            gsEl->SetAttribute("enableCircle", genSettings->enableCircleWipe ? 1 : 0);
+            gsEl->SetAttribute("enableLuminosity", genSettings->enableLuminosityWipe ? 1 : 0);
+            gsEl->SetAttribute("transitionVolumetric", genSettings->transitionVolumetric ? 1 : 0);
+            gsEl->SetAttribute("manualPaletteOverride", genSettings->manualPaletteOverride ? 1 : 0);
+            gsEl->SetAttribute("manualPaletteIndex", genSettings->manualPaletteIndex);
+            gsEl->SetAttribute("manualMotiveOverride", genSettings->manualMotiveOverride ? 1 : 0);
+            gsEl->SetAttribute("manualMotiveIndex", genSettings->manualMotiveIndex);
+            gsEl->SetAttribute("manualShaderOverride", genSettings->manualShaderOverride ? 1 : 0);
+            gsEl->SetAttribute("manualShaderIndex", genSettings->manualShaderIndex);
+            gsEl->SetAttribute("manualTransitionType", genSettings->manualTransitionType);
+            patchEl->InsertEndChild(gsEl);
+        }
+
+        // ── Custom Palettes ──
+        flecs::entity palFolder = patch.target<Generative::PaletteFolder>();
+        if (palFolder.is_valid()) {
+            XMLElement* palsEl = doc.NewElement("Palettes");
+            patchEl->InsertEndChild(palsEl);
+            
+            palFolder.children([&](flecs::entity child) {
+                if (child.has<Generative::Palette::Is>()) {
+                    XMLElement* palEl = doc.NewElement("Palette");
+                    palEl->SetAttribute("name", child.name().c_str());
+                    
+                    bool modeB = false;
+                    if (const auto* mb = child.try_get<Generative::Palette::IsModeB>()) {
+                        modeB = mb->value;
+                    }
+                    palEl->SetAttribute("isModeB", modeB ? 1 : 0);
+                    
+                    if (const auto* stops = child.try_get<Generative::Palette::Stops>()) {
+                        for (const auto& stop : stops->value) {
+                            XMLElement* stopEl = doc.NewElement("Stop");
+                            stopEl->SetAttribute("r", stop.color.r);
+                            stopEl->SetAttribute("g", stop.color.g);
+                            stopEl->SetAttribute("b", stop.color.b);
+                            stopEl->SetAttribute("a", stop.color.a);
+                            stopEl->SetAttribute("position", stop.position);
+                            stopEl->SetAttribute("smoothness", stop.smoothness);
+                            palEl->InsertEndChild(stopEl);
+                        }
+                    }
+                    palsEl->InsertEndChild(palEl);
+                }
+            });
+        }
+
+        // ── Motive Presets ──
+        flecs::entity motFolder = patch.target<Generative::MotiveFolder>();
+        if (motFolder.is_valid()) {
+            XMLElement* motsEl = doc.NewElement("MotivePresets");
+            patchEl->InsertEndChild(motsEl);
+            
+            motFolder.children([&](flecs::entity child) {
+                if (child.has<Generative::Motive::Is>()) {
+                    XMLElement* motEl = doc.NewElement("Motive");
+                    motEl->SetAttribute("name", child.name().c_str());
+                    
+                    if (const auto* p = child.try_get<Generative::Motive::Params>()) {
+                        motEl->SetAttribute("velocity", p->velocity);
+                        motEl->SetAttribute("complexity", p->complexity);
+                        motEl->SetAttribute("scale", p->scale);
+                        motEl->SetAttribute("distortion", p->distortion);
+                        motEl->SetAttribute("asymmetry", p->asymmetry);
+                        motEl->SetAttribute("intensity", p->intensity);
+                        
+                        for (int k = 0; k < 6; k++) {
+                            std::string attrAmp = "wanderAmp" + std::to_string(k);
+                            std::string attrFreq = "wanderFreq" + std::to_string(k);
+                            motEl->SetAttribute(attrAmp.c_str(), p->wanderAmp[k]);
+                            motEl->SetAttribute(attrFreq.c_str(), p->wanderFreq[k]);
+                        }
+                    }
+                    motsEl->InsertEndChild(motEl);
+                }
+            });
+        }
     });
 
     // Ensure parent directory exists
@@ -329,6 +430,11 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             uiEl->QueryIntAttribute("showOfflinePreviewWindow", &sop);
             uiEl->QueryIntAttribute("showEffectBankWindow", &seb);
             uiEl->QueryIntAttribute("showFixtureSetupScriptWindow", &sfss);
+            int spal = 0, smot = 0, sdash = 0, stelem = 0;
+            uiEl->QueryIntAttribute("showPalettesWindow", &spal);
+            uiEl->QueryIntAttribute("showMotivesWindow", &smot);
+            uiEl->QueryIntAttribute("showGenerativeDashboardWindow", &sdash);
+            uiEl->QueryIntAttribute("showGenerativeTelemetryWindow", &stelem);
             uiEl->QueryIntAttribute("patchLocked", &pl);
             uiEl->QueryIntAttribute("showGrid", &sg);
             uiEl->QueryIntAttribute("showFixtures", &sfix);
@@ -352,6 +458,10 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             config->showOfflinePreviewWindow = (sop != 0);
             config->showEffectBankWindow = (seb != 0);
             config->showFixtureSetupScriptWindow = (sfss != 0);
+            config->showPalettesWindow = (spal != 0);
+            config->showMotivesWindow = (smot != 0);
+            config->showGenerativeDashboardWindow = (sdash != 0);
+            config->showGenerativeTelemetryWindow = (stelem != 0);
             config->patchLocked = (pl != 0);
             config->showGrid = (sg != 0);
             config->showFixtures = (sfix != 0);
@@ -575,6 +685,133 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                         newCue.add<CueList::Cue::TargetEffect>(fallbackEffect);
                     }
                 }
+            }
+        }
+
+        // ── Generative Settings ──
+        patch.set<Generative::Settings>({});
+        if (XMLElement* gsEl = patchEl->FirstChildElement("GenerativeSettings")) {
+            if (auto* s = patch.try_get_mut<Generative::Settings>()) {
+                int val = 0;
+                if (gsEl->QueryIntAttribute("masterEnabled", &val) == XML_SUCCESS) s->masterEnabled = (val != 0);
+                if (gsEl->QueryIntAttribute("paletteEnabled", &val) == XML_SUCCESS) s->paletteEnabled = (val != 0);
+                if (gsEl->QueryIntAttribute("motiveEnabled", &val) == XML_SUCCESS) s->motiveEnabled = (val != 0);
+                if (gsEl->QueryIntAttribute("shaderEnabled", &val) == XML_SUCCESS) s->shaderEnabled = (val != 0);
+                gsEl->QueryFloatAttribute("paletteInterval", &s->paletteInterval);
+                gsEl->QueryFloatAttribute("paletteJitter", &s->paletteJitter);
+                gsEl->QueryFloatAttribute("paletteCrossfade", &s->paletteCrossfade);
+                gsEl->QueryFloatAttribute("motiveInterval", &s->motiveInterval);
+                gsEl->QueryFloatAttribute("motiveJitter", &s->motiveJitter);
+                gsEl->QueryFloatAttribute("motiveCrossfade", &s->motiveCrossfade);
+                gsEl->QueryFloatAttribute("shaderInterval", &s->shaderInterval);
+                gsEl->QueryFloatAttribute("shaderJitter", &s->shaderJitter);
+                gsEl->QueryFloatAttribute("shaderCrossfade", &s->shaderCrossfade);
+                if (gsEl->QueryIntAttribute("enableLinear", &val) == XML_SUCCESS) s->enableLinearDissolve = (val != 0);
+                if (gsEl->QueryIntAttribute("enableLuma", &val) == XML_SUCCESS) s->enableLumaWipe = (val != 0);
+                if (gsEl->QueryIntAttribute("enableSweep", &val) == XML_SUCCESS) s->enableSweep = (val != 0);
+                if (gsEl->QueryIntAttribute("enableCircle", &val) == XML_SUCCESS) s->enableCircleWipe = (val != 0);
+                if (gsEl->QueryIntAttribute("enableLuminosity", &val) == XML_SUCCESS) s->enableLuminosityWipe = (val != 0);
+                if (gsEl->QueryIntAttribute("transitionVolumetric", &val) == XML_SUCCESS) s->transitionVolumetric = (val != 0);
+                if (gsEl->QueryIntAttribute("manualPaletteOverride", &val) == XML_SUCCESS) s->manualPaletteOverride = (val != 0);
+                gsEl->QueryIntAttribute("manualPaletteIndex", &s->manualPaletteIndex);
+                if (gsEl->QueryIntAttribute("manualMotiveOverride", &val) == XML_SUCCESS) s->manualMotiveOverride = (val != 0);
+                gsEl->QueryIntAttribute("manualMotiveIndex", &s->manualMotiveIndex);
+                if (gsEl->QueryIntAttribute("manualShaderOverride", &val) == XML_SUCCESS) s->manualShaderOverride = (val != 0);
+                gsEl->QueryIntAttribute("manualShaderIndex", &s->manualShaderIndex);
+                gsEl->QueryIntAttribute("manualTransitionType", &s->manualTransitionType);
+            }
+        }
+
+        // ── Custom Palettes ──
+        flecs::entity paletteFolder = patch.target<Generative::PaletteFolder>();
+        if (!paletteFolder.is_valid()) {
+            paletteFolder = patch.world().entity()
+                .child_of(patch)
+                .add<Generative::PaletteFolder>();
+            patch.add<Generative::PaletteFolder>(paletteFolder);
+        }
+
+        if (XMLElement* palsEl = patchEl->FirstChildElement("Palettes")) {
+            std::vector<flecs::entity> toDelete;
+            paletteFolder.children([&](flecs::entity child) {
+                toDelete.push_back(child);
+            });
+            for (auto child : toDelete) {
+                child.destruct();
+            }
+            for (XMLElement* palEl = palsEl->FirstChildElement("Palette");
+                 palEl; palEl = palEl->NextSiblingElement("Palette"))
+            {
+                const char* palName = palEl->Attribute("name");
+                int isModeB = 0;
+                palEl->QueryIntAttribute("isModeB", &isModeB);
+                
+                std::vector<Generative::ColorStop> stops;
+                for (XMLElement* stopEl = palEl->FirstChildElement("Stop");
+                     stopEl; stopEl = stopEl->NextSiblingElement("Stop"))
+                {
+                    Generative::ColorStop stop;
+                    std::memset(&stop, 0, sizeof(stop));
+                    stopEl->QueryFloatAttribute("r", &stop.color.r);
+                    stopEl->QueryFloatAttribute("g", &stop.color.g);
+                    stopEl->QueryFloatAttribute("b", &stop.color.b);
+                    stopEl->QueryFloatAttribute("a", &stop.color.a);
+                    stopEl->QueryFloatAttribute("position", &stop.position);
+                    stopEl->QueryFloatAttribute("smoothness", &stop.smoothness);
+                    stops.push_back(stop);
+                }
+                
+                auto pal = patch.world().entity()
+                    .child_of(paletteFolder)
+                    .add<Generative::Palette::Is>()
+                    .set<Generative::Palette::Stops>({stops})
+                    .set<Generative::Palette::IsModeB>({isModeB != 0});
+                if (palName) pal.set_name(palName);
+            }
+        }
+
+        // ── Motive Presets ──
+        flecs::entity motiveFolder = patch.target<Generative::MotiveFolder>();
+        if (!motiveFolder.is_valid()) {
+            motiveFolder = patch.world().entity()
+                .child_of(patch)
+                .add<Generative::MotiveFolder>();
+            patch.add<Generative::MotiveFolder>(motiveFolder);
+        }
+
+        if (XMLElement* motsEl = patchEl->FirstChildElement("MotivePresets")) {
+            std::vector<flecs::entity> toDelete;
+            motiveFolder.children([&](flecs::entity child) {
+                toDelete.push_back(child);
+            });
+            for (auto child : toDelete) {
+                child.destruct();
+            }
+            for (XMLElement* motEl = motsEl->FirstChildElement("Motive");
+                 motEl; motEl = motEl->NextSiblingElement("Motive"))
+            {
+                const char* motName = motEl->Attribute("name");
+                Generative::Motive::Params params;
+                
+                motEl->QueryFloatAttribute("velocity", &params.velocity);
+                motEl->QueryFloatAttribute("complexity", &params.complexity);
+                motEl->QueryFloatAttribute("scale", &params.scale);
+                motEl->QueryFloatAttribute("distortion", &params.distortion);
+                motEl->QueryFloatAttribute("asymmetry", &params.asymmetry);
+                motEl->QueryFloatAttribute("intensity", &params.intensity);
+                
+                for (int k = 0; k < 6; k++) {
+                    std::string attrAmp = "wanderAmp" + std::to_string(k);
+                    std::string attrFreq = "wanderFreq" + std::to_string(k);
+                    motEl->QueryFloatAttribute(attrAmp.c_str(), &params.wanderAmp[k]);
+                    motEl->QueryFloatAttribute(attrFreq.c_str(), &params.wanderFreq[k]);
+                }
+                
+                auto mot = patch.world().entity()
+                    .child_of(motiveFolder)
+                    .add<Generative::Motive::Is>()
+                    .set<Generative::Motive::Params>(params);
+                if (motName) mot.set_name(motName);
             }
         }
 

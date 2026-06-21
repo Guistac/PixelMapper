@@ -87,8 +87,94 @@ namespace Patch {
         effectBankFolder.add<EffectBank::Is>();
         effectBankFolder.set<EffectBank::SessionState>({});
 
+        auto paletteFolder = world.entity("PaletteFolder").child_of(newPatch);
+        paletteFolder.add<Generative::PaletteFolder>();
+
+        auto motiveFolder = world.entity("MotiveFolder").child_of(newPatch);
+        motiveFolder.add<Generative::MotiveFolder>();
+
         newPatch.add<CueList::CueFolder>(cueListFolder);
         newPatch.add<EffectBank::EffectFolder>(effectBankFolder);
+        newPatch.add<Generative::PaletteFolder>(paletteFolder);
+        newPatch.add<Generative::MotiveFolder>(motiveFolder);
+        newPatch.set<Generative::Settings>({});
+
+        // ── Seed Default Palettes ──
+        {
+            // 1. Rainbow Wave (Continuous wrap looping)
+            std::vector<Generative::ColorStop> stops1 = {
+                { {1.0f, 0.0f, 0.0f, 1.0f}, 0.00f, 0.5f, {0.0f, 0.0f} },
+                { {1.0f, 1.0f, 0.0f, 1.0f}, 0.17f, 0.5f, {0.0f, 0.0f} },
+                { {0.0f, 1.0f, 0.0f, 1.0f}, 0.33f, 0.5f, {0.0f, 0.0f} },
+                { {0.0f, 1.0f, 1.0f, 1.0f}, 0.50f, 0.5f, {0.0f, 0.0f} },
+                { {0.0f, 0.0f, 1.0f, 1.0f}, 0.67f, 0.5f, {0.0f, 0.0f} },
+                { {1.0f, 0.0f, 1.0f, 1.0f}, 0.83f, 0.5f, {0.0f, 0.0f} },
+                { {1.0f, 0.0f, 0.0f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
+            };
+            world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>()
+                .set_name("Rainbow")
+                .set<Generative::Palette::Stops>({stops1})
+                .set<Generative::Palette::IsModeB>({false});
+
+            // 2. Sunset
+            std::vector<Generative::ColorStop> stops2 = {
+                { {0.95f, 0.20f, 0.08f, 1.0f}, 0.00f, 0.5f, {0.0f, 0.0f} },
+                { {0.85f, 0.05f, 0.40f, 1.0f}, 0.35f, 0.5f, {0.0f, 0.0f} },
+                { {0.35f, 0.02f, 0.55f, 1.0f}, 0.70f, 0.5f, {0.0f, 0.0f} },
+                { {0.95f, 0.20f, 0.08f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
+            };
+            world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>()
+                .set_name("Sunset")
+                .set<Generative::Palette::Stops>({stops2})
+                .set<Generative::Palette::IsModeB>({false});
+
+            // 3. Cyberpunk Neon
+            std::vector<Generative::ColorStop> stops3 = {
+                { {0.0f, 0.95f, 0.95f, 1.0f}, 0.00f, 0.5f, {0.0f, 0.0f} },
+                { {0.95f, 0.0f, 0.85f, 1.0f}, 0.50f, 0.5f, {0.0f, 0.0f} },
+                { {0.0f, 0.95f, 0.95f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
+            };
+            world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>()
+                .set_name("Cyberpunk")
+                .set<Generative::Palette::Stops>({stops3})
+                .set<Generative::Palette::IsModeB>({false});
+        }
+
+        // ── Seed Default Motives ──
+        {
+            // 1. Calm Ambient
+            Generative::Motive::Params calm;
+            calm.velocity = 0.15f; calm.complexity = 0.20f; calm.scale = 0.35f;
+            calm.distortion = 0.10f; calm.asymmetry = 0.05f; calm.intensity = 0.40f;
+            for (int k = 0; k < 6; ++k) { calm.wanderAmp[k] = 0.08f; calm.wanderFreq[k] = 0.25f; }
+            world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>()
+                .set_name("Calm Ambient")
+                .set<Generative::Motive::Params>(calm);
+
+            // 2. Organic Wandering
+            Generative::Motive::Params wander;
+            wander.velocity = 0.40f; wander.complexity = 0.50f; wander.scale = 0.55f;
+            wander.distortion = 0.35f; wander.asymmetry = 0.25f; wander.intensity = 0.65f;
+            for (int k = 0; k < 6; ++k) { wander.wanderAmp[k] = 0.15f; wander.wanderFreq[k] = 0.50f; }
+            world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>()
+                .set_name("Organic Wandering")
+                .set<Generative::Motive::Params>(wander);
+
+            // 3. Kinetic Storm
+            Generative::Motive::Params storm;
+            storm.velocity = 0.85f; storm.complexity = 0.80f; storm.scale = 0.75f;
+            storm.distortion = 0.65f; storm.asymmetry = 0.50f; storm.intensity = 0.90f;
+            for (int k = 0; k < 6; ++k) { storm.wanderAmp[k] = 0.18f; storm.wanderFreq[k] = 1.20f; }
+            world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>()
+                .set_name("Kinetic Storm")
+                .set<Generative::Motive::Params>(storm);
+        }
 
         select(pixelMapper, newPatch);
         
@@ -153,6 +239,11 @@ namespace Patch {
             if (res.glslPlaybackPreviewFboTexOld) glDeleteTextures(1, &res.glslPlaybackPreviewFboTexOld);
             if (res.glslPlaybackPreviewFboBlend) glDeleteFramebuffers(1, &res.glslPlaybackPreviewFboBlend);
             if (res.glslPlaybackPreviewFboTexBlend) glDeleteTextures(1, &res.glslPlaybackPreviewFboTexBlend);
+            for (int i = 0; i < 2; i++) {
+                if (res.glslPlaybackPreviewDisplayFbo[i]) glDeleteFramebuffers(1, &res.glslPlaybackPreviewDisplayFbo[i]);
+                if (res.glslPlaybackPreviewDisplayTex[i]) glDeleteTextures(1, &res.glslPlaybackPreviewDisplayTex[i]);
+            }
+
             if (res.glslVao) glDeleteVertexArrays(1, &res.glslVao);
             if (res.glslVbo) glDeleteBuffers(1, &res.glslVbo);
             if (res.glslPointVao) glDeleteVertexArrays(1, &res.glslPointVao);
@@ -161,6 +252,7 @@ namespace Patch {
             if (res.glslQuadVbo) glDeleteBuffers(1, &res.glslQuadVbo);
             if (res.glslPbo[0]) glDeleteBuffers(2, res.glslPbo);
             if (res.glslNoiseTex) glDeleteTextures(1, &res.glslNoiseTex);
+            if (res.glslPositionTex) glDeleteTextures(1, &res.glslPositionTex);
         });
 
         w.observer<GPUProgram>("CleanGPUProgram").event(flecs::OnRemove)
@@ -228,6 +320,184 @@ namespace {
         return true;
     }
 
+    static bool hasShaderDeclaration(const std::string& source, const std::string& type, const std::string& name) {
+        size_t pos = 0;
+        while ((pos = source.find(name, pos)) != std::string::npos) {
+            bool leftWordBound = (pos == 0 || (!std::isalnum(source[pos - 1]) && source[pos - 1] != '_'));
+            bool rightWordBound = (pos + name.length() >= source.length() || (!std::isalnum(source[pos + name.length()]) && source[pos + name.length()] != '_'));
+            if (leftWordBound && rightWordBound) {
+                if (pos >= type.length()) {
+                    size_t typePos = source.rfind(type, pos);
+                    if (typePos != std::string::npos) {
+                        bool typeLeftBound = (typePos == 0 || (!std::isalnum(source[typePos - 1]) && source[typePos - 1] != '_'));
+                        bool typeRightBound = (typePos + type.length() >= source.length() || (!std::isalnum(source[typePos + type.length()]) && source[typePos + type.length()] != '_'));
+                        if (typeLeftBound && typeRightBound) {
+                            bool allSpaces = true;
+                            for (size_t i = typePos + type.length(); i < pos; i++) {
+                                if (!std::isspace((unsigned char)source[i])) {
+                                    allSpaces = false;
+                                    break;
+                                }
+                            }
+                            if (allSpaces) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            pos += name.length();
+        }
+        return false;
+    }
+
+    std::string buildFsSource(const std::string& userSource, bool isShadertoy) {
+        std::string stripped = userSource;
+        size_t pos = 0;
+        while ((pos = stripped.find("#version")) != std::string::npos) {
+            size_t endLine = stripped.find("\n", pos);
+            if (endLine != std::string::npos) {
+                stripped.erase(pos, endLine - pos + 1);
+            } else {
+                stripped.erase(pos);
+            }
+        }
+
+        std::string header = "#version 150\n";
+        
+        if (!hasShaderDeclaration(stripped, "vec3", "vPixelPos3D")) {
+            header += "in vec3 vPixelPos3D;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "vec2", "vPixelPos2D")) {
+            header += "in vec2 vPixelPos2D;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "vec4", "fragColor")) {
+            header += "out vec4 fragColor;\n";
+        }
+        if (stripped.find("#define iPixelPos3D") == std::string::npos) {
+            header += "#define iPixelPos3D vPixelPos3D\n";
+        }
+        if (stripped.find("#define iPixelPos2D") == std::string::npos) {
+            header += "#define iPixelPos2D vPixelPos2D\n";
+        }
+        if (!hasShaderDeclaration(stripped, "float", "time")) {
+            header += "uniform float time;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "vec2", "resolution")) {
+            header += "uniform vec2 resolution;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "float", "pixelCount")) {
+            header += "uniform float pixelCount;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "vec3", "pixelPosMin")) {
+            header += "uniform vec3 pixelPosMin;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "vec3", "pixelPosMax")) {
+            header += "uniform vec3 pixelPosMax;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "float", "zSlice")) {
+            header += "uniform float zSlice;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "sampler2D", "iChannel0")) {
+            header += "uniform sampler2D iChannel0;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "sampler2D", "iChannel1")) {
+            header += "uniform sampler2D iChannel1;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "sampler2D", "iChannel2")) {
+            header += "uniform sampler2D iChannel2;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "sampler2D", "iChannel3")) {
+            header += "uniform sampler2D iChannel3;\n";
+        }
+
+        if (stripped.find("struct ColorStop") == std::string::npos) {
+            header += 
+                "struct ColorStop {\n"
+                "    vec4 color;\n"
+                "    float position;\n"
+                "    float smoothness;\n"
+                "};\n";
+        }
+        if (stripped.find("uniform EngineState") == std::string::npos) {
+            header += 
+                "layout(std140) uniform EngineState {\n"
+                "    int activeStops;\n"
+                "    ColorStop palette[16];\n"
+                "    float velocity;\n"
+                "    float complexity;\n"
+                "    float scale;\n"
+                "    float distortion;\n"
+                "    float asymmetry;\n"
+                "    float intensity;\n"
+                "};\n";
+        }
+
+        if (stripped.find("vec4 _samplePaletteInternal") == std::string::npos) {
+            header +=
+                "vec4 _samplePaletteInternal(float p) {\n"
+                "    for (int i = 0; i < 15; i++) {\n"
+                "        if (i >= activeStops - 1) break;\n"
+                "        float p0 = palette[i].position;\n"
+                "        float p1 = palette[i+1].position;\n"
+                "        if (p >= p0 && p <= p1) {\n"
+                "            float t = (p - p0) / max(p1 - p0, 0.0001);\n"
+                "            float smoothness = mix(palette[i].smoothness, palette[i+1].smoothness, t);\n"
+                "            float width = smoothness;\n"
+                "            float mixFactor;\n"
+                "            if (width > 0.001) {\n"
+                "                float edge0 = 0.5 - width * 0.5;\n"
+                "                float f = clamp((t - edge0) / width, 0.0, 1.0);\n"
+                "                mixFactor = f * f * (3.0 - 2.0 * f);\n"
+                "            } else {\n"
+                "                mixFactor = (t < 0.5) ? 0.0 : 1.0;\n"
+                "            }\n"
+                "            return mix(palette[i].color, palette[i+1].color, mixFactor);\n"
+                "        }\n"
+                "    }\n"
+                "    return palette[activeStops - 1].color;\n"
+                "}\n";
+        }
+
+        if (stripped.find("vec4 samplePalette(") == std::string::npos) {
+            header +=
+                "vec4 samplePalette(float pos) {\n"
+                "    if (activeStops <= 0) return vec4(0.0);\n"
+                "    if (activeStops == 1) return palette[0].color;\n"
+                "    return _samplePaletteInternal(clamp(pos, 0.0, 1.0));\n"
+                "}\n";
+        }
+
+        if (stripped.find("vec4 samplePaletteWrapped(") == std::string::npos) {
+            header +=
+                "vec4 samplePaletteWrapped(float pos) {\n"
+                "    if (activeStops <= 0) return vec4(0.0);\n"
+                "    if (activeStops == 1) return palette[0].color;\n"
+                "    return _samplePaletteInternal(fract(pos));\n"
+                "}\n";
+        }
+
+        if (isShadertoy) {
+            header += 
+                "#define iResolution vec3(resolution.x, resolution.y, 1.0)\n"
+                "#define iTime time\n"
+                "vec4 texture(sampler2D sampler, vec3 coord) { return texture(sampler, coord.xy); }\n"
+                "vec4 textureLod(sampler2D sampler, vec3 coord, float lod) { return textureLod(sampler, coord.xy, lod); }\n"
+                "out vec4 FragColor;\n"
+                + stripped +
+                "\n"
+                "void main() {\n"
+                "    vec2 fakeFragCoord = iPixelPos2D * iResolution.xy;\n"
+                "    vec4 outColor;\n"
+                "    mainImage(outColor, fakeFragCoord);\n"
+                "    fragColor = outColor;\n"
+                "}\n";
+        } else {
+            header += stripped;
+        }
+        return header;
+    }
+
     bool compileShaderIfNeeded(const std::string& fsSourceStr, Patch::GPUProgram& gp) {
         if (gp.program != 0 && gp.previewProgram != 0 && gp.glslSource == fsSourceStr) {
             return true;
@@ -247,9 +517,7 @@ namespace {
         bool isShadertoy = (fsSourceStr.find("mainImage") != std::string::npos);
         std::string errLog;
 
-        // ─────────────────────────────────────────────────────────────────
         // 1. COMPILE MAIN (POINT-RENDERING) PROGRAM
-        // ─────────────────────────────────────────────────────────────────
         std::string pointVsSource =
             "#version 150\n"
             "in vec3 position3D;\n"
@@ -265,51 +533,7 @@ namespace {
             "    gl_Position = vec4(xNDC, 0.0, 0.0, 1.0);\n"
             "}\n";
 
-        std::string pointFsSource;
-        if (isShadertoy) {
-            pointFsSource =
-                "#version 150\n"
-                "in vec3 vPixelPos3D;\n"
-                "in vec2 vPixelPos2D;\n"
-                "out vec4 FragColor;\n"
-                "#define iPixelPos3D vPixelPos3D\n"
-                "#define iPixelPos2D vPixelPos2D\n"
-                "uniform vec3      iResolution;\n"
-                "uniform float     iTime;\n"
-                "uniform float     iTimeDelta;\n"
-                "uniform float     iFrameRate;\n"
-                "uniform int       iFrame;\n"
-                "uniform vec4      iMouse;\n"
-                "uniform vec4      iDate;\n"
-                "uniform sampler2D iChannel0;\n"
-                "uniform sampler2D iChannel1;\n"
-                "uniform sampler2D iChannel2;\n"
-                "uniform sampler2D iChannel3;\n"
-                "vec4 texture(sampler2D sampler, vec3 coord) { return texture(sampler, coord.xy); }\n"
-                "vec4 textureLod(sampler2D sampler, vec3 coord, float lod) { return textureLod(sampler, coord.xy, lod); }\n" +
-                fsSourceStr +
-                "\n"
-                "void main() {\n"
-                "    vec2 fakeFragCoord = iPixelPos2D * iResolution.xy;\n"
-                "    mainImage(FragColor, fakeFragCoord);\n"
-                "}\n";
-        } else {
-            // Check if #version is already in user code
-            if (fsSourceStr.find("#version") != std::string::npos) {
-                pointFsSource = fsSourceStr;
-            } else {
-                pointFsSource =
-                    "#version 150\n"
-                    "in vec3 vPixelPos3D;\n"
-                    "in vec2 vPixelPos2D;\n"
-                    "out vec4 fragColor;\n"
-                    "#define iPixelPos3D vPixelPos3D\n"
-                    "#define iPixelPos2D vPixelPos2D\n"
-                    "uniform float time;\n"
-                    "uniform vec2 resolution;\n" +
-                    fsSourceStr;
-            }
-        }
+        std::string pointFsSource = buildFsSource(fsSourceStr, isShadertoy);
 
         GLuint pointVs = glCreateShader(GL_VERTEX_SHADER);
         if (!compileStage(pointVs, pointVsSource, errLog)) {
@@ -342,9 +566,7 @@ namespace {
         glDeleteShader(pointFs);
         glDeleteShader(pointVs);
 
-        // ─────────────────────────────────────────────────────────────────
         // 2. COMPILE PREVIEW (2D QUAD-RENDERING) PROGRAM
-        // ─────────────────────────────────────────────────────────────────
         std::string quadVsSource =
             "#version 150\n"
             "in vec2 position;\n"
@@ -359,51 +581,7 @@ namespace {
             "    gl_Position = vec4(position, 0.0, 1.0);\n"
             "}\n";
 
-        std::string quadFsSource;
-        if (isShadertoy) {
-            quadFsSource =
-                "#version 150\n"
-                "in vec3 vPixelPos3D;\n"
-                "in vec2 vPixelPos2D;\n"
-                "out vec4 FragColor;\n"
-                "#define iPixelPos3D vPixelPos3D\n"
-                "#define iPixelPos2D vPixelPos2D\n"
-                "uniform vec3      iResolution;\n"
-                "uniform float     iTime;\n"
-                "uniform float     iTimeDelta;\n"
-                "uniform float     iFrameRate;\n"
-                "uniform int       iFrame;\n"
-                "uniform vec4      iMouse;\n"
-                "uniform vec4      iDate;\n"
-                "uniform float     zSlice;\n"
-                "uniform sampler2D iChannel0;\n"
-                "uniform sampler2D iChannel1;\n"
-                "uniform sampler2D iChannel2;\n"
-                "uniform sampler2D iChannel3;\n"
-                "vec4 texture(sampler2D sampler, vec3 coord) { return texture(sampler, coord.xy); }\n"
-                "vec4 textureLod(sampler2D sampler, vec3 coord, float lod) { return textureLod(sampler, coord.xy, lod); }\n" +
-                fsSourceStr +
-                "\n"
-                "void main() {\n"
-                "    mainImage(FragColor, gl_FragCoord.xy);\n"
-                "}\n";
-        } else {
-            if (fsSourceStr.find("#version") != std::string::npos) {
-                quadFsSource = fsSourceStr;
-            } else {
-                quadFsSource =
-                    "#version 150\n"
-                    "in vec3 vPixelPos3D;\n"
-                    "in vec2 vPixelPos2D;\n"
-                    "out vec4 fragColor;\n"
-                    "#define iPixelPos3D vPixelPos3D\n"
-                    "#define iPixelPos2D vPixelPos2D\n"
-                    "uniform float time;\n"
-                    "uniform vec2 resolution;\n"
-                    "uniform float zSlice;\n" +
-                    fsSourceStr;
-            }
-        }
+        std::string quadFsSource = pointFsSource; // reuse exactly the same unified shader source
 
         GLuint quadVs = glCreateShader(GL_VERTEX_SHADER);
         if (!compileStage(quadVs, quadVsSource, errLog)) {
@@ -752,19 +930,81 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             auto* res = &patch.get_mut<Patch::GPUResources>();
             auto* patchGp = &patch.get_mut<Patch::GPUProgram>();
 
-            // Initialize noise texture if needed
+            // Initialize noise texture if needed (smooth fractal noise)
             if (res->glslNoiseTex == 0) {
                 glGenTextures(1, &res->glslNoiseTex);
                 glBindTexture(GL_TEXTURE_2D, res->glslNoiseTex);
+                
+                std::vector<float> grid16(16 * 16);
+                std::vector<float> grid32(32 * 32);
+                std::vector<float> grid64(64 * 64);
+                for (int i = 0; i < 16 * 16; ++i) grid16[i] = (float)rand() / RAND_MAX;
+                for (int i = 0; i < 32 * 32; ++i) grid32[i] = (float)rand() / RAND_MAX;
+                for (int i = 0; i < 64 * 64; ++i) grid64[i] = (float)rand() / RAND_MAX;
+
+                auto sampleGrid = [](const std::vector<float>& grid, int size, float x, float y) {
+                    float fx = x * size;
+                    float fy = y * size;
+                    int ix0 = ((int)fx) % size;
+                    int iy0 = ((int)fy) % size;
+                    int ix1 = (ix0 + 1) % size;
+                    int iy1 = (iy0 + 1) % size;
+                    float tx = fx - std::floor(fx);
+                    float ty = fy - std::floor(fy);
+                    float sx = tx * tx * (3.0f - 2.0f * tx);
+                    float sy = ty * ty * (3.0f - 2.0f * ty);
+                    float v00 = grid[iy0 * size + ix0];
+                    float v10 = grid[iy0 * size + ix1];
+                    float v01 = grid[iy1 * size + ix0];
+                    float v11 = grid[iy1 * size + ix1];
+                    return glm::mix(glm::mix(v00, v10, sx), glm::mix(v01, v11, sx), sy);
+                };
+
                 std::vector<uint8_t> noiseData(256 * 256 * 4);
-                for (size_t i = 0; i < noiseData.size(); ++i) {
-                    noiseData[i] = (uint8_t)(rand() % 256);
+                for (int y = 0; y < 256; ++y) {
+                    for (int x = 0; x < 256; ++x) {
+                        float u = (float)x / 256.0f;
+                        float v = (float)y / 256.0f;
+                        float n = 0.5f * sampleGrid(grid16, 16, u, v) +
+                                  0.3f * sampleGrid(grid32, 32, u, v) +
+                                  0.2f * sampleGrid(grid64, 64, u, v);
+                        uint8_t val = (uint8_t)(n * 255.0f);
+                        int idx = (y * 256 + x) * 4;
+                        noiseData[idx + 0] = val;
+                        noiseData[idx + 1] = val;
+                        noiseData[idx + 2] = val;
+                        noiseData[idx + 3] = 255;
+                    }
                 }
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, noiseData.data());
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+
+            // Initialize position texture containing 3D physical coordinates
+            if (res->glslPositionTex == 0 || res->vfbWidth != mainVfbWidth) {
+                if (res->glslPositionTex == 0) {
+                    glGenTextures(1, &res->glslPositionTex);
+                }
+                glBindTexture(GL_TEXTURE_2D, res->glslPositionTex);
+                
+                std::vector<float> posData(mainVfbWidth * 4, 0.0f);
+                if (program->pixelPositions) {
+                    for (int i = 0; i < (int)program->pixelCount && i < mainVfbWidth; i++) {
+                        posData[i * 4 + 0] = program->pixelPositions[i].x;
+                        posData[i * 4 + 1] = program->pixelPositions[i].y;
+                        posData[i * 4 + 2] = program->pixelPositions[i].z;
+                        posData[i * 4 + 3] = 1.0f;
+                    }
+                }
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, mainVfbWidth, 1, 0, GL_RGBA, GL_FLOAT, posData.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                 glBindTexture(GL_TEXTURE_2D, 0);
             }
 
@@ -781,6 +1021,17 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                     glDeleteTextures(1, &res->glslPlaybackPreviewFboTexOld);
                     glDeleteFramebuffers(1, &res->glslPlaybackPreviewFboBlend);
                     glDeleteTextures(1, &res->glslPlaybackPreviewFboTexBlend);
+                    for (int i = 0; i < 2; i++) {
+                        if (res->glslPlaybackPreviewDisplayFbo[i]) {
+                            glDeleteFramebuffers(1, &res->glslPlaybackPreviewDisplayFbo[i]);
+                            res->glslPlaybackPreviewDisplayFbo[i] = 0;
+                        }
+                        if (res->glslPlaybackPreviewDisplayTex[i]) {
+                            glDeleteTextures(1, &res->glslPlaybackPreviewDisplayTex[i]);
+                            res->glslPlaybackPreviewDisplayTex[i] = 0;
+                        }
+                    }
+
                     glDeleteFramebuffers(1, &res->glslFboOld);
                     glDeleteTextures(1, &res->glslFboTexOld);
                     glDeleteFramebuffers(1, &res->glslFboBlend);
@@ -851,6 +1102,20 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 glBindFramebuffer(GL_FRAMEBUFFER, res->glslPlaybackPreviewFboBlend);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslPlaybackPreviewFboTexBlend, 0);
 
+                for (int i = 0; i < 2; i++) {
+                    glGenFramebuffers(1, &res->glslPlaybackPreviewDisplayFbo[i]);
+                    glGenTextures(1, &res->glslPlaybackPreviewDisplayTex[i]);
+                    glBindTexture(GL_TEXTURE_2D, res->glslPlaybackPreviewDisplayTex[i]);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res->previewWidth, res->previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glBindFramebuffer(GL_FRAMEBUFFER, res->glslPlaybackPreviewDisplayFbo[i]);
+                    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, res->glslPlaybackPreviewDisplayTex[i], 0);
+                }
+
+
                 glGenFramebuffers(1, &res->glslFboOld);
                 glGenTextures(1, &res->glslFboTexOld);
                 glBindTexture(GL_TEXTURE_2D, res->glslFboTexOld);
@@ -900,11 +1165,113 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                     "out vec4 fragColor;\n"
                     "uniform sampler2D texActive;\n"
                     "uniform sampler2D texOld;\n"
+                    "uniform sampler2D texNoise;\n"
+                    "uniform sampler2D texPosition;\n"
                     "uniform float mixFactor;\n"
+                    "uniform int transitionType;\n"
+                    "uniform int transitionVolumetric;\n"
+                    "uniform int isPreview2D;\n"
+                    "uniform vec3 pixelPosMin;\n"
+                    "uniform vec3 pixelPosMax;\n"
+                    "uniform float zSlice;\n"
+                    "uniform vec2 sweepDirection;\n"
+                    "uniform vec3 sweepDirection3D;\n"
+                    "uniform vec3 sphereCenter3D;\n"
+                    "uniform int circleWipeInward;\n"
+                    "\n"
+                    "float hash(vec3 p) {\n"
+                    "    p = fract(p * vec3(443.897, 441.423, 437.195));\n"
+                    "    p += dot(p, p.yzx + 19.19);\n"
+                    "    return fract((p.x + p.y) * p.z);\n"
+                    "}\n"
+                    "float noise3D(vec3 p) {\n"
+                    "    vec3 i = floor(p);\n"
+                    "    vec3 f = fract(p);\n"
+                    "    vec3 u = f * f * (3.0 - 2.0 * f);\n"
+                    "    return mix(mix(mix(hash(i + vec3(0.0,0.0,0.0)), hash(i + vec3(1.0,0.0,0.0)), u.x),\n"
+                    "                   mix(hash(i + vec3(0.0,1.0,0.0)), hash(i + vec3(1.0,1.0,0.0)), u.x), u.y),\n"
+                    "               mix(mix(hash(i + vec3(0.0,0.0,1.0)), hash(i + vec3(1.0,0.0,1.0)), u.x),\n"
+                    "                   mix(hash(i + vec3(0.0,1.0,1.0)), hash(i + vec3(1.0,1.0,1.0)), u.x), u.y), u.z);\n"
+                    "}\n"
+                    "float fbm3D(vec3 p) {\n"
+                    "    float val = 0.5 * noise3D(p);\n"
+                    "    val += 0.3 * noise3D(p * 2.0);\n"
+                    "    val += 0.2 * noise3D(p * 4.0);\n"
+                    "    return val;\n"
+                    "}\n"
+                    "\n"
                     "void main() {\n"
                     "    vec4 cActive = texture(texActive, uv);\n"
                     "    vec4 cOld = texture(texOld, uv);\n"
-                    "    fragColor = mix(cOld, cActive, mixFactor);\n"
+                    "    vec3 pos3D = vec3(0.0);\n"
+                    "    if (transitionVolumetric == 1) {\n"
+                    "        if (isPreview2D == 1) {\n"
+                    "            pos3D = mix(pixelPosMin, pixelPosMax, vec3(uv.x, uv.y, zSlice));\n"
+                    "        } else {\n"
+                    "            pos3D = texture(texPosition, uv).xyz;\n"
+                    "        }\n"
+                    "    }\n"
+                    "\n"
+                    "    float factor = mixFactor;\n"
+                    "\n"
+                    "    if (transitionType == 1) {\n"
+                    "        if (transitionVolumetric == 1) {\n"
+                    "            vec3 normPos = (pos3D - pixelPosMin) / max(vec3(0.001), pixelPosMax - pixelPosMin);\n"
+                    "            float noiseVal = fbm3D(normPos * 6.0);\n"
+                    "            float threshold = mixFactor * 1.1 - 0.05;\n"
+                    "            factor = 1.0 - smoothstep(threshold - 0.05, threshold + 0.05, noiseVal);\n"
+                    "        } else {\n"
+                    "            float noiseVal = texture(texNoise, uv * 4.0).r;\n"
+                    "            float threshold = mixFactor * 1.1 - 0.05;\n"
+                    "            factor = 1.0 - smoothstep(threshold - 0.05, threshold + 0.05, noiseVal);\n"
+                    "        }\n"
+                    "    } else if (transitionType == 2) {\n"
+                    "        if (transitionVolumetric == 1) {\n"
+                    "            float d = dot(pos3D, sweepDirection3D);\n"
+                    "            float dMin = min(dot(pixelPosMin, sweepDirection3D), dot(pixelPosMax, sweepDirection3D));\n"
+                    "            float dMax = max(dot(pixelPosMin, sweepDirection3D), dot(pixelPosMax, sweepDirection3D));\n"
+                    "            float span = max(0.001, dMax - dMin);\n"
+                    "            float edge = mixFactor * (span * 1.2) + dMin - span * 0.1;\n"
+                    "            factor = 1.0 - smoothstep(edge - span * 0.05, edge + span * 0.05, d);\n"
+                    "        } else {\n"
+                    "            float d = dot(uv - vec2(0.5), sweepDirection) + 0.5;\n"
+                    "            float edge = mixFactor * 1.2 - 0.1;\n"
+                    "            factor = 1.0 - smoothstep(edge - 0.05, edge + 0.05, d);\n"
+                    "        }\n"
+                    "    } else if (transitionType == 3) {\n"
+                    "        if (circleWipeInward == 1) {\n"
+                    "            if (transitionVolumetric == 1) {\n"
+                    "                vec3 center = sphereCenter3D;\n"
+                    "                float dist = distance(pos3D, center);\n"
+                    "                float maxRadius = distance(pixelPosMin, pixelPosMax) * 0.5;\n"
+                    "                float radius = (1.0 - mixFactor) * maxRadius * 1.1;\n"
+                    "                factor = smoothstep(radius - maxRadius * 0.05, radius + maxRadius * 0.05, dist);\n"
+                    "            } else {\n"
+                    "                float dist = distance(uv, vec2(0.5));\n"
+                    "                float maxDist = 0.75;\n"
+                    "                float radius = (1.0 - mixFactor) * maxDist * 1.1;\n"
+                    "                factor = smoothstep(radius - 0.05, radius + 0.05, dist);\n"
+                    "            }\n"
+                    "        } else {\n"
+                    "            if (transitionVolumetric == 1) {\n"
+                    "                vec3 center = sphereCenter3D;\n"
+                    "                float dist = distance(pos3D, center);\n"
+                    "                float maxRadius = distance(pixelPosMin, pixelPosMax) * 0.5;\n"
+                    "                float radius = mixFactor * maxRadius * 1.1;\n"
+                    "                factor = 1.0 - smoothstep(radius - maxRadius * 0.05, radius + maxRadius * 0.05, dist);\n"
+                    "            } else {\n"
+                    "                float dist = distance(uv, vec2(0.5));\n"
+                    "                float maxDist = 0.75;\n"
+                    "                float radius = mixFactor * maxDist * 1.1;\n"
+                    "                factor = 1.0 - smoothstep(radius - 0.05, radius + 0.05, dist);\n"
+                    "            }\n"
+                    "        }\n"
+                    "    } else if (transitionType == 4) {\n"
+                    "        float lum = dot(cActive.rgb, vec3(0.299, 0.587, 0.114));\n"
+                    "        factor = smoothstep(1.0 - mixFactor - 0.05, 1.0 - mixFactor + 0.05, lum);\n"
+                    "    }\n"
+                    "\n"
+                    "    fragColor = mix(cOld, cActive, factor);\n"
                     "}\n";
 
                 GLuint blendVs = glCreateShader(GL_VERTEX_SHADER);
@@ -986,12 +1353,27 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             program->glslPlaybackPreviewFboTexOld = res->glslPlaybackPreviewFboTexOld;
             program->glslPlaybackPreviewFboBlend = res->glslPlaybackPreviewFboBlend;
             program->glslPlaybackPreviewFboTexBlend = res->glslPlaybackPreviewFboTexBlend;
+            for (int i = 0; i < 2; i++) {
+                program->glslPlaybackPreviewDisplayFbo[i] = res->glslPlaybackPreviewDisplayFbo[i];
+                program->glslPlaybackPreviewDisplayTex[i] = res->glslPlaybackPreviewDisplayTex[i];
+            }
+            program->glslPlaybackPreviewReadIdx.store(0);
+            program->glslCurrentPlaybackPreviewTexID.store(res->glslPlaybackPreviewDisplayTex[0]);
+
+
             program->glslFboOld = res->glslFboOld;
             program->glslFboTexOld = res->glslFboTexOld;
             program->glslFboBlend = res->glslFboBlend;
             program->glslFboTexBlend = res->glslFboTexBlend;
             program->glslBlendProgram = res->glslBlendProgram;
             program->glslNoiseTex = res->glslNoiseTex;
+            program->glslPositionTex = res->glslPositionTex;
+
+            // Initialize GLSL UBO for Generative Engine UBO state
+            glGenBuffers(1, &program->glslUboId);
+            glBindBuffer(GL_UNIFORM_BUFFER, program->glslUboId);
+            glBufferData(GL_UNIFORM_BUFFER, sizeof(Generative::EngineStateUBO), nullptr, GL_DYNAMIC_DRAW);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
             // Compile Cue Shaders
             flecs::entity cueFolder = patch.target<CueList::CueFolder>();
@@ -1068,6 +1450,56 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                 }
             }
         }
+        glFlush();
+    }
+    // ── Compile Generative Engine Presets & Settings ──
+    if (const auto* settings = patch.try_get<Generative::Settings>()) {
+        program->generativeSettings = *settings;
+    } else {
+        program->generativeSettings = Generative::Settings();
+    }
+
+    flecs::entity paletteFolder = patch.target<Generative::PaletteFolder>();
+    if (paletteFolder.is_valid()) {
+        paletteFolder.children([&](flecs::entity child) {
+            if (child.has<Generative::Palette::Is>()) {
+                Generative::CompiledPalette cp;
+                cp.name = child.name();
+                if (const auto* stops = child.try_get<Generative::Palette::Stops>()) {
+                    cp.stops = stops->value;
+                }
+                if (const auto* isModeB = child.try_get<Generative::Palette::IsModeB>()) {
+                    cp.isModeB = isModeB->value;
+                }
+                program->palettePool.push_back(cp);
+            }
+        });
+    }
+
+    flecs::entity motiveFolder = patch.target<Generative::MotiveFolder>();
+    if (motiveFolder.is_valid()) {
+        motiveFolder.children([&](flecs::entity child) {
+            if (child.has<Generative::Motive::Is>()) {
+                Generative::CompiledMotive cm;
+                cm.name = child.name();
+                if (const auto* params = child.try_get<Generative::Motive::Params>()) {
+                    cm.velocity = params->velocity;
+                    cm.complexity = params->complexity;
+                    cm.scale = params->scale;
+                    cm.distortion = params->distortion;
+                    cm.asymmetry = params->asymmetry;
+                    cm.intensity = params->intensity;
+                    std::memcpy(cm.wanderAmp, params->wanderAmp, sizeof(cm.wanderAmp));
+                    std::memcpy(cm.wanderFreq, params->wanderFreq, sizeof(cm.wanderFreq));
+                } else {
+                    cm.velocity = 0.5f; cm.complexity = 0.5f; cm.scale = 0.5f;
+                    cm.distortion = 0.5f; cm.asymmetry = 0.5f; cm.intensity = 0.5f;
+                    std::fill(std::begin(cm.wanderAmp), std::end(cm.wanderAmp), 0.15f);
+                    std::fill(std::begin(cm.wanderFreq), std::end(cm.wanderFreq), 0.5f);
+                }
+                program->motivePool.push_back(cm);
+            }
+        });
     }
 
     if (auto* scriptData = patch.try_get_mut<Patch::ScriptData>()) {
@@ -1088,10 +1520,72 @@ PatchProgram::~PatchProgram(){
     free(vfbPixelsOld);
     free(fixtures);
     delete[] pixelSelected;
+    if (glslUboId != 0) {
+        glDeleteBuffers(1, &glslUboId);
+    }
+}
+
+void randomizeTransitionDirections(PatchProgram* program) {
+    if (!program) return;
+    static thread_local std::mt19937 rng(std::random_device{}());
+    
+    float pi = 3.14159265358979323846f;
+    std::uniform_real_distribution<float> angleDist(0.0f, 2.0f * pi);
+    float angle2D = angleDist(rng);
+    program->sweepDirection = glm::vec2(std::cos(angle2D), std::sin(angle2D));
+    
+    std::uniform_real_distribution<float> zDist(-1.0f, 1.0f);
+    float z = zDist(rng);
+    float r = std::sqrt(std::max(0.0f, 1.0f - z * z));
+    float angle3D = angleDist(rng);
+    program->sweepDirection3D = glm::vec3(r * std::cos(angle3D), r * std::sin(angle3D), z);
+    
+    float xMin = program->pixelPosMin.x;
+    float xMax = program->pixelPosMax.x;
+    if (xMin > xMax) std::swap(xMin, xMax);
+    if (xMax - xMin < 0.001f) { xMin -= 0.001f; xMax += 0.001f; }
+    
+    float yMin = program->pixelPosMin.y;
+    float yMax = program->pixelPosMax.y;
+    if (yMin > yMax) std::swap(yMin, yMax);
+    if (yMax - yMin < 0.001f) { yMin -= 0.001f; yMax += 0.001f; }
+    
+    float zMin = program->pixelPosMin.z;
+    float zMax = program->pixelPosMax.z;
+    if (zMin > zMax) std::swap(zMin, zMax);
+    if (zMax - zMin < 0.001f) { zMin -= 0.001f; zMax += 0.001f; }
+    
+    std::uniform_real_distribution<float> xDist(xMin, xMax);
+    std::uniform_real_distribution<float> yDist(yMin, yMax);
+    std::uniform_real_distribution<float> zPosDist(zMin, zMax);
+    
+    program->sphereCenter3D = glm::vec3(xDist(rng), yDist(rng), zPosDist(rng));
+    std::uniform_int_distribution<int> coinDist(0, 1);
+    program->circleWipeInward = (coinDist(rng) == 1);
 }
 
 void render(PatchProgram* program){
-    program->timeElapsed = (float)glfwGetTime();
+    float curTime = (float)glfwGetTime();
+    float dt = (program->timeElapsed > 0.0f) ? (curTime - program->timeElapsed) : (1.0f / program->refreshRate);
+    dt = std::min(dt, 0.1f);
+    program->timeElapsed = curTime;
+
+    if (program->generativeRuntime) {
+        program->generativeRuntime->update(dt, program);
+    }
+
+
+    if (program->generativeSettings.masterEnabled && program->glslUboId != 0 && program->generativeRuntime) {
+        glBindBuffer(GL_UNIFORM_BUFFER, program->glslUboId);
+        Generative::EngineStateUBO uboState;
+        {
+            std::lock_guard<std::mutex> lock(program->generativeMutex);
+            uboState = program->generativeRuntime->getUboState();
+        }
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Generative::EngineStateUBO), &uboState);
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    }
+
 
     // ── Cue Switch Detection & Crossfade Triggering ──
     if (program->vfbPixels && program->vfbPixelsOld) {
@@ -1105,6 +1599,7 @@ void render(PatchProgram* program){
                 program->previousCueIndex = program->currentRenderedCueIndex;
                 program->crossfadeDuration.store(fade);
                 program->crossfadeProgress.store(0.0f);
+                randomizeTransitionDirections(program);
             } else {
                 program->previousCueIndex = -2;
                 program->crossfadeProgress.store(1.0f);
@@ -1148,6 +1643,15 @@ void render(PatchProgram* program){
             auto setupProgramUniforms = [&](unsigned int prog) {
                 if (prog == 0) return;
                 glUseProgram(prog);
+
+                // Bind EngineState UBO to binding point 0
+                if (program->glslUboId != 0) {
+                    GLuint blockIndex = glGetUniformBlockIndex(prog, "EngineState");
+                    if (blockIndex != GL_INVALID_INDEX) {
+                        glUniformBlockBinding(prog, blockIndex, 0);
+                        glBindBufferBase(GL_UNIFORM_BUFFER, 0, program->glslUboId);
+                    }
+                }
 
                 GLint timeLoc = glGetUniformLocation(prog, "iTime");
                 if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
@@ -1226,40 +1730,102 @@ void render(PatchProgram* program){
                 program->vaoReady = true;
             }
 
-            float progress = program->crossfadeProgress.load();
+            // Determine if Generative Engine is active
+            bool isGen = program->generativeSettings.masterEnabled && program->generativeRuntime;
+            int activeCue = program->activeCueIndex.load();
+            bool isCueActive = (activeCue >= 0);
 
-            // ── Render Outgoing Cue to glslFboOld (during crossfade) ──
-            if (progress < 1.0f && program->glslFboOld) {
-                unsigned int oldProg = program->glslProgram;
-                int oldIdx = program->previousCueIndex;
-                if (oldIdx >= 0 && oldIdx < (int)program->compiledCues.size()) {
-                    if (program->compiledCues[oldIdx].program != 0) {
-                        oldProg = program->compiledCues[oldIdx].program;
+            unsigned int outgoingProg = 0;
+            unsigned int incomingProg = activeProg;
+            float progressFactor = 1.0f;
+            int currentTransType = 0;
+
+            unsigned int outgoingProgPreview = 0;
+            unsigned int incomingProgPreview = program->glslPreviewProgram;
+
+            if (isGen && !isCueActive) {
+                float genProgress = 0.0f;
+                int genActIdx = -1;
+                int genTgtIdx = -1;
+                {
+                    std::lock_guard<std::mutex> lock(program->generativeMutex);
+                    genProgress = program->generativeRuntime->getShaderFadeProgress();
+                    genActIdx = program->generativeRuntime->getActiveShaderIndex();
+                    genTgtIdx = program->generativeRuntime->getTargetShaderIndex();
+                    currentTransType = program->generativeRuntime->getShaderTransitionType();
+                }
+
+                if (genProgress < 1.0f && genTgtIdx >= 0) {
+                    if (genActIdx >= 0 && genActIdx < (int)program->compiledCues.size()) {
+                        outgoingProg = program->compiledCues[genActIdx].program;
+                        outgoingProgPreview = program->compiledCues[genActIdx].previewProgram;
+                    } else {
+                        outgoingProg = program->glslProgram;
+                        outgoingProgPreview = program->glslPreviewProgram;
                     }
-                }
-                if (oldIdx >= -1 && oldProg != 0) {
-                    glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboOld);
-                    glViewport(0, 0, program->vfbWidth, 1);
-                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                    glClear(GL_COLOR_BUFFER_BIT);
+                    if (genTgtIdx >= 0 && genTgtIdx < (int)program->compiledCues.size()) {
+                        incomingProg = program->compiledCues[genTgtIdx].program;
+                        incomingProgPreview = program->compiledCues[genTgtIdx].previewProgram;
+                    } else {
+                        incomingProg = program->glslProgram;
+                        incomingProgPreview = program->glslPreviewProgram;
+                    }
+                    progressFactor = genProgress;
+                } else {
 
-                    setupProgramUniforms(oldProg);
-                    glBindVertexArray(program->glslPointVao);
-                    glDrawArrays(GL_POINTS, 0, program->pixelCount);
-                    glBindVertexArray(0);
-                    cleanupProgramTextures();
-                    glUseProgram(0);
+                    if (genActIdx >= 0 && genActIdx < (int)program->compiledCues.size()) {
+                        incomingProg = program->compiledCues[genActIdx].program;
+                        incomingProgPreview = program->compiledCues[genActIdx].previewProgram;
+                    } else {
+                        incomingProg = program->glslProgram;
+                        incomingProgPreview = program->glslPreviewProgram;
+                    }
+                    progressFactor = 1.0f;
                 }
+            } else {
+                float cueProgress = program->crossfadeProgress.load();
+                if (cueProgress < 1.0f) {
+                    unsigned int oldProg = program->glslProgram;
+                    unsigned int oldProgPreview = program->glslPreviewProgram;
+                    int oldIdx = program->previousCueIndex;
+                    if (oldIdx >= 0 && oldIdx < (int)program->compiledCues.size()) {
+                        if (program->compiledCues[oldIdx].program != 0) {
+                            oldProg = program->compiledCues[oldIdx].program;
+                            oldProgPreview = program->compiledCues[oldIdx].previewProgram;
+                        }
+                    }
+                    outgoingProg = oldProg;
+                    outgoingProgPreview = oldProgPreview;
+                    incomingProg = activeProg;
+                    
+                    int cueActIdx = program->activeCueIndex.load();
+                    if (cueActIdx >= 0 && cueActIdx < (int)program->compiledCues.size()) {
+                        if (program->compiledCues[cueActIdx].previewProgram != 0) {
+                            incomingProgPreview = program->compiledCues[cueActIdx].previewProgram;
+                        }
+                    }
+                    progressFactor = cueProgress;
+                } else {
+                    incomingProg = activeProg;
+                    int cueActIdx = program->activeCueIndex.load();
+                    if (cueActIdx >= 0 && cueActIdx < (int)program->compiledCues.size()) {
+                        if (program->compiledCues[cueActIdx].previewProgram != 0) {
+                            incomingProgPreview = program->compiledCues[cueActIdx].previewProgram;
+                        }
+                    }
+                    progressFactor = 1.0f;
+                }
+                currentTransType = 0;
             }
 
-            // ── Render Active Cue to glslFbo ──
-            glBindFramebuffer(GL_FRAMEBUFFER, program->glslFbo);
-            glViewport(0, 0, program->vfbWidth, 1);
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
+            // ── Render Outgoing to glslFboOld (during crossfade) ──
+            if (progressFactor < 1.0f && program->glslFboOld && outgoingProg != 0) {
+                glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboOld);
+                glViewport(0, 0, program->vfbWidth, 1);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
 
-            if (activeProg != 0) {
-                setupProgramUniforms(activeProg);
+                setupProgramUniforms(outgoingProg);
                 glBindVertexArray(program->glslPointVao);
                 glDrawArrays(GL_POINTS, 0, program->pixelCount);
                 glBindVertexArray(0);
@@ -1267,8 +1833,23 @@ void render(PatchProgram* program){
                 glUseProgram(0);
             }
 
-            // ── Blend Outgoing and Active in glslFboBlend ──
-            if (progress < 1.0f && program->glslFboBlend && program->glslBlendProgram) {
+            // ── Render Incoming to glslFbo ──
+            glBindFramebuffer(GL_FRAMEBUFFER, program->glslFbo);
+            glViewport(0, 0, program->vfbWidth, 1);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            if (incomingProg != 0) {
+                setupProgramUniforms(incomingProg);
+                glBindVertexArray(program->glslPointVao);
+                glDrawArrays(GL_POINTS, 0, program->pixelCount);
+                glBindVertexArray(0);
+                cleanupProgramTextures();
+                glUseProgram(0);
+            }
+
+            // ── Blend Outgoing and Incoming in glslFboBlend ──
+            if (progressFactor < 1.0f && program->glslFboBlend && program->glslBlendProgram) {
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslFboBlend);
                 glViewport(0, 0, program->vfbWidth, 1);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1285,14 +1866,66 @@ void render(PatchProgram* program){
                 GLint oldTexLoc = glGetUniformLocation(program->glslBlendProgram, "texOld");
                 if (oldTexLoc >= 0) glUniform1i(oldTexLoc, 1);
 
+                if (currentTransType == 1 && program->glslNoiseTex != 0) {
+                    glActiveTexture(GL_TEXTURE2);
+                    glBindTexture(GL_TEXTURE_2D, program->glslNoiseTex);
+                    GLint noiseTexLoc = glGetUniformLocation(program->glslBlendProgram, "texNoise");
+                    if (noiseTexLoc >= 0) glUniform1i(noiseTexLoc, 2);
+                }
+
+                GLint volLoc = glGetUniformLocation(program->glslBlendProgram, "transitionVolumetric");
+                if (volLoc >= 0) glUniform1i(volLoc, program->generativeSettings.transitionVolumetric ? 1 : 0);
+
+                GLint circleWipeInwardLoc = glGetUniformLocation(program->glslBlendProgram, "circleWipeInward");
+                if (circleWipeInwardLoc >= 0) glUniform1i(circleWipeInwardLoc, program->circleWipeInward ? 1 : 0);
+
+                GLint isPrevLoc = glGetUniformLocation(program->glslBlendProgram, "isPreview2D");
+                if (isPrevLoc >= 0) glUniform1i(isPrevLoc, 0);
+
+                GLint pMinLoc = glGetUniformLocation(program->glslBlendProgram, "pixelPosMin");
+                if (pMinLoc >= 0) glUniform3f(pMinLoc, program->pixelPosMin.x, program->pixelPosMin.y, program->pixelPosMin.z);
+
+                GLint pMaxLoc = glGetUniformLocation(program->glslBlendProgram, "pixelPosMax");
+                if (pMaxLoc >= 0) glUniform3f(pMaxLoc, program->pixelPosMax.x, program->pixelPosMax.y, program->pixelPosMax.z);
+
+                GLint zSliceLoc = glGetUniformLocation(program->glslBlendProgram, "zSlice");
+                if (zSliceLoc >= 0) glUniform1f(zSliceLoc, program->zSlice.load());
+
+                GLint sweepDirLoc = glGetUniformLocation(program->glslBlendProgram, "sweepDirection");
+                if (sweepDirLoc >= 0) glUniform2f(sweepDirLoc, program->sweepDirection.x, program->sweepDirection.y);
+
+                GLint sweepDir3DLoc = glGetUniformLocation(program->glslBlendProgram, "sweepDirection3D");
+                if (sweepDir3DLoc >= 0) glUniform3f(sweepDir3DLoc, program->sweepDirection3D.x, program->sweepDirection3D.y, program->sweepDirection3D.z);
+
+                GLint sphereCenter3DLoc = glGetUniformLocation(program->glslBlendProgram, "sphereCenter3D");
+                if (sphereCenter3DLoc >= 0) glUniform3f(sphereCenter3DLoc, program->sphereCenter3D.x, program->sphereCenter3D.y, program->sphereCenter3D.z);
+
+                if (program->glslPositionTex != 0) {
+                    glActiveTexture(GL_TEXTURE3);
+                    glBindTexture(GL_TEXTURE_2D, program->glslPositionTex);
+                    GLint posTexLoc = glGetUniformLocation(program->glslBlendProgram, "texPosition");
+                    if (posTexLoc >= 0) glUniform1i(posTexLoc, 3);
+                }
+
                 GLint mixLoc = glGetUniformLocation(program->glslBlendProgram, "mixFactor");
-                if (mixLoc >= 0) glUniform1f(mixLoc, progress);
+                if (mixLoc >= 0) glUniform1f(mixLoc, progressFactor);
+
+                GLint typeLoc = glGetUniformLocation(program->glslBlendProgram, "transitionType");
+                if (typeLoc >= 0) glUniform1i(typeLoc, currentTransType);
 
                 glBindVertexArray(program->glslQuadVao);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 glBindVertexArray(0);
                 glUseProgram(0);
 
+                if (program->glslPositionTex != 0) {
+                    glActiveTexture(GL_TEXTURE3);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                }
+                if (currentTransType == 1 && program->glslNoiseTex != 0) {
+                    glActiveTexture(GL_TEXTURE2);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                }
                 glActiveTexture(GL_TEXTURE1);
                 glBindTexture(GL_TEXTURE_2D, 0);
                 glActiveTexture(GL_TEXTURE0);
@@ -1301,7 +1934,7 @@ void render(PatchProgram* program){
 
             // ── Readback FBO to CPU vfbPixels (Async via PBO) ──
             GLuint readFbo = program->glslFbo;
-            if (progress < 1.0f && program->glslFboBlend) {
+            if (progressFactor < 1.0f && program->glslFboBlend) {
                 readFbo = program->glslFboBlend;
             }
 
@@ -1345,60 +1978,60 @@ void render(PatchProgram* program){
                 glClear(GL_COLOR_BUFFER_BIT);
 
                 if (editProgPreview != 0) {
+                    bool overrideActive = false;
+                    {
+                        std::lock_guard<std::mutex> lock(program->generativeMutex);
+                        overrideActive = program->editorPreviewOverrideActive;
+                    }
+                    if (overrideActive && program->glslUboId != 0) {
+                        glBindBuffer(GL_UNIFORM_BUFFER, program->glslUboId);
+                        std::lock_guard<std::mutex> lock(program->generativeMutex);
+                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Generative::EngineStateUBO), &program->editorPreviewOverrideUbo);
+                        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                    }
+
                     setupProgramUniforms(editProgPreview);
                     glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
                     cleanupProgramTextures();
                     glUseProgram(0);
+
+                    // Restore normal UBO state
+                    if (overrideActive && program->glslUboId != 0 && program->generativeRuntime) {
+                        glBindBuffer(GL_UNIFORM_BUFFER, program->glslUboId);
+                        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Generative::EngineStateUBO), &program->generativeRuntime->getUboState());
+                        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                    }
                 }
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
             }
 
             // ── Draw 2D Playback Preview into glslPlaybackPreviewFbo ──
             if (program->glslPlaybackPreviewFbo && program->showPlaybackPreview.load()) {
-                float progress = program->crossfadeProgress.load();
+                // 1. Render Outgoing 2D Preview to glslPlaybackPreviewFboOld (if crossfading)
+                if (progressFactor < 1.0f && program->glslPlaybackPreviewFboOld && outgoingProgPreview != 0) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboOld);
+                    glViewport(0, 0, program->previewWidth, program->previewHeight);
+                    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                    glClear(GL_COLOR_BUFFER_BIT);
 
-                // 1. Render Outgoing Cue's 2D Preview to glslPlaybackPreviewFboOld (if crossfading)
-                if (progress < 1.0f && program->glslPlaybackPreviewFboOld) {
-                    unsigned int oldProgPreview = program->glslPreviewProgram;
-                    int oldIdx = program->previousCueIndex;
-                    if (oldIdx >= 0 && oldIdx < (int)program->compiledCues.size()) {
-                        if (program->compiledCues[oldIdx].previewProgram != 0) {
-                            oldProgPreview = program->compiledCues[oldIdx].previewProgram;
-                        }
-                    }
-                    if (oldIdx >= -1 && oldProgPreview != 0) {
-                        glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboOld);
-                        glViewport(0, 0, program->previewWidth, program->previewHeight);
-                        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                        glClear(GL_COLOR_BUFFER_BIT);
-
-                        setupProgramUniforms(oldProgPreview);
-                        glBindVertexArray(program->glslQuadVao);
-                        glDrawArrays(GL_TRIANGLES, 0, 6);
-                        glBindVertexArray(0);
-                        cleanupProgramTextures();
-                        glUseProgram(0);
-                    }
+                    setupProgramUniforms(outgoingProgPreview);
+                    glBindVertexArray(program->glslQuadVao);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(0);
+                    cleanupProgramTextures();
+                    glUseProgram(0);
                 }
 
-                // 2. Render Active Cue's 2D Preview to glslPlaybackPreviewFbo
-                unsigned int activeProgPreview = program->glslPreviewProgram;
-                int actIdx = program->activeCueIndex.load();
-                if (actIdx >= 0 && actIdx < (int)program->compiledCues.size()) {
-                    if (program->compiledCues[actIdx].previewProgram != 0) {
-                        activeProgPreview = program->compiledCues[actIdx].previewProgram;
-                    }
-                }
-
+                // 2. Render Incoming 2D Preview to glslPlaybackPreviewFbo
                 glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFbo);
                 glViewport(0, 0, program->previewWidth, program->previewHeight);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
-                if (activeProgPreview != 0) {
-                    setupProgramUniforms(activeProgPreview);
+                if (incomingProgPreview != 0) {
+                    setupProgramUniforms(incomingProgPreview);
                     glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
@@ -1407,7 +2040,7 @@ void render(PatchProgram* program){
                 }
 
                 // 3. Blend Active and Outgoing Previews into glslPlaybackPreviewFboBlend (if crossfading)
-                if (progress < 1.0f && program->glslPlaybackPreviewFboBlend && program->glslBlendProgram) {
+                if (progressFactor < 1.0f && program->glslPlaybackPreviewFboBlend && program->glslBlendProgram) {
                     glBindFramebuffer(GL_FRAMEBUFFER, program->glslPlaybackPreviewFboBlend);
                     glViewport(0, 0, program->previewWidth, program->previewHeight);
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1424,23 +2057,95 @@ void render(PatchProgram* program){
                     GLint oldTexLoc = glGetUniformLocation(program->glslBlendProgram, "texOld");
                     if (oldTexLoc >= 0) glUniform1i(oldTexLoc, 1);
 
+                    if (currentTransType == 1 && program->glslNoiseTex != 0) {
+                        glActiveTexture(GL_TEXTURE2);
+                        glBindTexture(GL_TEXTURE_2D, program->glslNoiseTex);
+                        GLint noiseTexLoc = glGetUniformLocation(program->glslBlendProgram, "texNoise");
+                        if (noiseTexLoc >= 0) glUniform1i(noiseTexLoc, 2);
+                    }
+
+                    GLint volLoc = glGetUniformLocation(program->glslBlendProgram, "transitionVolumetric");
+                    if (volLoc >= 0) glUniform1i(volLoc, program->generativeSettings.transitionVolumetric ? 1 : 0);
+
+                    GLint circleWipeInwardLoc = glGetUniformLocation(program->glslBlendProgram, "circleWipeInward");
+                    if (circleWipeInwardLoc >= 0) glUniform1i(circleWipeInwardLoc, program->circleWipeInward ? 1 : 0);
+
+                    GLint isPrevLoc = glGetUniformLocation(program->glslBlendProgram, "isPreview2D");
+                    if (isPrevLoc >= 0) glUniform1i(isPrevLoc, 1);
+
+                    GLint pMinLoc = glGetUniformLocation(program->glslBlendProgram, "pixelPosMin");
+                    if (pMinLoc >= 0) glUniform3f(pMinLoc, program->pixelPosMin.x, program->pixelPosMin.y, program->pixelPosMin.z);
+
+                    GLint pMaxLoc = glGetUniformLocation(program->glslBlendProgram, "pixelPosMax");
+                    if (pMaxLoc >= 0) glUniform3f(pMaxLoc, program->pixelPosMax.x, program->pixelPosMax.y, program->pixelPosMax.z);
+
+                    GLint zSliceLoc = glGetUniformLocation(program->glslBlendProgram, "zSlice");
+                    if (zSliceLoc >= 0) glUniform1f(zSliceLoc, program->zSlice.load());
+
+                    GLint sweepDirLoc = glGetUniformLocation(program->glslBlendProgram, "sweepDirection");
+                    if (sweepDirLoc >= 0) glUniform2f(sweepDirLoc, program->sweepDirection.x, program->sweepDirection.y);
+
+                    GLint sweepDir3DLoc = glGetUniformLocation(program->glslBlendProgram, "sweepDirection3D");
+                    if (sweepDir3DLoc >= 0) glUniform3f(sweepDir3DLoc, program->sweepDirection3D.x, program->sweepDirection3D.y, program->sweepDirection3D.z);
+
+                    GLint sphereCenter3DLoc = glGetUniformLocation(program->glslBlendProgram, "sphereCenter3D");
+                    if (sphereCenter3DLoc >= 0) glUniform3f(sphereCenter3DLoc, program->sphereCenter3D.x, program->sphereCenter3D.y, program->sphereCenter3D.z);
+
+                    if (program->glslPositionTex != 0) {
+                        glActiveTexture(GL_TEXTURE3);
+                        glBindTexture(GL_TEXTURE_2D, program->glslPositionTex);
+                        GLint posTexLoc = glGetUniformLocation(program->glslBlendProgram, "texPosition");
+                        if (posTexLoc >= 0) glUniform1i(posTexLoc, 3);
+                    }
+
                     GLint mixLoc = glGetUniformLocation(program->glslBlendProgram, "mixFactor");
-                    if (mixLoc >= 0) glUniform1f(mixLoc, progress);
+                    if (mixLoc >= 0) glUniform1f(mixLoc, progressFactor);
+
+                    GLint typeLoc = glGetUniformLocation(program->glslBlendProgram, "transitionType");
+                    if (typeLoc >= 0) glUniform1i(typeLoc, currentTransType);
 
                     glBindVertexArray(program->glslQuadVao);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     glBindVertexArray(0);
                     glUseProgram(0);
 
+                    if (program->glslPositionTex != 0) {
+                        glActiveTexture(GL_TEXTURE3);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+                    }
+                    if (currentTransType == 1 && program->glslNoiseTex != 0) {
+                        glActiveTexture(GL_TEXTURE2);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+                    }
                     glActiveTexture(GL_TEXTURE1);
                     glBindTexture(GL_TEXTURE_2D, 0);
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, 0);
                 }
+                GLuint sourceFbo = program->glslPlaybackPreviewFbo;
+                if (progressFactor < 1.0f && program->glslPlaybackPreviewFboBlend) {
+                    sourceFbo = program->glslPlaybackPreviewFboBlend;
+                }
+
+                int readIdx = program->glslPlaybackPreviewReadIdx.load();
+                int writeIdx = 1 - readIdx;
+
+                if (sourceFbo != 0 && program->glslPlaybackPreviewDisplayFbo[writeIdx] != 0) {
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, program->glslPlaybackPreviewDisplayFbo[writeIdx]);
+                    glBlitFramebuffer(0, 0, program->previewWidth, program->previewHeight,
+                                      0, 0, program->previewWidth, program->previewHeight,
+                                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                    
+                    program->glslPlaybackPreviewReadIdx.store(writeIdx);
+                    program->glslCurrentPlaybackPreviewTexID.store(program->glslPlaybackPreviewDisplayTex[writeIdx]);
+                }
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
             }
         }
     }
+
 
     // ── CPU Blended Crossfade (For CPP/LUA modes) ──
     float progressBlend = program->crossfadeProgress.load();
@@ -1519,6 +2224,19 @@ void encode(PatchProgram* program) {
             pByte = 0;
         }
     }
+}
+
+float PatchProgram::getShaderCrossfadeProgress() const {
+    bool isGen = generativeSettings.masterEnabled && generativeRuntime && (activeCueIndex.load() < 0);
+    if (isGen) {
+        std::lock_guard<std::mutex> lock(generativeMutex);
+        int targetIdx = generativeRuntime->getTargetShaderIndex();
+        if (targetIdx >= 0) {
+            return generativeRuntime->getShaderFadeProgress();
+        }
+        return 1.0f;
+    }
+    return crossfadeProgress.load();
 }
 
 } // namespace PixelMapper

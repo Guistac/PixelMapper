@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="1" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="1" patchLocked="1" previewOpacity="0.88" showGrid="0" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="1" canvasRotationX="2" canvasRotationY="284.5" editingCueIndex="-2" editingBankIndex="19"/>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="1" showPalettesWindow="1" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="1" previewOpacity="0.88" showGrid="0" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="1" canvasRotationY="272.5" editingCueIndex="-3" editingBankIndex="9"/>
     <Patch name="Patch 1">
         <Settings refreshRate="50.299999" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="0" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
@@ -199,26 +199,18 @@ end
             <Device name="Device 2" ip="2.0.0.11" startUniverse="8" universeCount="8"/>
             <Device name="Device 3" ip="2.0.0.12" startUniverse="16" universeCount="24"/>
         </ArtNetDevices>
-        <CueList autoAdvance="0" loop="1" activeIndex="15">
-            <Cue name="Cue 1" holdSeconds="2" fadeSeconds="1" targetEffectId="0"/>
-            <Cue name="Cue 2" holdSeconds="2" fadeSeconds="1" targetEffectId="1"/>
-            <Cue name="Cue 3" holdSeconds="2" fadeSeconds="1" targetEffectId="2"/>
-            <Cue name="Cue 5" holdSeconds="2" fadeSeconds="1" targetEffectId="3"/>
-            <Cue name="Effect 5" holdSeconds="2" fadeSeconds="1" targetEffectId="4"/>
-            <Cue name="Solid Color Cycle" holdSeconds="2" fadeSeconds="1" targetEffectId="5"/>
-            <Cue name="Effect 7" holdSeconds="2" fadeSeconds="1" targetEffectId="11"/>
-            <Cue name="Effect 8" holdSeconds="2" fadeSeconds="1" targetEffectId="9"/>
+        <CueList autoAdvance="0" loop="1" activeIndex="-1">
             <Cue name="Cue 9" holdSeconds="5" fadeSeconds="1" targetEffectId="6"/>
-            <Cue name="Cue 10" holdSeconds="5" fadeSeconds="1" targetEffectId="12"/>
-            <Cue name="Cue 11" holdSeconds="5" fadeSeconds="2" targetEffectId="14"/>
-            <Cue name="3D Spining traces 1.0 Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="15"/>
-            <Cue name="Volumetric Sphere Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="16"/>
-            <Cue name="3D Sphere Gradient Continu Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="17"/>
-            <Cue name="3D Noise of Noise" holdSeconds="5" fadeSeconds="2" targetEffectId="18"/>
-            <Cue name="3D Gradient Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="19"/>
+            <Cue name="Cue 10" holdSeconds="5" fadeSeconds="1" targetEffectId="5"/>
+            <Cue name="Cue 11" holdSeconds="5" fadeSeconds="2" targetEffectId="0"/>
+            <Cue name="3D Spining traces 1.0 Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="8"/>
+            <Cue name="Volumetric Sphere Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="11"/>
+            <Cue name="3D Sphere Gradient Continu Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="10"/>
+            <Cue name="3D Noise of Noise" holdSeconds="5" fadeSeconds="2" targetEffectId="9"/>
+            <Cue name="3D Gradient Copy" holdSeconds="5" fadeSeconds="2" targetEffectId="7"/>
         </CueList>
         <EffectBank activeIndex="-1">
-            <Effect name="Rainbow pattern spin" id="0"><![CDATA[#version 150
+            <Effect name="3D Spining traces 1.0" id="0"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -226,25 +218,37 @@ out vec4 fragColor;
 #define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
+uniform vec3 pixelPosMin;
+uniform vec3 pixelPosMax;
+
+float TAU = acos(-1.0) * 2.0;
+
+float rnd(float x) {
+	return fract(sin(x*32949.0) + sin(x*432.9));
+}
 
 void main() {
-    float x = iPixelPos2D.x * 10.0;
-    float y = iPixelPos2D.y * 10.0;
-    
-    float v1 = sin(x + time);
-    float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);
-    
-    float cx = x + 5.0 * sin(time / 5.0);
-    float cy = y + 5.0 * cos(time / 3.0);
-    float v3 = sin(sqrt(cx*cx + cy*cy + 1.0) - time);
-    
-    float v = (v1 + v2 + v3) / 3.0;
-    
-    float r = sin(v * 3.1415) * 0.5 + 0.5;
-    float g = sin(v * 3.1415 + 2.094) * 0.5 + 0.5;
-    float b = sin(v * 3.1415 + 4.188) * 0.5 + 0.5;
-    
-    fragColor = vec4(r, g, b, 1.0);
+	vec3 col = vec3(0);
+	vec3 p = (iPixelPos3D - pixelPosMin) / (pixelPosMax-pixelPosMin);
+	p -= 0.5;
+	float a = atan(p.z, p.x);
+	float l = length(p.xz);
+	for (int i=0; i<4; i+=1) {
+		float h1 = rnd(float(i+461)), h2=rnd(h1);
+		float trail_len = 0.1 + h1 * 0.8;
+		float speed = (i%2==0?-1:1) * (h1+0.1) * 2.0; /* change 2.0 here to change speed*/
+		float angle = speed * time + (a - h2 * TAU);
+		col += 0.0
+			+ smoothstep(trail_len, 0.0, sin(angle)*0.5+0.5)
+			* smoothstep(0.1, 0.0, abs(p.y-sin(angle*2.0)*0.4))
+			//* smoothstep(0.2, 0.0, abs(l-0.25)) /* not disk */
+			* (vec3(h1,h2,rnd(h2))+0.2)
+		;
+	}
+
+	col = max(vec3(0), col);
+	//col += length(col) < 1e-3 ? vec3(0.3,0,0) : vec3(0);
+    fragColor = vec4(col, 1.0);
 }
 ]]></Effect>
             <Effect name="Fire" id="1"><![CDATA[#version 150
@@ -275,7 +279,7 @@ void main() {
     fragColor = vec4(fire, 1.0);
 }
 ]]></Effect>
-            <Effect name="Scanline" id="2"><![CDATA[#version 150
+            <Effect name="3D Spining traces 0.1" id="2"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -283,15 +287,33 @@ out vec4 fragColor;
 #define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
+uniform vec3 pixelPosMin;
+uniform vec3 pixelPosMax;
+
+float TAU = acos(-1.0) * 2.0;
+
+float rnd(float x) {
+	return fract(sin(x*32949.0) + sin(x*432.9));
+}
 
 void main() {
-    float speed = 0.5;
-    float sweep = mod(time * speed, 1.0);
-    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.y)
-                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.y);
-    float bg = 0.05;
-    float brightness = bg + bar * (1.0 - bg);
-    fragColor = vec4(brightness * 0.8, brightness, brightness, 1.0);
+	vec3 col = vec3(0);
+	vec3 p = (iPixelPos3D - pixelPosMin) / (pixelPosMax-pixelPosMin);
+	p -= 0.5;
+	float a = atan(p.z, p.x);
+	for (int i=0; i<5; i+=1) {
+		float h1 = rnd(float(i)), h2=rnd(h1);
+		float trail_len = h1 * 0.8;
+		float angle = sign(h1-0.5) * 2.0 * time + (a - h2 * TAU);
+		col += 0.0
+			+ smoothstep(trail_len, 0.0, sin(angle)*0.5+0.5)
+			* smoothstep(0.1, 0.0, abs(p.y-sin(angle*2.0)*0.4))
+		;
+	}
+
+	col = max(vec3(0), col);
+	//col += length(col) < 1e-3 ? vec3(0.3,0,0) : vec3(0);
+    fragColor = vec4(col, 1.0);
 }
 ]]></Effect>
             <Effect name="Protean Clouds " id="3"><![CDATA[#version 150
@@ -451,7 +473,7 @@ void main() {
     fragColor = vec4(vec3(spark), 1.0);
 }
 ]]></Effect>
-            <Effect name="Solid Color Cycle" id="5"><![CDATA[#version 150
+            <Effect name="Volumetric Sphere" id="5"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -459,16 +481,22 @@ out vec4 fragColor;
 #define iPixelPos2D vPixelPos2D
 uniform float time;
 uniform vec2 resolution;
+uniform vec3 pixelPosMin;
+uniform vec3 pixelPosMax;
 
-vec3 hsv2rgb(vec3 c) {
-    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
-    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+float maxComp(vec3 p) {
+	return max(max(p.x, p.y), p.z);
 }
+
 void main() {
-    float hue = mod(time * 0.05, 1.0);
-    vec3 col = hsv2rgb(vec3(hue, 0.9, 1.0));
-    fragColor = vec4(col, 1.0);
+	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
+    float dist = length(p);
+    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
+    float intensity = smoothstep(0.1, 0.0, dist-radius);//smoothstep(radius + 15.0, radius - 15.0, dist);
+    vec3 color = vec3(0.5 + 0.5 * sin(time),
+                      0.5 + 0.5 * sin(time + 2.09),
+                      0.5 + 0.5 * sin(time + 4.18));
+    fragColor = vec4(color * intensity, 1.0);
 }
 ]]></Effect>
             <Effect name="Volumetric Wave" id="6"><![CDATA[#version 150
@@ -496,370 +524,7 @@ void main() {
     fragColor = vec4(col * wave, 1.0);
 }
 ]]></Effect>
-            <Effect name="Shadertoy_1" id="7"><![CDATA[#define PI 3.14159265
-
-vec3 palette(in float t) {
-    vec3 a = vec3(0.5, 0.5, 0.5);
-    vec3 b = vec3(0.5, 0.5, 0.5);
-    vec3 c = vec3(1.0, 1.0, 1.0);
-    vec3 d = vec3(0.1, 0.4, 0.5);
-    return a + b * cos(2.0 * PI * (c * t + d));
-}
-
-vec4 wave(vec2 uv, vec4 color, float amp, float freq, float phase, float thick, vec3 hue) {
-    float x = uv.x - phase;
-    float y = uv.y + amp * sin(freq * x);
-    float bright = smoothstep(0.0, 1.0, 1.0 - abs(y) / thick);
-    return vec4(vec3(bright) * hue, 1.0);
-}
-
-void mainImage(out vec4 color, in vec2 coord) {
-    vec2 uv = (2.0 * coord - iResolution.xy) / iResolution.y;
-
-    color = vec4(0.0, 0.0, 0.0, 1.0);
-
-    for (float layer = 0.0; layer < 1.0; layer += 0.1) {
-        float amp = 0.25 + 0.25 * sin(iTime + layer) * (1.0 - layer);
-        float freq = 2.0;
-        float phase = iTime * (1.0 - layer);
-        float thick = 0.01 + 0.001 * pow(abs(uv.x), 8.0);
-        vec3 hue = palette(0.5 * uv.x + 1.0 * layer - 0.5 * iTime);
-        color += wave(uv, color, amp, freq, phase, thick, hue);
-    }
-}]]></Effect>
-            <Effect name="Shadertoy_6" id="8"><![CDATA[vec2 fromPolar(float r,float a){
-    return r*vec2(cos(a),sin(a));
-}
-
-float rand(vec2 st){
-    return fract(sin(dot(st,vec2(13.2,62.232)))*2384.23)*2.-1.;
-}
-
-vec2 getPoint(vec2 i_st){
-    return fract(vec2(rand(i_st),rand(i_st+10.)));
-}
-
-float noise(vec2 st){
-    vec2 i=floor(st);
-    vec2 f=fract(st);
-    vec2 u=f*f*f*(f*(6.*f-15.)+10.);
-    float a=rand(i+vec2(0.,0.));
-    float b=rand(i+vec2(1.,0.));
-    float c=rand(i+vec2(0.,1.));
-    float d=rand(i+vec2(1.,1.));
-    return mix(
-        mix(a,b,u.x),
-        mix(c,d,u.x),
-        u.y
-    );
-}
-
-vec2 getPoint2(vec2 i_st){
-    float r=(noise(100.*i_st + + iTime / 5.)+1.)/2.;// [0, 0.5]
-    float angle=3.1415*(noise(32.13*i_st + iTime / 5.));
-    vec2 coords=fromPolar(r,angle);
-    coords=coords*.5+.5;
-    return coords;
-}
-void mainImage(out vec4 fragColor, in vec2 fragCoord){
-    
-    float grid=12.;
-    vec2 st=fragCoord.xy/iResolution.xy;
-    float aspect=iResolution.x/iResolution.y;
-    st.x*=aspect;
-    
-    float m_dist=distance(st , iMouse.xy / iResolution.xy * vec2(aspect,1.))*grid;
-    float m_dist2=1000.;
-    
-    vec3 ORANGE = vec3(1.,.5,.25);
-    vec3 color=ORANGE;
-    vec3 color2=ORANGE;
-    
-    vec2 i_st=floor(st*grid);
-    vec2 f_st=fract(st*grid);
-    vec2 point_=getPoint2(i_st);
-    for(int i=0;i<9;i++){
-        vec2 d=vec2(mod(float(i),3.)-1.,float(i/3-1));
-        float dist=distance(f_st,(d+getPoint2(i_st+d))
-        );
-        if(dist<=m_dist){
-            m_dist2=m_dist;
-            m_dist=dist;
-            color2=color;
-            color=vec3((rand(i_st+d)+1.)/2.);
-        }else if(dist<=m_dist2){
-            m_dist2=dist;
-            color2=vec3((rand(i_st+d)+1.)/2.);
-        }
-    }
-    color = color * step(0.5,fract(6. * (m_dist2 - m_dist + iTime/10.)));
-    fragColor=vec4(color,1.);
-}
-]]></Effect>
-            <Effect name="Shadertoy_3" id="9"><![CDATA[#ifdef GL_ES
-precision mediump float;
-#endif
-
-float cosRange(float amt, float range, float minimum) {
-	return (((1.0 + cos(radians(amt))) * 0.5) * range) + minimum;
-}
-
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-    const int zoom = 40;
-    const float brightness = 0.975;
-	float time = iTime * 1.25;
-	vec2 uv = fragCoord.xy / iResolution.xy;
-	vec2 p  = (2.0*fragCoord.xy-iResolution.xy)/max(iResolution.x,iResolution.y);
-	float ct = cosRange(time*5.0, 3.0, 1.1);
-	float xBoost = cosRange(time*0.2, 5.0, 5.0);
-	float yBoost = cosRange(time*0.1, 10.0, 5.0);
-	float fScale = cosRange(time * 15.5, 1.25, 0.5);
-	
-	for(int i=1;i<zoom;i++) {
-		float _i = float(i);
-		vec2 newp=p;
-		newp.x+=0.25/_i*sin(_i*p.y+time*cos(ct)*0.5/20.0+0.005*_i)*fScale+xBoost;		
-		newp.y+=0.25/_i*sin(_i*p.x+time*ct*0.3/40.0+0.03*float(i+15))*fScale+yBoost;
-		p=newp;
-	}
-	
-	vec3 col=vec3(0.5*sin(3.0*p.x)+0.5,0.5*sin(3.0*p.y)+0.5,sin(p.x+p.y));
-	col *= brightness;
-    
-    // Add border
-    float vigAmt = 5.0;
-    float vignette = (1.-vigAmt*(uv.y-.5)*(uv.y-.5))*(1.-vigAmt*(uv.x-.5)*(uv.x-.5));
-	float extrusion = (col.x + col.y + col.z) / 4.0;
-    extrusion *= 1.5;
-    extrusion *= vignette;
-    
-	fragColor = vec4(col, extrusion);
-}
-
-/** SHADERDATA
-{
-	"title": "70s Melt",
-	"description": "Variation of Sine Puke",
-	"model": "car"
-}
-*/]]></Effect>
-            <Effect name="Shadertoy_10" id="10"><![CDATA[// The MIT License
-// Copyright © 2013 Inigo Quilez
-// https://www.youtube.com/c/InigoQuilez
-// https://iquilezles.org/
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// I've not seen anybody out there computing correct cell interior distances for Voronoi
-// patterns yet. That's why they cannot shade the cell interior correctly, and why you've
-// never seen cell boundaries rendered correctly. 
-//
-// However, here's how you do mathematically correct distances (note the equidistant and non
-// degenerated grey isolines inside the cells) and hence edges (in yellow):
-//
-// https://iquilezles.org/articles/voronoilines
-//
-// More Voronoi shaders:
-//
-// Exact edges:  https://www.shadertoy.com/view/ldl3W8
-// Hierarchical: https://www.shadertoy.com/view/Xll3zX
-// Smooth:       https://www.shadertoy.com/view/ldB3zc
-// Voronoise:    https://www.shadertoy.com/view/Xd23Dh
-
-#define ANIMATE
-
-vec2 hash2( vec2 p )
-{
-	// texture based white noise
-	return textureLod( iChannel0, (p+0.5)/256.0, 0.0 ).xy;
-	
-    // procedural white noise	
-	//return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);
-}
-
-vec3 voronoi( in vec2 x )
-{
-    vec2 ip = floor(x);
-    vec2 fp = fract(x);
-
-    //----------------------------------
-    // first pass: regular voronoi
-    //----------------------------------
-	vec2 mg, mr;
-
-    float md = 8.0;
-    for( int j=-1; j<=1; j++ )
-    for( int i=-1; i<=1; i++ )
-    {
-        vec2 g = vec2(float(i),float(j));
-		vec2 o = hash2( ip + g );
-		#ifdef ANIMATE
-        o = 0.5 + 0.5*sin( iTime + 6.2831*o );
-        #endif	
-        vec2 r = g + o - fp;
-        float d = dot(r,r);
-
-        if( d<md )
-        {
-            md = d;
-            mr = r;
-            mg = g;
-        }
-    }
-
-    //----------------------------------
-    // second pass: distance to borders
-    //----------------------------------
-    md = 8.0;
-    for( int j=-2; j<=2; j++ )
-    for( int i=-2; i<=2; i++ )
-    {
-        vec2 g = mg + vec2(float(i),float(j));
-		vec2 o = hash2( ip + g );
-		#ifdef ANIMATE
-        o = 0.5 + 0.5*sin( iTime + 6.2831*o );
-        #endif	
-        vec2 r = g + o - fp;
-
-        if( dot(mr-r,mr-r)>0.00001 )
-        md = min( md, dot( 0.5*(mr+r), normalize(r-mr) ) );
-    }
-
-    return vec3( md, mr );
-}
-
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-    vec2 p = fragCoord/iResolution.xx;
-
-    vec3 c = voronoi( 8.0*p );
-
-	// isolines
-    vec3 col = c.x*(0.5 + 0.5*sin(64.0*c.x))*vec3(1.0);
-    // borders	
-    col = mix( vec3(1.0,0.6,0.0), col, smoothstep( 0.04, 0.07, c.x ) );
-    // feature points
-	float dd = length( c.yz );
-	col = mix( vec3(1.0,0.6,0.1), col, smoothstep( 0.0, 0.12, dd) );
-	col += vec3(1.0,0.6,0.1)*(1.0-smoothstep( 0.0, 0.04, dd));
-
-	fragColor = vec4(col,1.0);
-}
-]]></Effect>
-            <Effect name="Shadertoy_8" id="11"><![CDATA[#define A 9. // amplitude
-#define T (iTime/3e2)
-#define H(a) (cos(radians(vec3(180, 90, 0))+(a)*6.2832)*.5+.5)  // hue
-
-float map(vec3 u, float v)  // sdf
-{
-    float t = T,     // speed
-          l = 5.,    // loop to reduce clipping
-          f = 1e10, i = 0., y, z;
-    
-    u.xy = vec2(atan(u.x, u.y), length(u.xy));  // polar transform
-    u.x += t*v*3.1416*.7;  // counter rotation
-    
-    for (; i++<l;)
-    {
-        vec3 p = u;
-        y = round((p.y-i)/l)*l+i;
-        p.x *= y;
-        p.x -= y*y*t*3.1416;
-        p.x -= round(p.x/6.2832)*6.2832;
-        p.y -= y;
-        z = cos(y*t*6.2832)*.5 +.5;  // z wave
-        f = min(f, max(length(p.xy), -p.z -z*A) -.1 -z*.2 -p.z/1e2);  // tubes
-    }
-    return f;
-}
-
-void mainImage( out vec4 C, vec2 U )
-{
-    vec2 R = iResolution.xy, j,
-         M = iMouse.xy,
-         m = (M -R/2.)/R.y;
-    
-    if (iMouse.z < 1. && M.x+M.y < 10.) m = vec2(0, .5);
-    
-    vec3 o = vec3(0, 0, -130.),  // camera
-         u = normalize(vec3(U -R/2., R.y)),  // 3d coords
-         c = vec3(0),
-         p, k;
-    
-    float t = T,
-          v = -o.z/3.,  // pattern scale
-          i = 0., d = i,
-          s, f, z, r;
-    
-    bool b;
-    
-    for (; i++<70.;)  // raymarch
-    {
-        p = u*d +o;
-        p.xy /= v;           // scale down
-        r = length(p.xy);    // radius
-        z = abs(1. -r*r);    // z warp
-        b = r < 1.;          // inside?
-        if (b) z = sqrt(z);
-        p.xy /= z+1.;        // spherize
-        p.xy -= m;           // move with mouse
-        p.xy *= v;           // scale back up
-        p.xy -= cos(p.z/8. +t*3e2 +vec2(0, 1.5708) +z/2.)*.2;  // wave along z
-        
-        s = map(p, v);  // sdf
-        
-        r = length(p.xy);                  // new r
-        f = cos(round(r)*t*6.2832)*.5+.5;  // multiples
-        k = H(.2 -f/3. +t +p.z/2e2);       // color
-        if (b) k = 1.-k;                   // flip color
-        
-        // this stuff can go outside the raymarch,
-        // but accumulating it here produces softer edges
-        c += min(exp(s/-.05), s)        // shapes
-           * (f+.01)                    // shade pattern
-           * min(z, 1.)                 // darken edges
-           * sqrt(cos(r*6.2832)*.5 +.5) // shade between rows
-           * k*k;                       // color
-        
-        d += s*clamp(z, .3, .9);  // smaller steps towards sphere edge
-        if (s < 1e-3 || d > 1e3) break;
-    }
-    
-    c += texture(iChannel0, u*d +o).rrr * vec3(0, .4, s)*s*z*.03;  // wavy aqua
-    c += min(exp(-p.z -f*A)*z*k*.01/s, 1.);  // light tips
-        
-    j = p.xy/v +m;  // 2d coords
-    c /= clamp(dot(j, j)*4., .04, 4.);  // brightness
-    
-    C = vec4(exp(log(c)/2.2), 1);
-}]]></Effect>
-            <Effect name="Volumetric Sphere" id="12"><![CDATA[#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec2 resolution;
-uniform vec3 pixelPosMin;
-uniform vec3 pixelPosMax;
-
-float maxComp(vec3 p) {
-	return max(max(p.x, p.y), p.z);
-}
-
-void main() {
-	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
-    float dist = length(p);
-    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
-    float intensity = smoothstep(0.1, 0.0, dist-radius);//smoothstep(radius + 15.0, radius - 15.0, dist);
-    vec3 color = vec3(0.5 + 0.5 * sin(time),
-                      0.5 + 0.5 * sin(time + 2.09),
-                      0.5 + 0.5 * sin(time + 4.18));
-    fragColor = vec4(color * intensity, 1.0);
-}
-]]></Effect>
-            <Effect name="3D Spining traces 0.1" id="13"><![CDATA[#version 150
+            <Effect name="3D Complex Rotating Gradient" id="7"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -876,68 +541,36 @@ float rnd(float x) {
 	return fract(sin(x*32949.0) + sin(x*432.9));
 }
 
-void main() {
-	vec3 col = vec3(0);
-	vec3 p = (iPixelPos3D - pixelPosMin) / (pixelPosMax-pixelPosMin);
-	p -= 0.5;
-	float a = atan(p.z, p.x);
-	for (int i=0; i<5; i+=1) {
-		float h1 = rnd(float(i)), h2=rnd(h1);
-		float trail_len = h1 * 0.8;
-		float angle = sign(h1-0.5) * 2.0 * time + (a - h2 * TAU);
-		col += 0.0
-			+ smoothstep(trail_len, 0.0, sin(angle)*0.5+0.5)
-			* smoothstep(0.1, 0.0, abs(p.y-sin(angle*2.0)*0.4))
-		;
-	}
-
-	col = max(vec3(0), col);
-	//col += length(col) < 1e-3 ? vec3(0.3,0,0) : vec3(0);
-    fragColor = vec4(col, 1.0);
+float n(float x) {
+	return mix(rnd(floor(x)), rnd(floor(x+1.0)), fract(x));
 }
-]]></Effect>
-            <Effect name="3D Spining traces 1.0" id="14"><![CDATA[#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec2 resolution;
-uniform vec3 pixelPosMin;
-uniform vec3 pixelPosMax;
 
-float TAU = acos(-1.0) * 2.0;
-
-float rnd(float x) {
-	return fract(sin(x*32949.0) + sin(x*432.9));
+vec3 pal(float d) {
+	return vec3(0.5 + 0.5 * cos(d * 1.22),
+                (0.5 + 0.5 * cos(d + 2.89)) * 0.1,
+                0.5 + 0.5 * sin(d * 1.004 + 4.175));
 }
 
 void main() {
 	vec3 col = vec3(0);
 	vec3 p = (iPixelPos3D - pixelPosMin) / (pixelPosMax-pixelPosMin);
 	p -= 0.5;
-	float a = atan(p.z, p.x);
-	float l = length(p.xz);
-	for (int i=0; i<4; i+=1) {
-		float h1 = rnd(float(i+461)), h2=rnd(h1);
-		float trail_len = 0.1 + h1 * 0.8;
-		float speed = (i%2==0?-1:1) * (h1+0.1) * 2.0; /* change 2.0 here to change speed*/
-		float angle = speed * time + (a - h2 * TAU);
-		col += 0.0
-			+ smoothstep(trail_len, 0.0, sin(angle)*0.5+0.5)
-			* smoothstep(0.1, 0.0, abs(p.y-sin(angle*2.0)*0.4))
-			//* smoothstep(0.2, 0.0, abs(l-0.25)) /* not disk */
-			* (vec3(h1,h2,rnd(h2))+0.2)
-		;
-	}
+	float t = time * 0.5; /* change motion speed here */
+	vec3 dir = normalize(vec3(n(t), n(t+0.329), n(t+1.334))-0.5);
+
+	float grad = dot(p, dir) / dot(dir,dir);
+	grad *= (7. + n(t) * 8.0);
+	grad -= time * 5.0;
+	t = time * 1.0; /* change color speed here */
+	col += 0
+		+ pal(grad)
+	;
 
 	col = max(vec3(0), col);
-	//col += length(col) < 1e-3 ? vec3(0.3,0,0) : vec3(0);
     fragColor = vec4(col, 1.0);
 }
 ]]></Effect>
-            <Effect name="3D Gradient" id="15"><![CDATA[#version 150
+            <Effect name="3D Simple Rotating Gradient" id="8"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -977,100 +610,7 @@ void main() {
     fragColor = vec4(col, 1.0);
 }
 ]]></Effect>
-            <Effect name="3D Sphere Gradient Continu" id="16"><![CDATA[#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec2 resolution;
-uniform vec3 pixelPosMin;
-uniform vec3 pixelPosMax;
-
-float maxComp(vec3 p) {
-	return max(max(p.x, p.y), p.z);
-}
-
-float dist(float x) {
-	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
-	return 3.0 * abs(length(p) - x);
-}
-
-vec3 h(float d) {
-	return vec3(0.5 + 0.5 * cos(d * 1.2),
-                0.5 + 0.5 * cos(d + 2.09),
-                0.5 + 0.5 * sin(d + 4.18));
-}
-
-void main() {
-	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
-    float t = time * 0.25;
-    float d = mix(dist(floor(t)), dist(floor(t+1.0)),
-    	mix(
-    		smoothstep(0.0, 1.0, fract(t)),
-    		fract(t),
-    		0.2
-    	)
-    );
-    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
-    //float intensity = smoothstep(0.1, 0.0, dist-radius);//smoothstep(radius + 15.0, radius - 15.0, dist);
-    vec3 color = mix(h(floor(d)), h(floor(d+1.0)),
-    	pow(smoothstep(0.0, 1.0, fract(d)), 4.0)
-    );
-    fragColor = vec4(color, 1.0);
-}
-]]></Effect>
-            <Effect name="3D 70&apos;s wallpaper Gradient" id="17"><![CDATA[#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec2 resolution;
-uniform vec3 pixelPosMin;
-uniform vec3 pixelPosMax;
-
-mat2 rot(float a) {
-	float s = sin(a), c = cos(a);
-	return mat2(s,-c,c,s);
-}
-
-float maxComp(vec3 p) {
-	return max(max(p.x, p.y), p.z);
-}
-
-float dist(vec3 p, float x) {
-	return 3.0 * abs(length(p) - x);
-}
-
-vec3 h(float d) {
-	return vec3(0.5 + 0.5 * cos(d * 1.2),
-                0.5 + 0.5 * cos(d + 2.09),
-                0.5 + 0.5 * sin(d + 4.18));
-}
-
-void main() {
-	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
-	p.y *= 0.85;
-	p.xz *= rot(time*0.2);
-	p = cos(p*8.0);
-    float t = time * 0.25;
-    float d = mix(dist(p, floor(t)), dist(p, floor(t+1.0)),
-    	mix(
-    		smoothstep(0.0, 1.0, fract(t)),
-    		fract(t),
-    		0.2
-    	)
-    );
-    vec3 color = mix(h(floor(d)), h(floor(d+1.0)),
-    	pow(smoothstep(0.0, 1.0, fract(d)), 4.0)
-    );
-    fragColor = vec4(color, 1.0);
-}
-]]></Effect>
-            <Effect name="3D Noise of Noise" id="18"><![CDATA[#version 150
+            <Effect name="3D Displaced Sphere" id="9"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -1193,7 +733,7 @@ float dist(vec3 p, float x) {
 	return 3.0 * abs(length(p) - x);
 }
 
-vec3 palette(float d) {
+vec3 pal(float d) {
 	return vec3(0.5 + 0.5 * cos(d * 1.22),
                 0.5 + 0.5 * cos(d + 2.89),
                 0.5 + 0.5 * sin(d * 1.004 + 4.175));
@@ -1215,14 +755,14 @@ void main() {
     	)
     );
     float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
-    vec3 color = mix(palette(floor(d)), palette(floor(d+1.0)),
+    vec3 color = mix(pal(floor(d)), pal(floor(d+1.0)),
     	pow(smoothstep(0.0, 1.0, fract(d)), 4.0)
     );
     //color = vec3(h33(p));
     fragColor = vec4(color, 1.0);
 }
 ]]></Effect>
-            <Effect name="3D Rotqting Grqdient" id="19"><![CDATA[#version 150
+            <Effect name="3D 70&apos;s wallpaper Gradient" id="10"><![CDATA[#version 150
 in vec3 vPixelPos3D;
 in vec2 vPixelPos2D;
 out vec4 fragColor;
@@ -1233,41 +773,136 @@ uniform vec2 resolution;
 uniform vec3 pixelPosMin;
 uniform vec3 pixelPosMax;
 
-float TAU = acos(-1.0) * 2.0;
-
-float rnd(float x) {
-	return fract(sin(x*32949.0) + sin(x*432.9));
+mat2 rot(float a) {
+	float s = sin(a), c = cos(a);
+	return mat2(s,-c,c,s);
 }
 
-float n(float x) {
-	return mix(rnd(floor(x)), rnd(floor(x+1.0)), fract(x));
+float maxComp(vec3 p) {
+	return max(max(p.x, p.y), p.z);
 }
 
-vec3 palette(float d) {
-	return vec3(0.5 + 0.5 * cos(d * 1.22),
-                (0.5 + 0.5 * cos(d + 2.89)) * 0.1,
-                0.5 + 0.5 * sin(d * 1.004 + 4.175));
+float dist(vec3 p, float x) {
+	return 3.0 * abs(length(p) - x);
+}
+
+vec3 h(float d) {
+	return vec3(0.5 + 0.5 * cos(d * 1.2),
+                0.5 + 0.5 * cos(d + 2.09),
+                0.5 + 0.5 * sin(d + 4.18));
 }
 
 void main() {
-	vec3 col = vec3(0);
-	vec3 p = (iPixelPos3D - pixelPosMin) / (pixelPosMax-pixelPosMin);
-	p -= 0.5;
-	float t = time * 0.5; /* change motion speed here */
-	vec3 dir = normalize(vec3(n(t), n(t+0.329), n(t+1.334))-0.5);
+	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
+	p.y *= 0.85;
+	p.xz *= rot(time*0.2);
+	p = cos(p*8.0);
+    float t = time * 0.25;
+    float d = mix(dist(p, floor(t)), dist(p, floor(t+1.0)),
+    	mix(
+    		smoothstep(0.0, 1.0, fract(t)),
+    		fract(t),
+    		0.2
+    	)
+    );
+    vec3 color = mix(h(floor(d)), h(floor(d+1.0)),
+    	pow(smoothstep(0.0, 1.0, fract(d)), 4.0)
+    );
+    fragColor = vec4(color, 1.0);
+}
+]]></Effect>
+            <Effect name="3D Sphere Gradient" id="11"><![CDATA[#version 150
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
+out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
+uniform float time;
+uniform vec2 resolution;
+uniform vec3 pixelPosMin;
+uniform vec3 pixelPosMax;
 
-	float grad = dot(p, dir) / dot(dir,dir);
-	grad *= (7. + n(t) * 8.0);
-	grad -= time * 5.0;
-	t = time * 1.0; /* change color speed here */
-	col += 0
-		+ palette(grad)
-	;
+float maxComp(vec3 p) {
+	return max(max(p.x, p.y), p.z);
+}
 
-	col = max(vec3(0), col);
-    fragColor = vec4(col, 1.0);
+float dist(float x) {
+	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
+	return 3.0 * abs(length(p) - x);
+}
+
+vec3 h(float d) {
+	return vec3(0.5 + 0.5 * cos(d * 1.2),
+                0.5 + 0.5 * cos(d + 2.09),
+                0.5 + 0.5 * sin(d + 4.18));
+}
+
+void main() {
+	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
+    float t = time * 0.25;
+    float d = mix(dist(floor(t)), dist(floor(t+1.0)),
+    	mix(
+    		smoothstep(0.0, 1.0, fract(t)),
+    		fract(t),
+    		0.2
+    	)
+    );
+    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
+    //float intensity = smoothstep(0.1, 0.0, dist-radius);//smoothstep(radius + 15.0, radius - 15.0, dist);
+    vec3 color = mix(h(floor(d)), h(floor(d+1.0)),
+    	pow(smoothstep(0.0, 1.0, fract(d)), 4.0)
+    );
+    fragColor = vec4(color, 1.0);
 }
 ]]></Effect>
         </EffectBank>
+        <GenerativeSettings masterEnabled="1" paletteEnabled="1" motiveEnabled="1" shaderEnabled="1" paletteInterval="15" paletteJitter="5" paletteCrossfade="4" motiveInterval="20" motiveJitter="5" motiveCrossfade="6" shaderInterval="30" shaderJitter="10" shaderCrossfade="5" enableLinear="1" enableLuma="1" enableSweep="1" enableCircle="1" enableLuminosity="1" transitionVolumetric="0" manualPaletteOverride="0" manualPaletteIndex="-1" manualMotiveOverride="0" manualMotiveIndex="-1" manualShaderOverride="0" manualShaderIndex="-1" manualTransitionType="0"/>
+        <Palettes>
+            <Palette name="Rainbow" isModeB="0">
+                <Stop r="1" g="0" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="1" b="0" a="1" position="0.17" smoothness="0.5"/>
+                <Stop r="0" g="1" b="0" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0" g="1" b="1" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0" g="0" b="1" a="1" position="0.67000002" smoothness="0.5"/>
+                <Stop r="1" g="0" b="1" a="1" position="0.82999998" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Sunset" isModeB="0">
+                <Stop r="0.94999999" g="0.2" b="0.079999998" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.85000002" g="0.050000001" b="0.40000001" a="1" position="0.34999999" smoothness="0.5"/>
+                <Stop r="0.34999999" g="0.02" b="0.55000001" a="1" position="0.69999999" smoothness="0.5"/>
+                <Stop r="0.94999999" g="0.2" b="0.079999998" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Cyberpunk" isModeB="0">
+                <Stop r="0" g="0.94999999" b="0.94999999" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.94999999" g="0" b="0.85000002" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0" g="0.94999999" b="0.94999999" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="IKEA" isModeB="0">
+                <Stop r="1" g="0.852" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0" b="1" a="1" position="0.44755244" smoothness="0.5"/>
+                <Stop r="1" g="0.852" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Emo" isModeB="0">
+                <Stop r="1" g="0" b="0.88200009" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.35095987" g="0" b="0.81999999" a="1" position="0.34420291" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.64855075" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0.88200009" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="TomatoMozarella" isModeB="0">
+                <Stop r="0.036750238" g="0.42666668" b="0.0028444419" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="1" b="1" a="1" position="0.33566433" smoothness="0.50999999"/>
+                <Stop r="0.97333336" g="0" b="0" a="1" position="0.65734267" smoothness="0.5"/>
+                <Stop r="0.036750238" g="0.42666668" b="0.0028444419" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+        </Palettes>
+        <MotivePresets>
+            <Motive name="Calm Ambient" velocity="0.15000001" complexity="0.2" scale="0.34999999" distortion="0.1" asymmetry="0.050000001" intensity="0.40000001" wanderAmp0="0.079999998" wanderFreq0="0.25" wanderAmp1="0.079999998" wanderFreq1="0.25" wanderAmp2="0.079999998" wanderFreq2="0.25" wanderAmp3="0.079999998" wanderFreq3="0.25" wanderAmp4="0.079999998" wanderFreq4="0.25" wanderAmp5="0.079999998" wanderFreq5="0.25"/>
+            <Motive name="Organic Wandering" velocity="0.40000001" complexity="0.5" scale="0.55000001" distortion="0.34999999" asymmetry="0.25" intensity="0.64999998" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
+            <Motive name="Kinetic Storm" velocity="0.85000002" complexity="0.80000001" scale="0.75" distortion="0.64999998" asymmetry="0.5" intensity="0.89999998" wanderAmp0="0.18000001" wanderFreq0="1.2" wanderAmp1="0.18000001" wanderFreq1="1.2" wanderAmp2="0.18000001" wanderFreq2="1.2" wanderAmp3="0.18000001" wanderFreq3="1.2" wanderAmp4="0.18000001" wanderFreq4="1.2" wanderAmp5="0.18000001" wanderFreq5="1.2"/>
+            <Motive name="Motive 1" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
+            <Motive name="Motive 2" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
+            <Motive name="Motive 3" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
+        </MotivePresets>
     </Patch>
 </PixelMapper>

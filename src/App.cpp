@@ -69,6 +69,10 @@ namespace App {
         if (newProgShared && oldProgram) {
             newProgShared->editingCueIndex.store(oldProgram->editingCueIndex.load());
             newProgShared->editingBankIndex.store(oldProgram->editingBankIndex.load());
+            newProgShared->generativeRuntime = oldProgram->generativeRuntime;
+        } else if (newProgShared) {
+            newProgShared->generativeRuntime = std::make_shared<GenerativeEngineRuntime>();
+            newProgShared->generativeRuntime->init(newProgShared.get());
         }
 
         std::atomic_store(&currentPatchProgram, newProgShared);
@@ -197,6 +201,7 @@ namespace App {
         Artnet::Device::import(w); // Explicit registration!
         CueList::import(w);        // Cue list + CueAdvancer system
         EffectBank::import(w);     // Experimental effect bank
+        Generative::import(w);     // Generative engine
 
         //————————————————— PAIR PROPERTIES ———————————————————
         w.component<Fixture::WithShape>().add(flecs::Exclusive);

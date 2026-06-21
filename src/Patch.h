@@ -6,9 +6,11 @@
 #include <memory>
 #include <unordered_set>
 #include <atomic>
+#include <mutex>
 #include <sol/sol.hpp>
 #include "Common.h"
 #include "Artnet.h"
+#include "GenerativeEngine.h"
 
 namespace PixelMapper {
 
@@ -109,6 +111,9 @@ namespace Patch {
         unsigned int glslPlaybackPreviewFboTexOld = 0;
         unsigned int glslPlaybackPreviewFboBlend = 0;
         unsigned int glslPlaybackPreviewFboTexBlend = 0;
+        unsigned int glslPlaybackPreviewDisplayFbo[2] = {0, 0};
+        unsigned int glslPlaybackPreviewDisplayTex[2] = {0, 0};
+
 
         // Crossfading FBOs
         unsigned int glslFboOld = 0;
@@ -117,6 +122,7 @@ namespace Patch {
         unsigned int glslFboTexBlend = 0;
         unsigned int glslBlendProgram = 0;
         unsigned int glslNoiseTex = 0;
+        unsigned int glslPositionTex = 0;
 
         // Framebuffer size cache
         int vfbWidth = 0;
@@ -241,6 +247,12 @@ struct PatchProgram {
     unsigned int glslPlaybackPreviewFboTexOld = 0;
     unsigned int glslPlaybackPreviewFboBlend = 0;
     unsigned int glslPlaybackPreviewFboTexBlend = 0;
+    std::atomic<unsigned int> glslCurrentPlaybackPreviewTexID{0};
+    unsigned int glslPlaybackPreviewDisplayFbo[2] = {0, 0};
+    unsigned int glslPlaybackPreviewDisplayTex[2] = {0, 0};
+    std::atomic<int> glslPlaybackPreviewReadIdx{0};
+
+
 
     // GPU-side Crossfading FBOs and textures
     unsigned int glslFboOld = 0;
@@ -249,11 +261,28 @@ struct PatchProgram {
     unsigned int glslFboTexBlend = 0;
     unsigned int glslBlendProgram = 0;
     unsigned int glslNoiseTex = 0;
+    unsigned int glslPositionTex = 0;
+    glm::vec2 sweepDirection = glm::vec2(1.0f, 0.0f);
+    glm::vec3 sweepDirection3D = glm::vec3(1.0f, 0.0f, 0.0f);
+    glm::vec3 sphereCenter3D = glm::vec3(0.0f, 0.0f, 0.0f);
+    bool circleWipeInward = false;
 
     std::vector<CompiledCue> compiledBankEffects;
     std::atomic<bool> showPlaybackPreview{false};
+
+    // Generative Engine fields
+    Generative::Settings generativeSettings;
+    std::vector<Generative::CompiledPalette> palettePool;
+    std::vector<Generative::CompiledMotive> motivePool;
+    std::shared_ptr<GenerativeEngineRuntime> generativeRuntime;
+    unsigned int glslUboId = 0;
+    bool editorPreviewOverrideActive = false;
+    Generative::EngineStateUBO editorPreviewOverrideUbo;
+    mutable std::mutex generativeMutex;
+    float getShaderCrossfadeProgress() const;
 };
 
+void randomizeTransitionDirections(PatchProgram* program);
 void render(PatchProgram* rtData);
 void encode(PatchProgram* rtData);
 

@@ -61,6 +61,76 @@ static void DrawCompactProgress(ImDrawList* drawList, ImVec2 pos, float radius, 
     }
 }
 
+static glm::vec3 hsv2rgb(float h, float s, float v) {
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    int i = (int)floorf(h * 6.0f);
+    float f = h * 6.0f - (float)i;
+    float p = v * (1.0f - s);
+    float q = v * (1.0f - f * s);
+    float t = v * (1.0f - (1.0f - f) * s);
+    switch (i % 6) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        case 5: r = v; g = p; b = q; break;
+    }
+    return glm::vec3(r, g, b);
+}
+
+static glm::vec3 rgb2hsv(glm::vec3 rgb) {
+    float r = rgb.r, g = rgb.g, b = rgb.b;
+    float maxVal = std::max({r, g, b});
+    float minVal = std::min({r, g, b});
+    float h = 0.0f, s = 0.0f, v = maxVal;
+    float d = maxVal - minVal;
+    s = (maxVal == 0.0f) ? 0.0f : d / maxVal;
+    if (maxVal != minVal) {
+        if (maxVal == r) h = (g - b) / d + (g < b ? 6.0f : 0.0f);
+        else if (maxVal == g) h = (b - r) / d + 2.0f;
+        else if (maxVal == b) h = (r - g) / d + 4.0f;
+        h /= 6.0f;
+    }
+    return glm::vec3(h, s, v);
+}
+
+static glm::vec3 hsl2rgb(float h, float s, float l) {
+    auto hue2rgb = [](float p, float q, float t) -> float {
+        if (t < 0.0f) t += 1.0f;
+        if (t > 1.0f) t -= 1.0f;
+        if (t < 1.0f/6.0f) return p + (q - p) * 6.0f * t;
+        if (t < 1.0f/2.0f) return q;
+        if (t < 2.0f/3.0f) return p + (q - p) * (2.0f/3.0f - t) * 6.0f;
+        return p;
+    };
+    float r = l, g = l, b = l;
+    if (s != 0.0f) {
+        float q = (l < 0.5f) ? l * (1.0f + s) : l + s - l * s;
+        float p = 2.0f * l - q;
+        r = hue2rgb(p, q, h + 1.0f/3.0f);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1.0f/3.0f);
+    }
+    return glm::vec3(r, g, b);
+}
+
+static glm::vec3 rgb2hsl(glm::vec3 rgb) {
+    float r = rgb.r, g = rgb.g, b = rgb.b;
+    float maxVal = std::max({r, g, b});
+    float minVal = std::min({r, g, b});
+    float h = 0.0f, s = 0.0f, l = (maxVal + minVal) * 0.5f;
+    if (maxVal != minVal) {
+        float d = maxVal - minVal;
+        s = (l > 0.5f) ? d / (2.0f - maxVal - minVal) : d / (maxVal + minVal);
+        if (maxVal == r) h = (g - b) / d + (g < b ? 6.0f : 0.0f);
+        else if (maxVal == g) h = (b - r) / d + 2.0f;
+        else if (maxVal == b) h = (r - g) / d + 4.0f;
+        h /= 6.0f;
+    }
+    return glm::vec3(h, s, l);
+}
+
 static void setEditingCueIndex(flecs::entity app, int idx) {
     if (auto* ui = &app.get_mut<App::UIConfig>()) {
         ui->editingCueIndex = idx;
@@ -311,6 +381,11 @@ void import(flecs::world& w){
                 ImGui::MenuItem("Cue List",                nullptr, &ui->showCuesWindow);
                 ImGui::MenuItem("Effect Preview",          nullptr, &ui->showOfflinePreviewWindow);
                 ImGui::MenuItem("Effect Bank",             nullptr, &ui->showEffectBankWindow);
+                ImGui::Separator();
+                ImGui::MenuItem("Generative Dashboard",    nullptr, &ui->showGenerativeDashboardWindow);
+                ImGui::MenuItem("Generative Telemetry",    nullptr, &ui->showGenerativeTelemetryWindow);
+                ImGui::MenuItem("Generative Palettes",     nullptr, &ui->showPalettesWindow);
+                ImGui::MenuItem("Generative Motives",      nullptr, &ui->showMotivesWindow);
                 ImGui::EndMenu();
             }
 
@@ -740,13 +815,14 @@ void import(flecs::world& w){
                             int th = prog->vfbHeight;
                             GLuint texID = 0;
                             if(prog->renderMode == Patch::RenderMode::GLSL){
-                                float progress = prog->crossfadeProgress.load();
-                                if (progress < 1.0f && prog->glslPlaybackPreviewFboTexBlend != 0) {
-                                    texID = prog->glslPlaybackPreviewFboTexBlend;
+                                GLuint currentTex = prog->glslCurrentPlaybackPreviewTexID.load();
+                                if (currentTex != 0) {
+                                    texID = currentTex;
                                 } else {
                                     texID = prog->glslPlaybackPreviewFboTex;
                                 }
                             } else if(prog->vfbPixels){
+
                                 if(vfbPreviewTexId == 0) glGenTextures(1, &vfbPreviewTexId);
                                 glBindTexture(GL_TEXTURE_2D, vfbPreviewTexId);
                                 if(currentVfbWidth != tw || currentVfbHeight != th){
@@ -1540,26 +1616,94 @@ void import(flecs::world& w){
 
             ImGui::Separator();
 
+            auto pProg = std::atomic_load(&App::currentPatchProgram);
+            bool showZSlice = (pProg && settings && settings->renderMode == Patch::RenderMode::GLSL);
+ 
+            // --- Editor Preview Controls (Placed prominently at the top!) ---
+            if (showZSlice || pProg) {
+                if (showZSlice) {
+                    float slice = pProg->zSlice.load();
+                    if (ImGui::SliderFloat("Z-Slice (Depth)", &slice, 0.0f, 1.0f, "%.3f")) {
+                        pProg->zSlice.store(slice);
+                    }
+                }
+                if (pProg) {
+                    bool overrideActive = ui->editorPreviewOverrideActive;
+                    if (ImGui::Checkbox("Override Generative Data for Preview", &overrideActive)) {
+                        ui->editorPreviewOverrideActive = overrideActive;
+                        std::lock_guard<std::mutex> lock(pProg->generativeMutex);
+                        pProg->editorPreviewOverrideActive = overrideActive;
+                        if (overrideActive) {
+                            if (pProg->generativeRuntime) {
+                                pProg->editorPreviewOverrideUbo = pProg->generativeRuntime->getUboState();
+                            } else {
+                                std::memset(&pProg->editorPreviewOverrideUbo, 0, sizeof(pProg->editorPreviewOverrideUbo));
+                                pProg->editorPreviewOverrideUbo.activeStops = 0;
+                                pProg->editorPreviewOverrideUbo.velocity = 0.5f;
+                                pProg->editorPreviewOverrideUbo.complexity = 0.5f;
+                                pProg->editorPreviewOverrideUbo.scale = 0.5f;
+                                pProg->editorPreviewOverrideUbo.distortion = 0.5f;
+                                pProg->editorPreviewOverrideUbo.asymmetry = 0.5f;
+                                pProg->editorPreviewOverrideUbo.intensity = 0.5f;
+                            }
+                        }
+                    }
+                    
+                    if (overrideActive) {
+                        ImGui::Indent();
+                        
+                        std::lock_guard<std::mutex> lock(pProg->generativeMutex);
+                        
+                        // Palette selector
+                        std::vector<std::string> palNames;
+                        std::vector<const char*> palPtrs;
+                        for (const auto& pal : pProg->palettePool) {
+                            palNames.push_back(pal.name);
+                        }
+                        for (const auto& n : palNames) palPtrs.push_back(n.c_str());
+                        
+                        int currentPalIdx = ui->editorPreviewOverridePaletteIdx;
+                        if (ImGui::Combo("Preview Palette", &currentPalIdx, palPtrs.data(), (int)palPtrs.size())) {
+                            ui->editorPreviewOverridePaletteIdx = currentPalIdx;
+                            if (currentPalIdx >= 0 && currentPalIdx < (int)pProg->palettePool.size()) {
+                                const auto& pal = pProg->palettePool[currentPalIdx];
+                                pProg->editorPreviewOverrideUbo.activeStops = std::min((int)pal.stops.size(), 16);
+                                for (int i = 0; i < pProg->editorPreviewOverrideUbo.activeStops; i++) {
+                                    pProg->editorPreviewOverrideUbo.palette[i] = pal.stops[i];
+                                }
+                            }
+                        }
+                        
+                        // 6 Motive control sliders
+                        ImGui::SliderFloat("Velocity",   &pProg->editorPreviewOverrideUbo.velocity,   0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Complexity", &pProg->editorPreviewOverrideUbo.complexity, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Scale",      &pProg->editorPreviewOverrideUbo.scale,      0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Distortion", &pProg->editorPreviewOverrideUbo.distortion, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Asymmetry",  &pProg->editorPreviewOverrideUbo.asymmetry,  0.0f, 1.0f, "%.2f");
+                        ImGui::SliderFloat("Intensity",  &pProg->editorPreviewOverrideUbo.intensity,  0.0f, 1.0f, "%.2f");
+                        
+                        ImGui::Unindent();
+                    }
+                }
+                ImGui::Separator();
+            }
+ 
             const float kLogHeight = 100.f;
             const float kSepHeight = ImGui::GetStyle().ItemSpacing.y + 1.f;
             float extraSpacing = ImGui::GetTextLineHeightWithSpacing();
-            auto pProg = std::atomic_load(&App::currentPatchProgram);
-            bool showZSlice = (pProg && settings && settings->renderMode == Patch::RenderMode::GLSL);
             if (showZSlice) {
                 extraSpacing += ImGui::GetTextLineHeightWithSpacing() + kSepHeight;
             }
-            float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f - extraSpacing;
-            if(editorHeight < 80.f) editorHeight = 80.f;
-
-            glslEditor->Render("GlslEd", ImVec2(0, editorHeight));
-
-            if (showZSlice) {
-                ImGui::Separator();
-                float slice = pProg->zSlice.load();
-                if (ImGui::SliderFloat("Z-Slice (Depth)", &slice, 0.0f, 1.0f, "%.3f")) {
-                    pProg->zSlice.store(slice);
+            if (pProg) {
+                extraSpacing += ImGui::GetTextLineHeightWithSpacing() + kSepHeight; // Checkbox
+                if (ui->editorPreviewOverrideActive) {
+                    extraSpacing += (ImGui::GetTextLineHeightWithSpacing() + kSepHeight) * 7.f; // 1 combo + 6 sliders
                 }
             }
+            float editorHeight = ImGui::GetContentRegionAvail().y - kLogHeight - kSepHeight * 3.f - extraSpacing;
+            if(editorHeight < 80.f) editorHeight = 80.f;
+ 
+            glslEditor->Render("GlslEd", ImVec2(0, editorHeight));
 
             ImGui::Separator();
             if (hasUncompiledChanges) {
@@ -1650,6 +1794,43 @@ void import(flecs::world& w){
                             "    \n"
                             "    float edge = smoothstep(30.0, 0.0, abs(iPixelPos3D.z - centerZ));\n"
                             "    fragColor = vec4(edge * 0.1, edge * 0.8, edge, 1.0);\n"
+                        );
+                    }
+
+                    if (ImGui::CollapsingHeader("5. Generative Visual Engine (V3)")) {
+                        ImGui::TextWrapped("The Generative Visual Engine synchronizes a dynamic, non-repeating show control loop with the GPU. "
+                                           "All shaders automatically have the active color stops and motive parameters injected by name.");
+                        ImGui::BulletText("Motive Uniforms (float):");
+                        ImGui::Indent();
+                        ImGui::BulletText("velocity - Active kinematic movement rate.");
+                        ImGui::BulletText("complexity - Scene pattern density.");
+                        ImGui::BulletText("scale - Spatial coordinate zoom/scaling.");
+                        ImGui::BulletText("distortion - Noise warp/displacement amount.");
+                        ImGui::BulletText("asymmetry - Skeletal pattern offset/tilt.");
+                        ImGui::BulletText("intensity - Global brightness multiplier.");
+                        ImGui::Unindent();
+
+                        ImGui::BulletText("Gradient Sampler Helpers:");
+                        ImGui::Indent();
+                        ImGui::BulletText("vec4 samplePalette(float pos)");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Returns color at pos clamped to [0.0, 1.0]. Blends stop colors with adjustable softness.");
+                        ImGui::Unindent();
+                        ImGui::BulletText("vec4 samplePaletteWrapped(float pos)");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Returns color at fract(pos). Useful for looping or tileable coordinate mappings.");
+                        ImGui::Unindent();
+                        ImGui::Unindent();
+
+                        ImGui::Spacing();
+                        ImGui::Text("Example:");
+                        ImGui::TextDisabled(
+                            "void main() {\n"
+                            "    // Scale & animate XY coordinates using motives\n"
+                            "    float coord = iPixelPos2D.x * scale + time * velocity;\n"
+                            "    // Sample gradient continuously\n"
+                            "    vec4 col = samplePaletteWrapped(coord);\n"
+                            "    fragColor = col * intensity;\n"
                             "}"
                         );
                     }
@@ -1683,6 +1864,19 @@ void import(flecs::world& w){
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
             ImGui::Checkbox("Auto-advance", &session->autoAdvance); ImGui::SameLine();
             ImGui::Checkbox("Loop",         &session->loop);
+
+            auto activeProg = std::atomic_load(&App::currentPatchProgram);
+            bool isGenPlayback = activeProg && activeProg->generativeSettings.masterEnabled && 
+                                 activeProg->generativeRuntime && (activeProg->activeCueIndex.load() < 0);
+            
+            ImGui::SameLine(0, 20.0f);
+            if (isGenPlayback) {
+                ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "[Generative Playback Active]");
+            } else if (activeProg && activeProg->activeCueIndex.load() >= 0) {
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[Cue Playback Active]");
+            } else {
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "[Standby / Stopped]");
+            }
 
             struct CueEntry {
                 flecs::entity entity;
@@ -1733,6 +1927,15 @@ void import(flecs::world& w){
                     int next = session->activeIndex + 1;
                     if(next >= (int)cues.size()) next = session->loop ? 0 : (int)cues.size()-1;
                     triggerCue(next);
+                }
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("Stop")){
+                session->activeIndex = -1;
+                session->holdTimer = 0.f;
+                auto program = std::atomic_load(&App::currentPatchProgram);
+                if (program) {
+                    program->activeCueIndex.store(-1);
                 }
             }
 
@@ -1802,7 +2005,59 @@ void import(flecs::world& w){
 
                     for (int i = 0; i < (int)cues.size(); i++) {
                         auto& cueEntry = cues[i];
-                        bool isActive = (i == session->activeIndex);
+                        
+                        bool isActive = false;
+                        float progress = 0.0f;
+                        ImU32 progressColor = IM_COL32(100, 255, 100, 255);
+                        bool showProgress = false;
+
+                        float crossfadeProgress = 1.0f;
+                        int previousCueIndex = -2;
+                        int currentCueIndex = -1;
+                        bool isGenPlayback = false;
+
+                        auto activeProg = std::atomic_load(&App::currentPatchProgram);
+                        if (activeProg) {
+                            isGenPlayback = activeProg->generativeSettings.masterEnabled && 
+                                            activeProg->generativeRuntime && 
+                                            (activeProg->activeCueIndex.load() < 0);
+                            if (isGenPlayback) {
+                                auto rt = activeProg->generativeRuntime;
+                                int targetIdx = rt->getTargetShaderIndex();
+                                int activeIdx = rt->getActiveShaderIndex();
+                                float fadeProg = rt->getShaderFadeProgress();
+
+                                if (targetIdx >= 0) {
+                                    currentCueIndex = targetIdx;
+                                    previousCueIndex = activeIdx;
+                                    crossfadeProgress = (fadeProg >= 1.0f) ? 0.0f : fadeProg;
+                                } else {
+                                    currentCueIndex = activeIdx;
+                                    previousCueIndex = -2;
+                                    crossfadeProgress = 1.0f;
+                                }
+                            } else {
+                                currentCueIndex = session->activeIndex;
+                                previousCueIndex = activeProg->previousCueIndex;
+                                crossfadeProgress = activeProg->crossfadeProgress.load();
+                            }
+                        } else {
+                            currentCueIndex = session->activeIndex;
+                        }
+
+                        isActive = (i == currentCueIndex);
+
+                        if (isActive) {
+                            if (!isGenPlayback && session->autoAdvance && cueEntry.hold > 0.001f) {
+                                progress = std::clamp(session->holdTimer / cueEntry.hold, 0.0f, 1.0f);
+                                progressColor = IM_COL32(100, 255, 100, 255); // Green for hold
+                                showProgress = true;
+                            }
+                        } else if (i == previousCueIndex && crossfadeProgress < 1.0f) {
+                            progress = crossfadeProgress;
+                            progressColor = IM_COL32(100, 200, 255, 255); // Blue for crossfade
+                            showProgress = true;
+                        }
 
                         flecs::entity targetEffect = cueEntry.entity.target<CueList::Cue::TargetEffect>();
                         bool isEditingThis = false;
@@ -1825,31 +2080,6 @@ void import(flecs::world& w){
                         ImGui::TableNextColumn();
 
                         ImGui::PushID(cueEntry.entity.id());
-
-                        // Draw compact progress pie chart if active or outgoing
-                        float progress = 0.0f;
-                        ImU32 progressColor = IM_COL32(100, 255, 100, 255);
-                        bool showProgress = false;
-
-                        float crossfadeProgress = 1.0f;
-                        int previousCueIndex = -2;
-                        auto activeProg = std::atomic_load(&App::currentPatchProgram);
-                        if (activeProg) {
-                            crossfadeProgress = activeProg->crossfadeProgress.load();
-                            previousCueIndex = activeProg->previousCueIndex;
-                        }
-
-                        if (isActive) {
-                            if (session->autoAdvance && cueEntry.hold > 0.001f) {
-                                progress = std::clamp(session->holdTimer / cueEntry.hold, 0.0f, 1.0f);
-                                progressColor = IM_COL32(100, 255, 100, 255); // Green for hold
-                                showProgress = true;
-                            }
-                        } else if (i == previousCueIndex && crossfadeProgress < 1.0f) {
-                            progress = crossfadeProgress;
-                            progressColor = IM_COL32(100, 200, 255, 255); // Blue for crossfade
-                            showProgress = true;
-                        }
 
                         if (showProgress) {
                             ImGui::Dummy(ImVec2(14, 14));
@@ -2952,7 +3182,1193 @@ public:
                         );
                     }
                 }
-                ImGui::End();
+                    }
+        }
+        ImGui::End();
+    });
+
+    w.system<>("WindowPalettes").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showPalettesWindow) return;
+        auto selectedPatch = Patch::getSelected(app);
+
+        if(ImGui::Begin("Palettes Editor", &ui->showPalettesWindow)){
+            if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
+
+            flecs::entity palFolder = selectedPatch.target<Generative::PaletteFolder>();
+            if(!palFolder.is_valid()){ ImGui::TextDisabled("No palette folder."); ImGui::End(); return; }
+
+            if(ImGui::BeginTable("PalTable", 2, ImGuiTableFlags_Resizable)){
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::SeparatorText("Palettes");
+
+                if (ImGui::Button("+ Palette")) {
+                    std::vector<Generative::ColorStop> stops = {
+                        { {1.0f, 0.0f, 0.0f, 1.0f}, 0.0f, 0.5f, {0.0f, 0.0f} },
+                        { {0.0f, 0.0f, 1.0f, 1.0f}, 0.5f, 0.5f, {0.0f, 0.0f} },
+                        { {1.0f, 0.0f, 0.0f, 1.0f}, 1.0f, 0.5f, {0.0f, 0.0f} }
+                    };
+                    static int customCount = 1;
+                    std::string newName = "Palette " + std::to_string(customCount++);
+                    auto p = it.world().entity().child_of(palFolder)
+                        .add<Generative::Palette::Is>()
+                        .set<Generative::Palette::Stops>({stops})
+                        .set<Generative::Palette::IsModeB>({false});
+                    p.set_name(newName.c_str());
+                    
+                    it.world().entity("PixelMapperApp").get_mut<App::UIConfig>().editingCueIndex = -3; // select flag
+                    currentPatchId = p.id();
+                    
+                    auto prog = std::atomic_load(&App::currentPatchProgram);
+                    if (prog) {
+                        std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                        Generative::CompiledPalette cp;
+                        cp.name = newName;
+                        cp.stops = stops;
+                        cp.isModeB = false;
+                        prog->palettePool.push_back(cp);
+                    }
+                }
+                
+                ImGui::SameLine();
+                
+                static flecs::id_t selectedPalId = 0;
+                
+                bool hasSel = false;
+                flecs::entity selectedPal = it.world().entity(selectedPalId);
+                if (selectedPal.is_valid() && selectedPal.is_alive() && selectedPal.parent() == palFolder) {
+                    hasSel = true;
+                }
+ 
+                if (!hasSel) ImGui::BeginDisabled();
+                if (ImGui::Button("Remove")) {
+                    std::string nameToRemove = selectedPal.name().c_str();
+                    selectedPal.destruct();
+                    selectedPalId = 0;
+                    hasSel = false;
+                    
+                    auto prog = std::atomic_load(&App::currentPatchProgram);
+                    if (prog) {
+                        std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                        prog->palettePool.erase(
+                            std::remove_if(prog->palettePool.begin(), prog->palettePool.end(),
+                                [&](const Generative::CompiledPalette& cp) { return cp.name == nameToRemove; }),
+                            prog->palettePool.end()
+                        );
+                    }
+                }
+                if (!hasSel) ImGui::EndDisabled();
+ 
+                ImGui::Separator();
+ 
+                if (ImGui::BeginListBox("##PalsList", ImGui::GetContentRegionAvail())) {
+                    palFolder.children([&](flecs::entity child) {
+                        if (child.has<Generative::Palette::Is>()) {
+                            bool isSel = (child.id() == selectedPalId);
+                            if (ImGui::Selectable(child.name().c_str(), isSel)) {
+                                selectedPalId = child.id();
+                            }
+                        }
+                    });
+                    ImGui::EndListBox();
+                }
+ 
+                ImGui::TableSetColumnIndex(1);
+                selectedPal = it.world().entity(selectedPalId);
+                if (selectedPal.is_valid() && selectedPal.is_alive() && selectedPal.parent() == palFolder) {
+                    ImGui::Text("Editing Palette: %s", selectedPal.name().c_str());
+                    ImGui::Separator();
+ 
+                    char nameBuf[128] = {};
+                    std::strncpy(nameBuf, selectedPal.name().c_str(), sizeof(nameBuf) - 1);
+                    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                        std::string oldName = selectedPal.name().c_str();
+                        selectedPal.set_name(nameBuf);
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if (prog) {
+                            std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                            for (auto& cp : prog->palettePool) {
+                                if (cp.name == oldName) {
+                                    cp.name = nameBuf;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+ 
+                    auto* modeBComp = selectedPal.try_get_mut<Generative::Palette::IsModeB>();
+                    if (modeBComp) {
+                        if (ImGui::Checkbox("Discrete Crossfade (Mode B Index-based)", &modeBComp->value)) {
+                            auto prog = std::atomic_load(&App::currentPatchProgram);
+                            if (prog) {
+                                std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                                for (auto& cp : prog->palettePool) {
+                                    if (cp.name == selectedPal.name().c_str()) {
+                                        cp.isModeB = modeBComp->value;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+ 
+                    auto* stopsComp = selectedPal.try_get_mut<Generative::Palette::Stops>();
+                    if (stopsComp) {
+                        std::vector<Generative::ColorStop>& stops = stopsComp->value;
+ 
+                        // ── Gradient visual bar rendering ──
+                        ImDrawList* drawList = ImGui::GetWindowDrawList();
+                        ImVec2 barPos = ImGui::GetCursorScreenPos();
+                        float barWidth = ImGui::GetContentRegionAvail().x - 10.0f;
+                        float barHeight = 25.0f;
+                        ImGui::InvisibleButton("##gradient_bar", ImVec2(barWidth, barHeight));
+ 
+                        // Render gradient bar background
+                        if (stops.size() >= 2) {
+                            for (float x = 0; x < barWidth; x += 2.0f) {
+                                float t = x / barWidth;
+                                
+                                // evaluate color at t
+                                glm::vec4 col(0.0f);
+                                for (size_t i = 0; i < stops.size() - 1; i++) {
+                                    float p0 = stops[i].position;
+                                    float p1 = stops[i+1].position;
+                                    if (t >= p0 && t <= p1) {
+                                        float blend = (t - p0) / std::max(0.0001f, p1 - p0);
+                                        float smoothness = glm::mix(stops[i].smoothness, stops[i+1].smoothness, blend);
+                                        float width = smoothness;
+                                        float f;
+                                        if (width > 0.001f) {
+                                            float edge0 = 0.5f - width * 0.5f;
+                                            float val = glm::clamp((blend - edge0) / width, 0.0f, 1.0f);
+                                            f = val * val * (3.0f - 2.0f * val);
+                                        } else {
+                                            f = (blend < 0.5f) ? 0.0f : 1.0f;
+                                        }
+                                        col = glm::mix(stops[i].color, stops[i+1].color, f);
+                                        break;
+                                    }
+                                }
+                                ImU32 imCol = IM_COL32((int)(col.r * 255.0f), (int)(col.g * 255.0f), (int)(col.b * 255.0f), 255);
+                                drawList->AddRectFilled(ImVec2(barPos.x + x, barPos.y), ImVec2(barPos.x + x + 2.0f, barPos.y + barHeight), imCol);
+                            }
+                        } else {
+                            drawList->AddRectFilled(barPos, ImVec2(barPos.x + barWidth, barPos.y + barHeight), IM_COL32(100, 100, 100, 255));
+                        }
+                        
+                        // draw black border
+                        drawList->AddRect(barPos, ImVec2(barPos.x + barWidth, barPos.y + barHeight), IM_COL32(255, 255, 255, 100));
+ 
+                        // Edit selected stop
+                        static int selectedStopIdx = 0;
+                        if (selectedStopIdx >= (int)stops.size()) selectedStopIdx = 0;
+ 
+                        // ── Draggable Stop Markers (Single Unified Hitbox) ──
+                        ImGui::Spacing();
+                        ImVec2 markerAreaPos = ImGui::GetCursorScreenPos();
+                        float markerAreaHeight = 16.0f;
+                        
+                        ImGui::InvisibleButton("##stops_marker_area_unified", ImVec2(barWidth, markerAreaHeight));
+                        
+                        bool stopsChanged = false;
+                        bool areaActive = ImGui::IsItemActive();
+                        bool areaHovered = ImGui::IsItemHovered();
+                        
+                        if (areaHovered && ImGui::IsMouseClicked(0)) {
+                            float mouseX = ImGui::GetIO().MousePos.x;
+                            float relativeX = (mouseX - barPos.x) / barWidth;
+                            float minDist = 0.05f; // 5% tolerance threshold
+                            int bestIdx = -1;
+                            for (size_t i = 0; i < stops.size(); ++i) {
+                                float dist = std::abs(stops[i].position - relativeX);
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    bestIdx = (int)i;
+                                }
+                            }
+                            if (bestIdx != -1) {
+                                selectedStopIdx = bestIdx;
+                            }
+                        }
+                        
+                        if (areaActive && selectedStopIdx >= 0 && selectedStopIdx < (int)stops.size()) {
+                            if (selectedStopIdx > 0 && selectedStopIdx < (int)stops.size() - 1) {
+                                float mouseX = ImGui::GetIO().MousePos.x;
+                                float relativeX = (mouseX - barPos.x) / barWidth;
+                                float clampedX = glm::clamp(relativeX, 0.001f, 0.999f);
+                                if (stops[selectedStopIdx].position != clampedX) {
+                                    stops[selectedStopIdx].position = clampedX;
+                                    stopsChanged = true;
+                                }
+                            }
+                        }
+                        
+                        // Draw stops
+                        for (size_t i = 0; i < stops.size(); ++i) {
+                            float stopX = barPos.x + stops[i].position * barWidth;
+                            float stopY = markerAreaPos.y + markerAreaHeight * 0.5f;
+                            
+                            float mouseX = ImGui::GetIO().MousePos.x;
+                            float mouseY = ImGui::GetIO().MousePos.y;
+                            bool isHovered = false;
+                            if (areaHovered) {
+                                float dist = std::abs((mouseX - barPos.x) / barWidth - stops[i].position);
+                                if (dist < 0.025f && mouseY >= markerAreaPos.y && mouseY <= markerAreaPos.y + markerAreaHeight) {
+                                    isHovered = true;
+                                }
+                            }
+                            
+                            ImU32 circleColor = IM_COL32(200, 200, 200, 255);
+                            if ((int)i == selectedStopIdx) {
+                                circleColor = IM_COL32(255, 100, 100, 255);
+                            } else if (isHovered) {
+                                circleColor = IM_COL32(255, 255, 255, 255);
+                            }
+                            
+                            drawList->AddCircleFilled(ImVec2(stopX, stopY), 5.0f, IM_COL32(0, 0, 0, 255), 12);
+                            drawList->AddCircleFilled(ImVec2(stopX, stopY), 4.0f, circleColor, 12);
+                        }
+ 
+                        if (stopsChanged) {
+                            Generative::ColorStop selectedStop = stops[selectedStopIdx];
+                            std::sort(stops.begin(), stops.end(), [](const Generative::ColorStop& a, const Generative::ColorStop& b) {
+                                return a.position < b.position;
+                            });
+                            for (size_t i = 0; i < stops.size(); ++i) {
+                                if (stops[i].position == selectedStop.position && stops[i].color == selectedStop.color && stops[i].smoothness == selectedStop.smoothness) {
+                                    selectedStopIdx = (int)i;
+                                    break;
+                                }
+                            }
+                            // Enforce endpoints
+                            if (stops.size() >= 2) {
+                                stops[0].position = 0.0f;
+                                stops.back().position = 1.0f;
+                                stops.back().color = stops[0].color;
+                            }
+                        }
+ 
+                        ImGui::Spacing();
+                        ImGui::SeparatorText("Color Stops");
+ 
+                        if (ImGui::Button("+ Stop") && stops.size() < 16) {
+                            Generative::ColorStop newStop;
+                            newStop.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                            newStop.position = 0.5f;
+                            newStop.smoothness = 0.5f;
+                            stops.push_back(newStop);
+                            
+                            std::sort(stops.begin(), stops.end(), [](const Generative::ColorStop& a, const Generative::ColorStop& b) {
+                                return a.position < b.position;
+                            });
+                            selectedStopIdx = (int)stops.size() / 2;
+                            stopsChanged = true;
+                        }
+                        
+                        ImGui::SameLine();
+ 
+                        if (stops.size() > 2) {
+                            if (ImGui::Button("- Stop")) {
+                                stops.erase(stops.begin() + selectedStopIdx);
+                                if (selectedStopIdx >= (int)stops.size()) selectedStopIdx = (int)stops.size() - 1;
+                                stopsChanged = true;
+                            }
+                        }
+ 
+                        // Display list of stops in columns/combo
+                        std::vector<std::string> stopLabels;
+                        for (size_t i = 0; i < stops.size(); ++i) {
+                            stopLabels.push_back("Stop " + std::to_string(i) + " (" + std::to_string((int)(stops[i].position * 100.0f)) + "%)");
+                        }
+                        std::vector<const char*> stopLabelPtrs;
+                        for (const auto& l : stopLabels) stopLabelPtrs.push_back(l.c_str());
+ 
+                        ImGui::Combo("Select Node", &selectedStopIdx, stopLabelPtrs.data(), (int)stops.size());
+ 
+                        ImGui::Spacing();
+                        Generative::ColorStop& s = stops[selectedStopIdx];
+ 
+                        // 2D Color Space Picker
+                        glm::vec3 currentHSV = rgb2hsv(glm::vec3(s.color.r, s.color.g, s.color.b));
+                        glm::vec3 currentHSL = rgb2hsl(glm::vec3(s.color.r, s.color.g, s.color.b));
+                        static float hue = 0.0f;
+                        static int lastStopIdx = -1;
+                        static flecs::id_t lastPalId = 0;
+                        if (selectedStopIdx != lastStopIdx || selectedPal.id() != lastPalId) {
+                            hue = currentHSV.x;
+                            lastStopIdx = selectedStopIdx;
+                            lastPalId = selectedPal.id();
+                        }
+
+                        // Hue slider
+                        if (ImGui::SliderFloat("Hue", &hue, 0.0f, 1.0f, "%.3f")) {
+                            glm::vec3 rgb = hsv2rgb(hue, currentHSV.y, currentHSV.z);
+                            s.color = glm::vec4(rgb.r, rgb.g, rgb.b, s.color.a);
+                            stopsChanged = true;
+                        }
+
+                        // Alpha slider
+                        float alpha = s.color.a;
+                        if (ImGui::SliderFloat("Alpha (Opacity)", &alpha, 0.0f, 1.0f, "%.2f")) {
+                            s.color.a = alpha;
+                            stopsChanged = true;
+                        }
+
+                        ImGui::Spacing();
+
+                        static GLuint hsvTexId = 0;
+                        int texW = 64, texH = 64;
+
+                        // Regenerate HSV texture
+                        std::vector<uint8_t> texData(texW * texH * 4);
+                        for (int y = 0; y < texH; ++y) {
+                            for (int x = 0; x < texW; ++x) {
+                                float sat = (float)x / (float)(texW - 1);
+                                float val = 1.0f - (float)y / (float)(texH - 1);
+                                glm::vec3 rgb = hsv2rgb(hue, sat, val);
+                                int idx = (y * texW + x) * 4;
+                                texData[idx + 0] = (uint8_t)(rgb.r * 255.f);
+                                texData[idx + 1] = (uint8_t)(rgb.g * 255.f);
+                                texData[idx + 2] = (uint8_t)(rgb.b * 255.f);
+                                texData[idx + 3] = 255;
+                            }
+                        }
+                        if (hsvTexId == 0) glGenTextures(1, &hsvTexId);
+                        glBindTexture(GL_TEXTURE_2D, hsvTexId);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, texData.data());
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+
+                        ImVec2 pickerSize(150, 150);
+                        ImVec2 screenPos = ImGui::GetCursorScreenPos();
+                        ImGui::Image((ImTextureID)(intptr_t)hsvTexId, pickerSize);
+                        
+                        ImGui::SetCursorScreenPos(screenPos);
+                        ImGui::InvisibleButton("##hsv_picker_btn", pickerSize);
+                        if (ImGui::IsItemActive() || (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))) {
+                            ImVec2 mousePos = ImGui::GetMousePos();
+                            float s_val = (mousePos.x - screenPos.x) / pickerSize.x;
+                            float v_val = 1.0f - (mousePos.y - screenPos.y) / pickerSize.y;
+                            s_val = std::clamp(s_val, 0.0f, 1.0f);
+                            v_val = std::clamp(v_val, 0.0f, 1.0f);
+                            glm::vec3 newRgb = hsv2rgb(hue, s_val, v_val);
+                            s.color = glm::vec4(newRgb.r, newRgb.g, newRgb.b, s.color.a);
+                            stopsChanged = true;
+                        }
+
+                        float markerX = screenPos.x + currentHSV.y * pickerSize.x;
+                        float markerY = screenPos.y + (1.0f - currentHSV.z) * pickerSize.y;
+                        drawList->AddCircle(ImVec2(markerX, markerY), 6.0f, IM_COL32(0, 0, 0, 255), 12, 2.0f);
+                        drawList->AddCircle(ImVec2(markerX, markerY), 5.0f, IM_COL32(255, 255, 255, 255), 12, 1.0f);
+ 
+                        // Position (locked to 0.0 for first stop and 1.0 for last stop)
+                        if (selectedStopIdx == 0) {
+                            s.position = 0.0f;
+                            ImGui::Text("Position: 0%% (Locked)");
+                        } else if (selectedStopIdx == (int)stops.size() - 1) {
+                            s.position = 1.0f;
+                            ImGui::Text("Position: 100%% (Locked)");
+                        } else {
+                            float minPos = stops[selectedStopIdx - 1].position + 0.01f;
+                            float maxPos = stops[selectedStopIdx + 1].position - 0.01f;
+                            if (ImGui::SliderFloat("Position", &s.position, minPos, maxPos, "%.2f")) {
+                                stopsChanged = true;
+                            }
+                        }
+ 
+                        // Smoothness
+                        if (ImGui::SliderFloat("Smoothness", &s.smoothness, 0.0f, 1.0f, "%.2f")) {
+                            stopsChanged = true;
+                        }
+ 
+                        // Wrap-Anchor Rule: Copy color of stop 0 to final stop to guarantee seamless looping
+                        if (stops.size() >= 2) {
+                            stops[0].position = 0.0f;
+                            stops.back().position = 1.0f;
+                            if (stops.back().color != stops[0].color) {
+                                stops.back().color = stops[0].color;
+                                stopsChanged = true;
+                            }
+                        }
+
+                        if (stopsChanged) {
+                            auto prog = std::atomic_load(&App::currentPatchProgram);
+                            if (prog) {
+                                std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                                for (auto& cp : prog->palettePool) {
+                                    if (cp.name == selectedPal.name().c_str()) {
+                                        cp.stops = stops;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ImGui::TextDisabled("Select a palette from the list.");
+                }
+
+                ImGui::EndTable();
+            }
+        }
+        ImGui::End();
+    });
+
+    w.system<>("WindowGenerativeDashboard").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+
+        // Sync Dashboard and Telemetry visibility
+        static bool lastDashboardState = false;
+        static bool lastTelemetryState = false;
+        if (ui->showGenerativeDashboardWindow != lastDashboardState) {
+            ui->showGenerativeTelemetryWindow = ui->showGenerativeDashboardWindow;
+            lastDashboardState = ui->showGenerativeDashboardWindow;
+            lastTelemetryState = ui->showGenerativeDashboardWindow;
+        } else if (ui->showGenerativeTelemetryWindow != lastTelemetryState) {
+            ui->showGenerativeDashboardWindow = ui->showGenerativeTelemetryWindow;
+            lastDashboardState = ui->showGenerativeTelemetryWindow;
+            lastTelemetryState = ui->showGenerativeTelemetryWindow;
+        }
+
+        if (!ui->showGenerativeDashboardWindow) return;
+        auto selectedPatch = Patch::getSelected(app);
+
+        if(ImGui::Begin("Generative Dashboard", &ui->showGenerativeDashboardWindow)){
+            if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
+
+            auto* settings = selectedPatch.try_get_mut<Generative::Settings>();
+            if (!settings) { ImGui::TextDisabled("No generative settings component on patch."); ImGui::End(); return; }
+
+            auto prog = std::atomic_load(&App::currentPatchProgram);
+            bool isRunning = prog && prog->generativeSettings.masterEnabled && prog->generativeRuntime;
+
+            // ── Master Controls ──
+            bool settingsChanged = false;
+            bool enabled = settings->masterEnabled;
+            if (ImGui::Checkbox("Master Enable Generative Engine", &enabled)) {
+                settings->masterEnabled = enabled;
+                settingsChanged = true;
+            }
+
+            ImGui::SameLine(0, 30.0f);
+            if (isRunning) {
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "[ACTIVE]");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "[PAUSED/DISABLED]");
+            }
+
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Load preset/shader lists for indexing names and manual overrides
+            flecs::entity palFolder = selectedPatch.target<Generative::PaletteFolder>();
+            std::vector<std::string> paletteNames;
+            if (palFolder.is_valid()) {
+                palFolder.children([&](flecs::entity child) {
+                    if (child.has<Generative::Palette::Is>()) {
+                        paletteNames.push_back(child.name().c_str());
+                    }
+                });
+            }
+
+            flecs::entity motiveFolder = selectedPatch.target<Generative::MotiveFolder>();
+            std::vector<std::string> motiveNames;
+            if (motiveFolder.is_valid()) {
+                motiveFolder.children([&](flecs::entity child) {
+                    if (child.has<Generative::Motive::Is>()) {
+                        motiveNames.push_back(child.name().c_str());
+                    }
+                });
+            }
+
+            flecs::entity cueFolder = selectedPatch.target<CueList::CueFolder>();
+            std::vector<std::string> shaderNames;
+            if (cueFolder.is_valid()) {
+                struct CueEntry {
+                    flecs::entity entity;
+                    int order = 0;
+                };
+                std::vector<CueEntry> cues;
+                cueFolder.children([&](flecs::entity child) {
+                    if (child.has<CueList::Cue::Is>()) {
+                        CueEntry entry;
+                        entry.entity = child;
+                        if (const auto* ord = child.try_get<CueList::Cue::IndexOrder>()) entry.order = ord->value;
+                        cues.push_back(entry);
+                    }
+                });
+                std::sort(cues.begin(), cues.end(), [](const CueEntry& a, const CueEntry& b) {
+                    return a.order < b.order;
+                });
+                for (const auto& c : cues) {
+                    shaderNames.push_back(c.entity.name().c_str());
+                }
+            }
+
+            auto getPaletteName = [&](int idx) -> std::string {
+                if (idx >= 0 && idx < (int)paletteNames.size()) return paletteNames[idx];
+                return "None";
+            };
+            auto getMotiveName = [&](int idx) -> std::string {
+                if (idx >= 0 && idx < (int)motiveNames.size()) return motiveNames[idx];
+                return "None";
+            };
+            auto getShaderName = [&](int idx) -> std::string {
+                if (idx >= 0 && idx < (int)shaderNames.size()) return shaderNames[idx];
+                return "None";
+            };
+
+            // --- Timelines & Queues ---
+            ImGui::SeparatorText("Timelines & Queues");
+
+            if (prog && prog->generativeRuntime) {
+                auto rt = prog->generativeRuntime;
+
+                // Palette Queue
+                {
+                    ImGui::PushID("PaletteQueueControl");
+                    bool pActive = settings->paletteEnabled;
+                    if (ImGui::Checkbox("##playPalette", &pActive)) {
+                        settings->paletteEnabled = pActive;
+                        if (pActive) {
+                            settings->manualPaletteOverride = false;
+                        } else {
+                            settings->manualPaletteOverride = true;
+                            if (settings->manualPaletteIndex < 0) {
+                                settings->manualPaletteIndex = rt->getActivePaletteIndex();
+                            }
+                        }
+                        settingsChanged = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable Automatic Palette Timeline Playback");
+                    
+                    if (settings->paletteEnabled) {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Next##Pal")) {
+                            std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                            rt->triggerNextPalette(prog.get());
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Trigger Next Palette Crossfade");
+                        ImGui::SameLine();
+                        ImGui::Text("Palette: %s", getPaletteName(rt->getActivePaletteIndex()).c_str());
+                        if (rt->getTargetPaletteIndex() >= 0) {
+                            float fadeProg = rt->getPaletteFadeProgress();
+                            float displayProg = (fadeProg >= 1.0f) ? 0.0f : fadeProg;
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("-> %s (%.0f%%)", getPaletteName(rt->getTargetPaletteIndex()).c_str(), displayProg * 100.0f);
+                        } else {
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(Next in %.1fs)", std::max(0.0f, rt->getPaletteTimeLeft()));
+                        }
+                    } else {
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted("Fixed Palette:");
+                        ImGui::SameLine();
+                        int palIdx = settings->manualPaletteIndex;
+                        std::vector<const char*> palPtrs;
+                        for (const auto& n : paletteNames) palPtrs.push_back(n.c_str());
+                        ImGui::SetNextItemWidth(180.0f);
+                        if (ImGui::Combo("##ManualPalette", &palIdx, palPtrs.data(), (int)palPtrs.size())) {
+                            settings->manualPaletteOverride = true;
+                            settings->manualPaletteIndex = palIdx;
+                            settingsChanged = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::Spacing();
+
+                // Motive Queue
+                {
+                    ImGui::PushID("MotiveQueueControl");
+                    bool mActive = settings->motiveEnabled;
+                    if (ImGui::Checkbox("##playMotive", &mActive)) {
+                        settings->motiveEnabled = mActive;
+                        if (mActive) {
+                            settings->manualMotiveOverride = false;
+                        } else {
+                            settings->manualMotiveOverride = true;
+                            if (settings->manualMotiveIndex < 0) {
+                                settings->manualMotiveIndex = rt->getActiveMotiveIndex();
+                            }
+                        }
+                        settingsChanged = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable Automatic Motive Timeline Playback");
+                    
+                    if (settings->motiveEnabled) {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Next##Mot")) {
+                            std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                            rt->triggerNextMotive(prog.get());
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Trigger Next Motive Easing");
+                        ImGui::SameLine();
+                        ImGui::Text("Motive: %s", getMotiveName(rt->getActiveMotiveIndex()).c_str());
+                        if (rt->getTargetMotiveIndex() >= 0) {
+                            float fadeProg = rt->getMotiveFadeProgress();
+                            float displayProg = (fadeProg >= 1.0f) ? 0.0f : fadeProg;
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("-> %s (%.0f%%)", getMotiveName(rt->getTargetMotiveIndex()).c_str(), displayProg * 100.0f);
+                        } else {
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(Next in %.1fs)", std::max(0.0f, rt->getMotiveTimeLeft()));
+                        }
+                    } else {
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted("Fixed Motive:");
+                        ImGui::SameLine();
+                        int motIdx = settings->manualMotiveIndex;
+                        std::vector<const char*> motPtrs;
+                        for (const auto& n : motiveNames) motPtrs.push_back(n.c_str());
+                        ImGui::SetNextItemWidth(180.0f);
+                        if (ImGui::Combo("##ManualMotive", &motIdx, motPtrs.data(), (int)motPtrs.size())) {
+                            settings->manualMotiveOverride = true;
+                            settings->manualMotiveIndex = motIdx;
+                            settingsChanged = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::Spacing();
+
+                // Shader Queue
+                {
+                    ImGui::PushID("ShaderQueueControl");
+                    bool sActive = settings->shaderEnabled;
+                    if (ImGui::Checkbox("##playShader", &sActive)) {
+                        settings->shaderEnabled = sActive;
+                        if (sActive) {
+                            settings->manualShaderOverride = false;
+                        } else {
+                            settings->manualShaderOverride = true;
+                            if (settings->manualShaderIndex < 0) {
+                                settings->manualShaderIndex = rt->getActiveShaderIndex();
+                            }
+                        }
+                        settingsChanged = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable Automatic Shader Timeline Playback");
+                    
+                    if (prog->activeCueIndex.load() >= 0) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Shader: Cue Active (Suspended)");
+                    } else if (settings->shaderEnabled) {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Next##Sh")) {
+                            std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                            rt->triggerNextShader(prog.get());
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Trigger Next Shader Transition");
+                        ImGui::SameLine();
+                        ImGui::Text("Shader: %s", getShaderName(rt->getActiveShaderIndex()).c_str());
+                        if (rt->getTargetShaderIndex() >= 0) {
+                            float fadeProg = rt->getShaderFadeProgress();
+                            float displayProg = (fadeProg >= 1.0f) ? 0.0f : fadeProg;
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("-> %s (%.0f%%)", getShaderName(rt->getTargetShaderIndex()).c_str(), displayProg * 100.0f);
+                        } else {
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(Next in %.1fs)", std::max(0.0f, rt->getShaderTimeLeft()));
+                        }
+                    } else {
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted("Fixed Shader:");
+                        ImGui::SameLine();
+                        int shIdx = settings->manualShaderIndex;
+                        std::vector<const char*> shPtrs;
+                        for (const auto& n : shaderNames) shPtrs.push_back(n.c_str());
+                        ImGui::SetNextItemWidth(180.0f);
+                        if (ImGui::Combo("##ManualShader", &shIdx, shPtrs.data(), (int)shPtrs.size())) {
+                            settings->manualShaderOverride = true;
+                            settings->manualShaderIndex = shIdx;
+                            settingsChanged = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            } else {
+                ImGui::TextDisabled("Generative runtime not active. Check Master Enable.");
+            }
+
+            ImGui::Spacing();
+
+            // Force manual transition type
+            int manualTrans = settings->manualTransitionType;
+            const char* transComboOpts[] = {
+                "Random / Auto", 
+                "Linear Dissolve", 
+                "Luma Wipe", 
+                "Sweep Wipe",
+                "Circle/Sphere Wipe",
+                "Luminosity Wipe"
+            };
+            int transSel = manualTrans + 1; // map -1..4 to 0..5
+            ImGui::SetNextItemWidth(180.0f);
+            if (ImGui::Combo("Transition Type Override", &transSel, transComboOpts, 6)) {
+                settings->manualTransitionType = transSel - 1; // map 0..5 to -1..4
+                settingsChanged = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::CollapsingHeader("Timeline & Intervals Config", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::SeparatorText("Palettes Timeline");
+                float pInt = settings->paletteInterval;
+                if (ImGui::SliderFloat("Palette Interval (s)", &pInt, 5.0f, 300.0f, "%.0f s")) {
+                    settings->paletteInterval = pInt;
+                    settingsChanged = true;
+                }
+                float pJit = settings->paletteJitter;
+                if (ImGui::SliderFloat("Palette Jitter (s)", &pJit, 0.0f, 60.0f, "%.0f s")) {
+                    settings->paletteJitter = pJit;
+                    settingsChanged = true;
+                }
+                float pFade = settings->paletteCrossfade;
+                if (ImGui::SliderFloat("Palette Fade (s)", &pFade, 0.1f, 30.0f, "%.1f s")) {
+                    settings->paletteCrossfade = pFade;
+                    settingsChanged = true;
+                }
+
+                ImGui::SeparatorText("Motives Timeline");
+                float mInt = settings->motiveInterval;
+                if (ImGui::SliderFloat("Motive Interval (s)", &mInt, 5.0f, 300.0f, "%.0f s")) {
+                    settings->motiveInterval = mInt;
+                    settingsChanged = true;
+                }
+                float mJit = settings->motiveJitter;
+                if (ImGui::SliderFloat("Motive Jitter (s)", &mJit, 0.0f, 60.0f, "%.0f s")) {
+                    settings->motiveJitter = mJit;
+                    settingsChanged = true;
+                }
+                float mFade = settings->motiveCrossfade;
+                if (ImGui::SliderFloat("Motive Fade (s)", &mFade, 0.1f, 30.0f, "%.1f s")) {
+                    settings->motiveCrossfade = mFade;
+                    settingsChanged = true;
+                }
+
+                ImGui::SeparatorText("Shaders Timeline");
+                float sInt = settings->shaderInterval;
+                if (ImGui::SliderFloat("Shader Interval (s)", &sInt, 5.0f, 300.0f, "%.0f s")) {
+                    settings->shaderInterval = sInt;
+                    settingsChanged = true;
+                }
+                float sJit = settings->shaderJitter;
+                if (ImGui::SliderFloat("Shader Jitter (s)", &sJit, 0.0f, 60.0f, "%.0f s")) {
+                    settings->shaderJitter = sJit;
+                    settingsChanged = true;
+                }
+                float sFade = settings->shaderCrossfade;
+                if (ImGui::SliderFloat("Shader Fade (s)", &sFade, 0.1f, 30.0f, "%.1f s")) {
+                    settings->shaderCrossfade = sFade;
+                    settingsChanged = true;
+                }
+
+                ImGui::SeparatorText("Transition Blend Types");
+                bool eLin = settings->enableLinearDissolve;
+                if (ImGui::Checkbox("Linear Dissolve", &eLin)) {
+                    settings->enableLinearDissolve = eLin;
+                    settingsChanged = true;
+                }
+                bool eLuma = settings->enableLumaWipe;
+                if (ImGui::Checkbox("Luma Wipe (Noise-based)", &eLuma)) {
+                    settings->enableLumaWipe = eLuma;
+                    settingsChanged = true;
+                }
+                bool eSweep = settings->enableSweep;
+                if (ImGui::Checkbox("Sweep Wipe (Directional)", &eSweep)) {
+                    settings->enableSweep = eSweep;
+                    settingsChanged = true;
+                }
+                bool eCircle = settings->enableCircleWipe;
+                if (ImGui::Checkbox("Circle/Sphere Wipe", &eCircle)) {
+                    settings->enableCircleWipe = eCircle;
+                    settingsChanged = true;
+                }
+                bool eLum = settings->enableLuminosityWipe;
+                if (ImGui::Checkbox("Luminosity Wipe", &eLum)) {
+                    settings->enableLuminosityWipe = eLum;
+                    settingsChanged = true;
+                }
+                bool tVol = settings->transitionVolumetric;
+                if (ImGui::Checkbox("Volumetric 3D Wipes", &tVol)) {
+                    settings->transitionVolumetric = tVol;
+                    settingsChanged = true;
+                }
+            }
+
+            if (settingsChanged) {
+                auto activeProg = std::atomic_load(&App::currentPatchProgram);
+                if (activeProg) {
+                    std::lock_guard<std::mutex> lock(activeProg->generativeMutex);
+                    activeProg->generativeSettings = *settings;
+                }
+                selectedPatch.set<Generative::Settings>(*settings);
+            }
+        }
+        ImGui::End();
+    });
+
+    w.system<>("WindowGenerativeTelemetry").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+
+        if (!ui->showGenerativeTelemetryWindow) return;
+        auto selectedPatch = Patch::getSelected(app);
+
+        // Keep 2D preview active if telemetry is visible
+        auto prog = std::atomic_load(&App::currentPatchProgram);
+        if (prog) {
+            prog->showPlaybackPreview.store(true);
+        }
+
+        if(ImGui::Begin("Generative Telemetry", &ui->showGenerativeTelemetryWindow)){
+            if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
+
+            bool isRunning = prog && prog->generativeSettings.masterEnabled && prog->generativeRuntime;
+
+            // --- Live Shader Preview ---
+            if (prog && prog->renderMode == Patch::RenderMode::GLSL) {
+                GLuint texID = prog->glslCurrentPlaybackPreviewTexID.load();
+                if (texID == 0) {
+                    texID = prog->glslPlaybackPreviewFboTex;
+                }
+
+                if (texID != 0) {
+                    float tw = (float)prog->previewWidth;
+                    float th = (float)prog->previewHeight;
+                    ImVec2 avail = ImGui::GetContentRegionAvail();
+                    float targetH = 150.0f;
+                    float scale = targetH / th;
+                    ImVec2 imgSize(tw * scale, th * scale);
+                    
+                    ImGui::SeparatorText("Live Playback Shader Preview");
+                    ImGui::SetCursorPosX((avail.x - imgSize.x) * 0.5f + ImGui::GetCursorPosX());
+                    ImGui::Image((ImTextureID)(intptr_t)texID, imgSize, ImVec2(0,0), ImVec2(1,1));
+                    ImGui::Spacing();
+                }
+            }
+
+            // --- Live Palette Playback Preview ---
+            if (prog && prog->generativeRuntime) {
+                auto rt = prog->generativeRuntime;
+                ImGui::SeparatorText("Live Palette Playback");
+                auto ubo = rt->getUboState();
+                if (ubo.activeStops >= 2) {
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    ImVec2 barPos = ImGui::GetCursorScreenPos();
+                    float barWidth = ImGui::GetContentRegionAvail().x - 10.0f;
+                    float barHeight = 20.0f;
+                    ImGui::InvisibleButton("##live_palette_bar", ImVec2(barWidth, barHeight));
+
+                    for (float x = 0; x < barWidth; x += 2.0f) {
+                        float t = x / barWidth;
+                        
+                        glm::vec4 col(0.0f);
+                        for (int i = 0; i < ubo.activeStops - 1; i++) {
+                            float p0 = ubo.palette[i].position;
+                            float p1 = ubo.palette[i+1].position;
+                            if (t >= p0 && t <= p1) {
+                                float blend = (t - p0) / std::max(0.0001f, p1 - p0);
+                                float smoothness = glm::mix(ubo.palette[i].smoothness, ubo.palette[i+1].smoothness, blend);
+                                float width = smoothness;
+                                float f;
+                                if (width > 0.001f) {
+                                    float edge0 = 0.5f - width * 0.5f;
+                                    float val = glm::clamp((blend - edge0) / width, 0.0f, 1.0f);
+                                    f = val * val * (3.0f - 2.0f * val);
+                                } else {
+                                    f = (blend < 0.5f) ? 0.0f : 1.0f;
+                                }
+                                col = glm::mix(ubo.palette[i].color, ubo.palette[i+1].color, f);
+                                break;
+                            }
+                        }
+                        ImU32 imCol = IM_COL32((int)(col.r * 255.0f), (int)(col.g * 255.0f), (int)(col.b * 255.0f), 255);
+                        drawList->AddRectFilled(ImVec2(barPos.x + x, barPos.y), ImVec2(barPos.x + x + 2.0f, barPos.y + barHeight), imCol);
+                    }
+                    drawList->AddRect(barPos, ImVec2(barPos.x + barWidth, barPos.y + barHeight), IM_COL32(255, 255, 255, 100));
+
+                    // Render stops as circular indicators below the bar
+                    ImGui::Spacing();
+                    ImVec2 markerAreaPos = ImGui::GetCursorScreenPos();
+                    float markerAreaHeight = 16.0f;
+                    ImGui::InvisibleButton("##live_stops_area", ImVec2(barWidth, markerAreaHeight));
+                    for (int i = 0; i < ubo.activeStops; i++) {
+                        float stopX = barPos.x + ubo.palette[i].position * barWidth;
+                        float stopY = markerAreaPos.y + markerAreaHeight * 0.5f;
+                        
+                        // Alignment line pointing up to the gradient bar
+                        drawList->AddLine(ImVec2(stopX, barPos.y + barHeight), ImVec2(stopX, stopY - 5.0f), IM_COL32(255, 255, 255, 120), 1.0f);
+
+                        // Color-coded circle with outline
+                        ImU32 stopCol = IM_COL32((int)(ubo.palette[i].color.r * 255.0f), (int)(ubo.palette[i].color.g * 255.0f), (int)(ubo.palette[i].color.b * 255.0f), 255);
+                        drawList->AddCircleFilled(ImVec2(stopX, stopY), 5.0f, IM_COL32(0, 0, 0, 255), 12);
+                        drawList->AddCircleFilled(ImVec2(stopX, stopY), 4.0f, stopCol, 12);
+                        drawList->AddCircle(ImVec2(stopX, stopY), 4.0f, IM_COL32(255, 255, 255, 200), 12, 1.0f);
+                    }
+                } else {
+                    ImGui::TextDisabled("No active palette to display.");
+                }
+            } else {
+                ImGui::TextDisabled("Generative runtime not active.");
+            }
+
+            ImGui::Spacing();
+
+            // --- Live Telemetry (Oscilloscope) ---
+            ImGui::SeparatorText("Live Motive Telemetry");
+
+            if (prog && prog->generativeRuntime) {
+                auto rt = prog->generativeRuntime;
+
+                static float historyVelocity[120] = {0.0f};
+                static float historyComplexity[120] = {0.0f};
+                static float historyScale[120] = {0.0f};
+                static float historyDistortion[120] = {0.0f};
+                static float historyAsymmetry[120] = {0.0f};
+                static float historyIntensity[120] = {0.0f};
+                static int historyOffset = 0;
+                static PatchProgram* lastProg = nullptr;
+
+                if (prog.get() != lastProg) {
+                    std::memset(historyVelocity, 0, sizeof(historyVelocity));
+                    std::memset(historyComplexity, 0, sizeof(historyComplexity));
+                    std::memset(historyScale, 0, sizeof(historyScale));
+                    std::memset(historyDistortion, 0, sizeof(historyDistortion));
+                    std::memset(historyAsymmetry, 0, sizeof(historyAsymmetry));
+                    std::memset(historyIntensity, 0, sizeof(historyIntensity));
+                    historyOffset = 0;
+                    lastProg = prog.get();
+                }
+
+                if (isRunning) {
+                    historyVelocity[historyOffset] = rt->getLiveVelocity();
+                    historyComplexity[historyOffset] = rt->getLiveComplexity();
+                    historyScale[historyOffset] = rt->getLiveScale();
+                    historyDistortion[historyOffset] = rt->getLiveDistortion();
+                    historyAsymmetry[historyOffset] = rt->getLiveAsymmetry();
+                    historyIntensity[historyOffset] = rt->getLiveIntensity();
+                    historyOffset = (historyOffset + 1) % 120;
+                }
+
+                if (ImGui::BeginTable("TelemetryPlots", 2)) {
+                    auto drawGraph = [&](const char* title, const float* data, ImVec4 color, float currentVal) {
+                        ImGui::TableNextColumn();
+                        char label[128];
+                        snprintf(label, sizeof(label), "%s: %.2f", title, currentVal);
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, color);
+                        ImGui::PlotLines("##Graph", data, 120, historyOffset, label, 0.0f, 1.0f, ImVec2(-1, 55.0f));
+                        ImGui::PopStyleColor();
+                    };
+
+                    drawGraph("Velocity", historyVelocity, ImVec4(0.2f, 0.8f, 1.0f, 1.0f), rt->getLiveVelocity());
+                    drawGraph("Complexity", historyComplexity, ImVec4(1.0f, 0.2f, 0.8f, 1.0f), rt->getLiveComplexity());
+                    drawGraph("Scale", historyScale, ImVec4(1.0f, 0.7f, 0.2f, 1.0f), rt->getLiveScale());
+                    drawGraph("Distortion", historyDistortion, ImVec4(1.0f, 0.3f, 0.3f, 1.0f), rt->getLiveDistortion());
+                    drawGraph("Asymmetry", historyAsymmetry, ImVec4(0.7f, 0.4f, 1.0f, 1.0f), rt->getLiveAsymmetry());
+                    drawGraph("Intensity", historyIntensity, ImVec4(0.3f, 0.9f, 0.3f, 1.0f), rt->getLiveIntensity());
+
+                    ImGui::EndTable();
+                }
+            } else {
+                ImGui::TextDisabled("Enable Generative Engine to see live waveforms.");
+            }
+        }
+        ImGui::End();
+    });
+
+    w.system<>("WindowMotives").kind(flecs::OnStore)
+    .run([&](flecs::iter& it){
+        auto app          = App::get(it.world());
+        auto* ui          = &app.get_mut<App::UIConfig>();
+        if (!ui->showMotivesWindow) return;
+        auto selectedPatch = Patch::getSelected(app);
+
+        if(ImGui::Begin("Motive Presets", &ui->showMotivesWindow)){
+            if(!selectedPatch.is_valid()){ ImGui::TextDisabled("No patch."); ImGui::End(); return; }
+
+            flecs::entity motiveFolder = selectedPatch.target<Generative::MotiveFolder>();
+            if(!motiveFolder.is_valid()){ ImGui::TextDisabled("No motive folder."); ImGui::End(); return; }
+
+            if(ImGui::BeginTable("MotiveTable", 2, ImGuiTableFlags_Resizable)){
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::SeparatorText("Presets");
+
+                if (ImGui::Button("+ Preset")) {
+                    static int customMotiveCount = 1;
+                    std::string newName = "Motive " + std::to_string(customMotiveCount++);
+                    Generative::Motive::Params params;
+                    auto p = it.world().entity().child_of(motiveFolder)
+                        .add<Generative::Motive::Is>()
+                        .set<Generative::Motive::Params>(params);
+                    p.set_name(newName.c_str());
+                    
+                    auto prog = std::atomic_load(&App::currentPatchProgram);
+                    if (prog) {
+                        std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                        Generative::CompiledMotive cm;
+                        cm.name = newName;
+                        cm.velocity = params.velocity;
+                        cm.complexity = params.complexity;
+                        cm.scale = params.scale;
+                        cm.distortion = params.distortion;
+                        cm.asymmetry = params.asymmetry;
+                        cm.intensity = params.intensity;
+                        std::memcpy(cm.wanderAmp, params.wanderAmp, sizeof(cm.wanderAmp));
+                        std::memcpy(cm.wanderFreq, params.wanderFreq, sizeof(cm.wanderFreq));
+                        prog->motivePool.push_back(cm);
+                    }
+                }
+                
+                ImGui::SameLine();
+                
+                static flecs::id_t selectedMotiveId = 0;
+                
+                bool hasSel = false;
+                flecs::entity selectedMotive = it.world().entity(selectedMotiveId);
+                if (selectedMotive.is_valid() && selectedMotive.is_alive() && selectedMotive.parent() == motiveFolder) {
+                    hasSel = true;
+                }
+
+                if (!hasSel) ImGui::BeginDisabled();
+                if (ImGui::Button("Remove")) {
+                    std::string nameToRemove = selectedMotive.name().c_str();
+                    selectedMotive.destruct();
+                    selectedMotiveId = 0;
+                    hasSel = false;
+                    
+                    auto prog = std::atomic_load(&App::currentPatchProgram);
+                    if (prog) {
+                        std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                        prog->motivePool.erase(
+                            std::remove_if(prog->motivePool.begin(), prog->motivePool.end(),
+                                [&](const Generative::CompiledMotive& cm) { return cm.name == nameToRemove; }),
+                            prog->motivePool.end()
+                        );
+                    }
+                }
+                if (!hasSel) ImGui::EndDisabled();
+
+                ImGui::Separator();
+
+                if (ImGui::BeginListBox("##MotiveList", ImGui::GetContentRegionAvail())) {
+                    motiveFolder.children([&](flecs::entity child) {
+                        if (child.has<Generative::Motive::Is>()) {
+                            bool isSel = (child.id() == selectedMotiveId);
+                            if (ImGui::Selectable(child.name().c_str(), isSel)) {
+                                selectedMotiveId = child.id();
+                            }
+                        }
+                    });
+                    ImGui::EndListBox();
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                selectedMotive = it.world().entity(selectedMotiveId);
+                if (selectedMotive.is_valid() && selectedMotive.is_alive() && selectedMotive.parent() == motiveFolder) {
+                    ImGui::Text("Editing Preset: %s", selectedMotive.name().c_str());
+                    ImGui::Separator();
+
+                    char nameBuf[128] = {};
+                    std::strncpy(nameBuf, selectedMotive.name().c_str(), sizeof(nameBuf) - 1);
+                    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                        std::string oldName = selectedMotive.name().c_str();
+                        selectedMotive.set_name(nameBuf);
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if (prog) {
+                            std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                            for (auto& cm : prog->motivePool) {
+                                if (cm.name == oldName) {
+                                    cm.name = nameBuf;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    auto* params = selectedMotive.try_get_mut<Generative::Motive::Params>();
+                    if (params) {
+                        bool paramsChanged = false;
+
+                        ImGui::Spacing();
+                        ImGui::SeparatorText("Parameters & Wander Controls");
+
+                        if (ImGui::BeginTable("MotiveParamsTable", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
+                            ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                            ImGui::TableSetupColumn("Base Value", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Wander Amp", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableSetupColumn("Wander Freq", ImGuiTableColumnFlags_WidthStretch);
+                            ImGui::TableHeadersRow();
+
+                            auto drawParamRow = [&](const char* label, float& base, float& amp, float& freq) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0);
+                                ImGui::TextUnformatted(label);
+
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::PushID(label);
+                                ImGui::PushItemWidth(-1);
+                                paramsChanged |= ImGui::SliderFloat("##Base", &base, 0.0f, 1.0f, "%.2f");
+                                ImGui::PopItemWidth();
+
+                                ImGui::TableSetColumnIndex(2);
+                                ImGui::PushItemWidth(-1);
+                                paramsChanged |= ImGui::SliderFloat("##Amp", &amp, 0.0f, 0.5f, "%.2f");
+                                ImGui::PopItemWidth();
+
+                                ImGui::TableSetColumnIndex(3);
+                                ImGui::PushItemWidth(-1);
+                                paramsChanged |= ImGui::SliderFloat("##Freq", &freq, 0.0f, 2.0f, "%.2f");
+                                ImGui::PopItemWidth();
+                                ImGui::PopID();
+                            };
+
+                            drawParamRow("Velocity", params->velocity, params->wanderAmp[0], params->wanderFreq[0]);
+                            drawParamRow("Complexity", params->complexity, params->wanderAmp[1], params->wanderFreq[1]);
+                            drawParamRow("Scale", params->scale, params->wanderAmp[2], params->wanderFreq[2]);
+                            drawParamRow("Distortion", params->distortion, params->wanderAmp[3], params->wanderFreq[3]);
+                            drawParamRow("Asymmetry", params->asymmetry, params->wanderAmp[4], params->wanderFreq[4]);
+                            drawParamRow("Intensity", params->intensity, params->wanderAmp[5], params->wanderFreq[5]);
+
+                            ImGui::EndTable();
+                        }
+
+                        if (paramsChanged) {
+                            auto prog = std::atomic_load(&App::currentPatchProgram);
+                            if (prog) {
+                                std::lock_guard<std::mutex> lock(prog->generativeMutex);
+                                for (auto& cm : prog->motivePool) {
+                                    if (cm.name == selectedMotive.name().c_str()) {
+                                        cm.velocity = params->velocity;
+                                        cm.complexity = params->complexity;
+                                        cm.scale = params->scale;
+                                        cm.distortion = params->distortion;
+                                        cm.asymmetry = params->asymmetry;
+                                        cm.intensity = params->intensity;
+                                        std::memcpy(cm.wanderAmp, params->wanderAmp, sizeof(cm.wanderAmp));
+                                        std::memcpy(cm.wanderFreq, params->wanderFreq, sizeof(cm.wanderFreq));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ImGui::TextDisabled("Select a motive preset from the list.");
+                }
+
+                ImGui::EndTable();
             }
         }
         ImGui::End();

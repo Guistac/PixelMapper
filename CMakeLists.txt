@@ -86,6 +86,9 @@ set(PROJECT_SRC_FILES
 	${PROJECT_SRC_DIR}/EffectBank.h
 	${PROJECT_SRC_DIR}/EffectBank.cpp
 
+	${PROJECT_SRC_DIR}/GenerativeEngine.h
+	${PROJECT_SRC_DIR}/GenerativeEngine.cpp
+
 	${PROJECT_SRC_DIR}/gui/PixelMapperGui.cpp
 )
 
