@@ -27,6 +27,9 @@ public:
     // Server -> Clients command broadcasting (TCP)
     void broadcastCommandToClients(CommandType type, const std::string& jsonPayload);
 
+    // Server -> One specific new client (TCP) — used for Initial Sync on connection
+    void sendCommandToNewClient(std::shared_ptr<asio::ip::tcp::socket> socket, CommandType type, const std::string& jsonPayload);
+
     // High frequency Telemetry Sender (Server Only, UDP)
     void streamTelemetry(uint32_t frameNumber, const Generative::EngineStateUBO& ubo, const ColorRGBW* pixels, uint32_t pixelCount);
 
@@ -36,8 +39,8 @@ public:
     // Set callback for commands (Both Server and Client)
     void setCommandCallback(std::function<void(CommandType, const std::string&)> callback);
 
-    // Set callback for when a client connects (Server Only)
-    void setClientConnectCallback(std::function<void()> callback);
+    // Set callback for when a client connects (Server Only) — receives the newly connected socket
+    void setClientConnectCallback(std::function<void(std::shared_ptr<asio::ip::tcp::socket>)> callback);
 
 private:
     AsioNetworkManager();
@@ -76,7 +79,7 @@ private:
     // Callbacks
     std::function<void(const Generative::EngineStateUBO&, const ColorRGBW*, uint32_t)> m_telemetryCallback;
     std::function<void(CommandType, const std::string&)> m_commandCallback;
-    std::function<void()> m_clientConnectCallback;
+    std::function<void(std::shared_ptr<asio::ip::tcp::socket>)> m_clientConnectCallback;
 
     // Reassembly buffer for incoming UDP telemetry slices (Client side)
     struct TelemetryReassembly {

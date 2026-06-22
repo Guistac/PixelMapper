@@ -11,7 +11,9 @@ enum class CommandType : uint16_t {
     ApplyScript = 3,          // Client -> Server: Compile Lua/GLSL code (Payload: {"path": "...", "type": "GLSL"|"LUA", "source": "..."})
     CompilationResult = 4,    // Server -> Client: Success/Failure with error line info (Payload: {"success": bool, "log": "...", "errors": [{"line": X, "message": "..."}]})
     FileIORequest = 5,        // Client -> Server: Save/Load trigger (Payload: {"action": "SAVE"|"LOAD", "path": "..."})
-    TransportControl = 6      // Client -> Server: Cue List sequencer state change (Payload: {"cueIndex": X})
+    TransportControl = 6,     // Client -> Server: Cue List sequencer state change (Payload: {"cueIndex": X})
+    SpawnEntityRequest = 7,   // Client -> Server: Request a new entity (Payload: {"parentPath": "...", "type": "Patch"|"FixtureLine"|"FixtureCircle"})
+    DeleteEntityRequest = 8,  // Client -> Server: Request deletion of an entity (Payload: {"entityPath": "..."})
 };
 
 #pragma pack(push, 1)

@@ -390,7 +390,8 @@ void import(flecs::world& w){
                 });
                 ImGui::Separator();
                 if(ImGui::MenuItem("New Patch")) {
-                    Patch::select(app, Patch::create(app));
+                    // Dispatch to server: server spawns, then broadcasts SyncWorldState
+                    PixelMapper::Network::sendSpawnEntityRequest("", "Patch");
                 }
                 ImGui::EndMenu();
             }
@@ -469,13 +470,15 @@ void import(flecs::world& w){
                 // Toolbar buttons
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
                 if (ImGui::Button("+ Line")) {
-                    auto f = Fixture::createLine(selectedPatch, {-200, 0, 0}, {200, 0, 0});
-                    Fixture::select(selectedPatch, f); msClear(selectedPatch);
+                    // Dispatch to server: server creates fixture, broadcasts SyncWorldState
+                    std::string patchPath = selectedPatch.is_valid() ? selectedPatch.path().c_str() : "";
+                    PixelMapper::Network::sendSpawnEntityRequest(patchPath, "FixtureLine");
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("+ Circle")) {
-                    auto f = Fixture::createCircle(selectedPatch, {0, 0, 0}, 150);
-                    Fixture::select(selectedPatch, f); msClear(selectedPatch);
+                    // Dispatch to server: server creates fixture, broadcasts SyncWorldState
+                    std::string patchPath = selectedPatch.is_valid() ? selectedPatch.path().c_str() : "";
+                    PixelMapper::Network::sendSpawnEntityRequest(patchPath, "FixtureCircle");
                 }
                 ImGui::SameLine();
                 
@@ -488,12 +491,17 @@ void import(flecs::world& w){
                     if(msCount(selectedPatch) > 0){
                         const auto* ms = selectedPatch.try_get<Patch::MultiSelection>();
                         if(ms) for(auto fid : ms->ids){
-                            flecs::entity(selectedPatch.world(), fid).destruct();
+                            flecs::entity fe(selectedPatch.world(), fid);
+                            if (fe.is_valid()) {
+                                // Dispatch deletion to server
+                                PixelMapper::Network::sendDeleteEntityRequest(fe.path().c_str());
+                            }
                         }
                         msClear(selectedPatch);
                         Fixture::clearSelection(selectedPatch);
                     } else if(selectedFixture.is_valid()){
-                        selectedFixture.destruct();
+                        // Dispatch deletion to server
+                        PixelMapper::Network::sendDeleteEntityRequest(selectedFixture.path().c_str());
                         Fixture::clearSelection(selectedPatch);
                     }
                 }

@@ -24,7 +24,11 @@ namespace Patch {
     void iterate(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn){
         auto patchFolder = pixelMapper.target<App::PatchFolder>();
         if(!patchFolder.is_valid()) return;
-        App::getQueries(pixelMapper.world()).patch.set_var("parent", patchFolder)
+        const App::Queries* queriesPtr = pixelMapper.world().try_get<App::Queries>();
+        if (queriesPtr == nullptr || queriesPtr->patch.c_ptr() == nullptr) {
+            return;
+        }
+        queriesPtr->patch.set_var("parent", patchFolder)
         .each([fn](flecs::entity patch, Patch::Is){
             fn(patch);
         });

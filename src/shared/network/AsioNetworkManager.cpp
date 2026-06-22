@@ -180,7 +180,7 @@ void AsioNetworkManager::setCommandCallback(std::function<void(CommandType, cons
     m_commandCallback = std::move(callback);
 }
 
-void AsioNetworkManager::setClientConnectCallback(std::function<void()> callback) {
+void AsioNetworkManager::setClientConnectCallback(std::function<void(std::shared_ptr<asio::ip::tcp::socket>)> callback) {
     m_clientConnectCallback = std::move(callback);
 }
 
@@ -217,7 +217,7 @@ void AsioNetworkManager::startAccept() {
                 readCommandHeader(socket);
 
                 if (m_clientConnectCallback) {
-                    m_clientConnectCallback();
+                    m_clientConnectCallback(socket);
                 }
             }
             // Continue accepting other clients
@@ -353,6 +353,23 @@ void AsioNetworkManager::broadcastCommandToClients(CommandType type, const std::
             );
         }
     }
+}
+
+void AsioNetworkManager::sendCommandToNewClient(std::shared_ptr<asio::ip::tcp::socket> socket, CommandType type, const std::string& jsonPayload) {
+    if (!socket || !socket->is_open()) return;
+
+    CommandHeader header{ (uint32_t)jsonPayload.size(), type };
+    auto packetData = std::make_shared<std::vector<uint8_t>>(sizeof(CommandHeader) + jsonPayload.size());
+    std::memcpy(packetData->data(), &header, sizeof(CommandHeader));
+    std::memcpy(packetData->data() + sizeof(CommandHeader), jsonPayload.data(), jsonPayload.size());
+
+    asio::async_write(*socket, asio::buffer(*packetData),
+        [packetData, socket](const asio::error_code& ec, size_t /*bytesWritten*/) {
+            if (ec) {
+                std::cerr << "[Server Network] Initial sync to new client failed: " << ec.message() << std::endl;
+            }
+        }
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────

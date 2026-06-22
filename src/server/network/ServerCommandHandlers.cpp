@@ -4,6 +4,7 @@
 #include "server/Patch.h"
 #include "server/PatchSerializer.h"
 #include "server/App.h"
+#include "shared/Fixture.h"
 #include <glad/glad.h>
 #include <sol/sol.hpp>
 #include <iostream>
@@ -145,6 +146,65 @@ void handleServerCommand(CommandType type, const std::string& jsonPayload, flecs
                     selectedPatch.add<Patch::ProgramDirty>();
                 }
             }
+            break;
+        }
+        case CommandType::SpawnEntityRequest: {
+            auto rpc = SimpleJson::parse(jsonPayload);
+            std::string parentPath = rpc.getString("parentPath");
+            std::string spawnType  = rpc.getString("type");
+
+            auto app = App::get(world);
+
+            if (spawnType == "Patch") {
+                // Spawn a new Patch under the root app entity
+                auto newPatch = Patch::create(app);
+                Patch::select(app, newPatch);
+                std::cout << "[Server RPC] Spawned Patch: " << newPatch.path() << std::endl;
+            } else {
+                // Spawn a fixture inside the patch at parentPath
+                flecs::entity patch = world.lookup(parentPath.c_str());
+                if (!patch.is_valid()) {
+                    // Fallback to selected patch
+                    patch = Patch::getSelected(app);
+                }
+                if (patch.is_valid()) {
+                    flecs::entity newFixture;
+                    if (spawnType == "FixtureLine") {
+                        newFixture = Fixture::createLine(patch, {-200, 0, 0}, {200, 0, 0});
+                    } else if (spawnType == "FixtureCircle") {
+                        newFixture = Fixture::createCircle(patch, {0, 0, 0}, 150.0f);
+                    }
+                    if (newFixture.is_valid()) {
+                        Fixture::select(patch, newFixture);
+                        std::cout << "[Server RPC] Spawned " << spawnType << ": " << newFixture.path() << std::endl;
+                    }
+                } else {
+                    std::cerr << "[Server RPC] SpawnEntityRequest: No valid parent patch found for path: " << parentPath << std::endl;
+                    return;
+                }
+            }
+
+            // Broadcast the updated world state to all connected clients
+            std::string worldJson = world.to_json().c_str();
+            AsioNetworkManager::getInstance().broadcastCommandToClients(CommandType::SyncWorldState, worldJson);
+            break;
+        }
+        case CommandType::DeleteEntityRequest: {
+            auto rpc = SimpleJson::parse(jsonPayload);
+            std::string entityPath = rpc.getString("entityPath");
+
+            flecs::entity target = world.lookup(entityPath.c_str());
+            if (!target.is_valid()) {
+                std::cerr << "[Server RPC] DeleteEntityRequest: Entity not found: " << entityPath << std::endl;
+                return;
+            }
+
+            std::cout << "[Server RPC] Deleting entity: " << entityPath << std::endl;
+            target.destruct();
+
+            // Broadcast the updated world state to all connected clients
+            std::string worldJson = world.to_json().c_str();
+            AsioNetworkManager::getInstance().broadcastCommandToClients(CommandType::SyncWorldState, worldJson);
             break;
         }
         default:

@@ -8,6 +8,19 @@ void sendCommandToServer(CommandType type, const std::string& jsonPayload) {
     AsioNetworkManager::getInstance().sendCommandToServer(type, jsonPayload);
 }
 
+void sendSpawnEntityRequest(const std::string& parentPath, const std::string& type) {
+    std::unordered_map<std::string, std::string> kvs;
+    kvs["parentPath"] = parentPath;
+    kvs["type"] = type;
+    sendCommandToServer(CommandType::SpawnEntityRequest, SimpleJson::build(kvs));
+}
+
+void sendDeleteEntityRequest(const std::string& entityPath) {
+    std::unordered_map<std::string, std::string> kvs;
+    kvs["entityPath"] = entityPath;
+    sendCommandToServer(CommandType::DeleteEntityRequest, SimpleJson::build(kvs));
+}
+
 void sendApplyScript(const std::string& path, const std::string& type, const std::string& source) {
     std::unordered_map<std::string, std::string> kvs;
     kvs["entityPath"] = path;

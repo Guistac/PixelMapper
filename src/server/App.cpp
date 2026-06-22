@@ -171,23 +171,6 @@ namespace App {
         ::Network::terminate();
         b_initializedAppThreads = false;
     }
-
-    static int compareOrder(flecs::entity_t e1, const Fixture::Order* o1,
-                           flecs::entity_t e2, const Fixture::Order* o2) {
-        if (!o1 && !o2) return 0;
-        if (!o1) return 1;
-        if (!o2) return -1;
-        return (o1->index > o2->index) - (o1->index < o2->index);
-    }
-
-    static int compareUniverse(flecs::entity_t e1, const Artnet::Universe::Properties* p1,
-                              flecs::entity_t e2, const Artnet::Universe::Properties* p2) {
-        if (!p1 && !p2) return 0;
-        if (!p1) return 1;
-        if (!p2) return -1;
-        return (p1->universeId > p2->universeId) - (p1->universeId < p2->universeId);
-    }
-
     void import(flecs::world& w){
         // Register common components
         importComponents(w);
@@ -208,32 +191,7 @@ namespace App {
         }
 
         //————————————————————— QUERIES ———————————————————————
-        Queries queries{
-            .patch = w.query_builder<Patch::Is>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .build(),
-            .fixtureWithDmxInPatch = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress, Fixture::Order>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .order_by<Fixture::Order>(compareOrder)
-                .build(),
-            .fixtureInDmxUniverse = w.query_builder<Fixture::Is, Fixture::Layout, Fixture::DmxAddress, Fixture::Order>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .with<Fixture::InUniverse>().second("$universe")
-                .order_by<Fixture::Order>(compareOrder)
-                .build(),
-            .fixtureWithPixelDataInPatch = w.query_builder<Fixture::Is, Fixture::PixelData, Fixture::Order>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .order_by<Fixture::Order>(compareOrder)
-                .build(),
-            .dmxUniverseInPatch = w.query_builder<Artnet::Universe::Is, Artnet::Universe::Properties>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .order_by<Artnet::Universe::Properties>(compareUniverse)
-                .build(),
-            .artnetDeviceInPatch = w.query_builder<Artnet::Device::Is, Artnet::Device::Settings>()
-                .term().first(flecs::ChildOf).second("$parent")
-                .build()
-        };
-        pixelMapper.set<Queries>(queries);
+        initQueries(w);
 
         //———————————————————— OBSERVERS ——————————————————————
         w.observer<Fixture::Layout>("ObserveFixtureLayout").event(flecs::OnSet)

@@ -203,8 +203,14 @@ int main(int argc, char* argv[]) {
         PixelMapper::Network::AsioNetworkManager::getInstance().setCommandCallback([&serverWorld](PixelMapper::Network::CommandType type, const std::string& payload) {
             PixelMapper::Network::handleServerCommand(type, payload, serverWorld);
         });
-        PixelMapper::Network::AsioNetworkManager::getInstance().setClientConnectCallback([]() {
-            g_syncRequested.store(true);
+        PixelMapper::Network::AsioNetworkManager::getInstance().setClientConnectCallback([&serverWorld](std::shared_ptr<asio::ip::tcp::socket> newSocket) {
+            // Send the current authoritative world state directly to the newly connected client
+            std::string worldJson = serverWorld.to_json().c_str();
+            PixelMapper::Network::AsioNetworkManager::getInstance().sendCommandToNewClient(
+                newSocket,
+                PixelMapper::Network::CommandType::SyncWorldState,
+                worldJson
+            );
         });
         PixelMapper::Network::AsioNetworkManager::getInstance().startServer(7777, 7778);
 
@@ -236,6 +242,7 @@ int main(int argc, char* argv[]) {
         // Setup Client mirrored Flecs world
         clientWorld.import<flecs::stats>();
         PixelMapper::App::importComponents(clientWorld); // Register components locally
+        PixelMapper::App::initQueries(clientWorld);
         PixelMapper::Gui::import(clientWorld);
 
         // Start Client network manager
@@ -294,6 +301,7 @@ int main(int argc, char* argv[]) {
 
         clientWorld.import<flecs::stats>();
         PixelMapper::App::importComponents(clientWorld); // Register components locally
+        PixelMapper::App::initQueries(clientWorld);
         PixelMapper::Gui::import(clientWorld);
 
         // Server socket and callbacks
@@ -304,8 +312,14 @@ int main(int argc, char* argv[]) {
                 PixelMapper::Network::handleClientCommand(type, payload, clientWorld);
             }
         });
-        PixelMapper::Network::AsioNetworkManager::getInstance().setClientConnectCallback([]() {
-            g_syncRequested.store(true);
+        PixelMapper::Network::AsioNetworkManager::getInstance().setClientConnectCallback([&serverWorld](std::shared_ptr<asio::ip::tcp::socket> newSocket) {
+            // Send the current authoritative world state directly to the newly connected client
+            std::string worldJson = serverWorld.to_json().c_str();
+            PixelMapper::Network::AsioNetworkManager::getInstance().sendCommandToNewClient(
+                newSocket,
+                PixelMapper::Network::CommandType::SyncWorldState,
+                worldJson
+            );
         });
 
         // Start server first

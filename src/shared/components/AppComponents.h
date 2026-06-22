@@ -65,6 +65,7 @@ namespace App {
     };
 
     void importComponents(flecs::world& w);
+    void initQueries(flecs::world& w);
 
     extern std::shared_ptr<PatchProgram> currentPatchProgram;
 

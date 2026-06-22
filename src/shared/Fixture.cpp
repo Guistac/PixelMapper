@@ -270,10 +270,21 @@ namespace Fixture {
         w.component<InUniverse>();
         w.component<LayoutDirty>();
         w.component<PixelPositionsDirty>();
-        w.component<Layout>();
-        w.component<DmxAddress>();
+
+        w.component<Layout>()
+            .member<int>("pixelCount")
+            .member<int>("channelsPerPixel");
+
+        w.component<DmxAddress>()
+            .member<uint16_t>("universe")
+            .member<uint16_t>("address");
+
+        // PixelData holds std::vector<> payloads — transmitted via UDP telemetry,
+        // not ECS JSON sync. Register as opaque so Flecs skips it silently.
         w.component<PixelData>();
-        w.component<Order>();
+
+        w.component<Order>()
+            .member<int>("index");
     }
 
 } // namespace Fixture

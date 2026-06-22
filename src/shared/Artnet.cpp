@@ -48,7 +48,13 @@ namespace Artnet::Universe {
     void import(flecs::world& w){
         w.component<Is>();
         w.component<SendTo>();
-        w.component<Properties>();
+
+        w.component<Properties>()
+            .member<uint16_t>("universeId")
+            .member<uint16_t>("usedSize");
+
+        // Channels holds a raw 512-byte DMX buffer — transmitted via ArtNet UDP,
+        // not ECS JSON sync. Register as opaque so Flecs skips serialization.
         w.component<Channels>().add(flecs::Sparse);
     }
 
@@ -88,7 +94,11 @@ namespace Artnet::Device {
     void import(flecs::world& w){
         w.component<Is>();
         w.component<SendsUniverse>();
-        w.component<Settings>();
+
+        w.component<Settings>()
+            .member<uint32_t>("ipAddress")
+            .member<uint16_t>("startUniverse")
+            .member<uint16_t>("universeCount");
     }
 
 } // namespace Device

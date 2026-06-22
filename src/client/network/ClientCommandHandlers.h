@@ -48,7 +48,7 @@ void sendEntityMutationPair(flecs::entity entity, const Object* componentPtr) {
     if (!entity.is_valid() || !componentPtr) return;
     flecs::world w = entity.world();
     flecs::entity_t tid = w.id(w.entity<Relation>(), w.entity<Object>());
-    std::string compJson = w.to_json(tid, componentPtr).c_str();
+    std::string compJson = w.to_json<Object>(componentPtr).c_str();
 
     std::unordered_map<std::string, std::string> kvs;
     kvs["entityPath"] = entity.path().c_str();
@@ -74,6 +74,8 @@ inline void sendEntityMutationPairDynamic(flecs::entity entity, flecs::entity re
     sendCommandToServer(CommandType::EntityMutation, SimpleJson::build(kvs));
 }
 
+void sendSpawnEntityRequest(const std::string& parentPath, const std::string& type);
+void sendDeleteEntityRequest(const std::string& entityPath);
 void sendApplyScript(const std::string& path, const std::string& type, const std::string& source);
 void sendFileIORequest(const std::string& action, const std::string& path);
 void sendTransportControl(int cueIndex);
