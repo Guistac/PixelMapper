@@ -61,9 +61,9 @@ namespace Fixture {
             updateFixtureNameCounter(patch.world());
         });
         std::string fixtureName = "Line Fixture " + std::to_string(g_fixtureNameSeq++);
-        auto newFixture = create(patch, numPixels, channels)
-        .set_name(fixtureName.c_str())
-        .set<WithShape, Shape::Line>({start, end});
+        auto newFixture = create(patch, numPixels, channels);
+        Patch::safe_set_name(newFixture, fixtureName);
+        newFixture.set<WithShape, Shape::Line>({start, end});
         return newFixture;
     }
 
@@ -73,9 +73,9 @@ namespace Fixture {
             updateFixtureNameCounter(patch.world());
         });
         std::string fixtureName = "Circle Fixture " + std::to_string(g_fixtureNameSeq++);
-        auto newFixture = create(patch, numPixels, channels)
-        .set_name(fixtureName.c_str())
-        .set<WithShape, Shape::Circle>({center, radius});
+        auto newFixture = create(patch, numPixels, channels);
+        Patch::safe_set_name(newFixture, fixtureName);
+        newFixture.set<WithShape, Shape::Circle>({center, radius});
         return newFixture;
     }
 

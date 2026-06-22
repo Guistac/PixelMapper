@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="1" showPalettesWindow="1" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="1" previewOpacity="0.88" showGrid="0" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="1" canvasRotationY="272.5" editingCueIndex="-3" editingBankIndex="9"/>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="1" showPalettesWindow="1" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="1" previewOpacity="0.88" showGrid="0" showFixtures="1" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="1" canvasRotationY="272.5" editingCueIndex="-2" editingBankIndex="12"/>
     <Patch name="Patch 1">
         <Settings refreshRate="50.299999" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="0" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
@@ -199,7 +199,7 @@ end
             <Device name="Device 2" ip="2.0.0.11" startUniverse="8" universeCount="8"/>
             <Device name="Device 3" ip="2.0.0.12" startUniverse="16" universeCount="24"/>
         </ArtNetDevices>
-        <CueList autoAdvance="0" loop="1" activeIndex="-1">
+        <CueList autoAdvance="0" loop="1" activeIndex="7">
             <Cue name="Cue 9" holdSeconds="5" fadeSeconds="1" targetEffectId="6"/>
             <Cue name="Cue 10" holdSeconds="5" fadeSeconds="1" targetEffectId="5"/>
             <Cue name="Cue 11" holdSeconds="5" fadeSeconds="2" targetEffectId="0"/>
@@ -855,8 +855,44 @@ void main() {
     fragColor = vec4(color, 1.0);
 }
 ]]></Effect>
+            <Effect name="TODO 3D Sphere &amp; Ray" id="12"><![CDATA[#version 150
+in vec3 vPixelPos3D;
+in vec2 vPixelPos2D;
+out vec4 fragColor;
+#define iPixelPos3D vPixelPos3D
+#define iPixelPos2D vPixelPos2D
+uniform float time;
+uniform vec2 resolution;
+uniform vec3 pixelPosMin;
+uniform vec3 pixelPosMax;
+
+float maxComp(vec3 p) {
+	return max(max(p.x, p.y), p.z);
+}
+
+vec3 smoothtrail(vec3 p) {
+	float t = 0.5 + 0.5 * sin(time * 1.5);
+	float radius = mix(0.1, 0.45, t);
+	float d = length(p);
+	
+	float s = d - t;
+	
+	return vec3(s);
+}
+
+void main() {
+	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
+    float dist = length(p);
+    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
+    float intensity = smoothstep(0.05, 0.0, abs(dist-radius));
+    vec3 color = vec3(0.5 + 0.5 * sin(time),
+                      0.5 + 0.5 * sin(time + 2.09),
+                      0.5 + 0.5 * sin(time + 4.18));
+    fragColor = vec4(smoothtrail(p), 1.0);
+}
+]]></Effect>
         </EffectBank>
-        <GenerativeSettings masterEnabled="1" paletteEnabled="1" motiveEnabled="1" shaderEnabled="1" paletteInterval="15" paletteJitter="5" paletteCrossfade="4" motiveInterval="20" motiveJitter="5" motiveCrossfade="6" shaderInterval="30" shaderJitter="10" shaderCrossfade="5" enableLinear="1" enableLuma="1" enableSweep="1" enableCircle="1" enableLuminosity="1" transitionVolumetric="0" manualPaletteOverride="0" manualPaletteIndex="-1" manualMotiveOverride="0" manualMotiveIndex="-1" manualShaderOverride="0" manualShaderIndex="-1" manualTransitionType="0"/>
+        <GenerativeSettings masterEnabled="1" paletteEnabled="1" motiveEnabled="1" shaderEnabled="1" paletteInterval="15" paletteJitter="5" paletteCrossfade="4" motiveInterval="20" motiveJitter="5" motiveCrossfade="6" shaderInterval="30" shaderJitter="10" shaderCrossfade="5" enableLinear="1" enableLuma="1" enableSweep="1" enableCircle="1" enableLuminosity="1" transitionVolumetric="0" manualPaletteOverride="0" manualPaletteIndex="-1" manualMotiveOverride="0" manualMotiveIndex="-1" manualShaderOverride="0" manualShaderIndex="-1" manualTransitionType="4"/>
         <Palettes>
             <Palette name="Rainbow" isModeB="0">
                 <Stop r="1" g="0" b="0" a="1" position="0" smoothness="0.5"/>

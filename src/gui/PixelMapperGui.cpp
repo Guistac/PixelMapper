@@ -286,6 +286,9 @@ static flecs::entity getEffectEntityByIndex(flecs::entity bankFolder, int idx) {
             fxList.push_back(child);
         }
     });
+    std::sort(fxList.begin(), fxList.end(), [](const flecs::entity& a, const flecs::entity& b) {
+        return a.id() < b.id();
+    });
     if (idx >= (int)fxList.size()) return flecs::entity::null();
     return fxList[idx];
 }
@@ -350,7 +353,7 @@ void import(flecs::world& w){
                 Patch::iterate(app, [&](flecs::entity patch){
                     bool b = (sel == patch);
                     ImGui::PushID(patch.id());
-                    if(ImGui::MenuItem(patch.name().c_str(), "", b)) Patch::select(app, patch);
+                    if(ImGui::MenuItem(patch.name().c_str() ? patch.name().c_str() : "", "", b)) Patch::select(app, patch);
                     ImGui::PopID();
                 });
                 ImGui::Separator();
@@ -480,23 +483,26 @@ void import(flecs::world& w){
                         if(renamingId == f.id()){
                             if(ImGui::InputText("##ren", renameBuf, sizeof(renameBuf),
                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)){
-                                f.set_name(renameBuf); renamingId = 0;
+                                Patch::safe_set_name(f, renameBuf); renamingId = 0;
                             }
                             if(!ImGui::IsItemActive() && ImGui::IsMouseClicked(0)) renamingId = 0;
                         } else {
-                            if(ImGui::Selectable(f.name().c_str(), isSel)){
+                            const char* fName = f.name().c_str();
+                            std::string label = std::string(fName && fName[0] != '\0' ? fName : "<unnamed>") + "##" + std::to_string(f.id());
+                            if(ImGui::Selectable(label.c_str(), isSel)){
                                 Fixture::select(selectedPatch, f); msClear(selectedPatch);
                             }
                             if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)){
                                 renamingId = f.id();
-                                std::strncpy(renameBuf, f.name().c_str(), sizeof(renameBuf)-1);
+                                std::strncpy(renameBuf, f.name().c_str() ? f.name().c_str() : "", sizeof(renameBuf)-1);
                             }
                         }
 
                         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
                             uint64_t dragFid = f.id();
                             ImGui::SetDragDropPayload("DND_FIXTURE_ORDER", &dragFid, sizeof(dragFid));
-                            ImGui::Text("Move %s", f.name().c_str());
+                            const char* fName = f.name().c_str();
+                            ImGui::Text("Move %s", fName ? fName : "");
                             ImGui::EndDragDropSource();
                         }
 
@@ -567,13 +573,14 @@ void import(flecs::world& w){
                         }
                     }
                 } else if(hasSel){
-                    ImGui::Text("Properties: %s", selectedFixture.name().c_str());
+                    const char* sfName = selectedFixture.name().c_str();
+                    ImGui::Text("Properties: %s", sfName ? sfName : "");
                     ImGui::Separator();
 
                     char nameBuf[128] = {};
-                    std::strncpy(nameBuf, selectedFixture.name().c_str(), sizeof(nameBuf) - 1);
+                    std::strncpy(nameBuf, selectedFixture.name().c_str() ? selectedFixture.name().c_str() : "", sizeof(nameBuf) - 1);
                     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-                        selectedFixture.set_name(nameBuf);
+                        Patch::safe_set_name(selectedFixture, nameBuf);
                     }
 
                     if(selectedFixture.has<Fixture::Layout>()){
@@ -1205,11 +1212,18 @@ void import(flecs::world& w){
                 ImGui::SameLine();
 
                 ImGui::SetNextItemWidth(200.f);
-                std::string comboLabel = selectedUniverse.is_valid() ? selectedUniverse.name().c_str() : "Select Universe...";
+                std::string comboLabel = "Select Universe...";
+                if (selectedUniverse.is_valid()) {
+                    const char* uName = selectedUniverse.name().c_str();
+                    if (uName && uName[0] != '\0') comboLabel = uName;
+                    else comboLabel = "<unnamed>";
+                }
                 if (ImGui::BeginCombo("##UniverseCombo", comboLabel.c_str())) {
                     for (int i = 0; i < (int)univs.size(); ++i) {
                         bool isSel = (univs[i] == selectedUniverse);
-                        if (ImGui::Selectable(univs[i].name().c_str(), isSel)) {
+                        const char* uName = univs[i].name().c_str();
+                        std::string label = std::string(uName && uName[0] != '\0' ? uName : "<unnamed>") + "##" + std::to_string(univs[i].id());
+                        if (ImGui::Selectable(label.c_str(), isSel)) {
                             Artnet::Universe::select(selectedPatch, univs[i]);
                             selectedUniverse = univs[i];
                         }
@@ -1220,7 +1234,7 @@ void import(flecs::world& w){
                     ImGui::EndCombo();
                 }
                 ImGui::SameLine();
-
+ 
                 if (ImGui::Button("Next >") && !univs.empty()) {
                     int nextIndex = currentUnivIndex + 1;
                     if (nextIndex >= (int)univs.size()) nextIndex = 0;
@@ -1229,7 +1243,7 @@ void import(flecs::world& w){
                 }
                 ImGui::Separator();
             }
-
+ 
             ImGui::BeginChild("##dmxHex", ImGui::GetContentRegionAvail());
             if(selectedUniverse.is_valid()){
                 std::vector<MappedField> fields;
@@ -1248,7 +1262,8 @@ void import(flecs::world& w){
                             for(int i = dmxAddress.universe + 1; i < (int)univProps->universeId; i++) count -= 512;
                         }
                         if(count <= 0 || offset < 0) return;
-                        fields.push_back({fixture.name().c_str(), offset, count, 0, (fixture == selectedFixture)});
+                        const char* fName = fixture.name().c_str();
+                        fields.push_back({fName ? fName : "", offset, count, 0, (fixture == selectedFixture)});
                 });
                 std::sort(fields.begin(), fields.end(), [](const MappedField& a, const MappedField& b){ return a.Offset < b.Offset; });
                 for(int i = 0; i < (int)fields.size(); i++)
@@ -1377,7 +1392,7 @@ void import(flecs::world& w){
                 Artnet::Device::iterateInPatch(selectedPatch, [&](flecs::entity d, const Artnet::Device::Settings&){ devs.push_back(d); });
                 std::string devName = "Device " + std::to_string(devs.size() + 1);
                 auto dev = Artnet::Device::create(selectedPatch);
-                dev.set_name(devName.c_str());
+                Patch::safe_set_name(dev, devName);
                 Artnet::Device::select(selectedPatch, dev);
                 if(auto* s = dev.try_get_mut<Artnet::Device::Settings>()){
                     s->ipAddress = 0xFFFFFFFF; s->startUniverse = 0; s->universeCount = 1;
@@ -1399,7 +1414,7 @@ void import(flecs::world& w){
             if(!hasDev) ImGui::EndDisabled();
             ImGui::PopStyleVar();
             ImGui::Separator();
-
+ 
             if(ImGui::BeginTable("DevTable", 2, ImGuiTableFlags_Resizable)){
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -1407,7 +1422,9 @@ void import(flecs::world& w){
                     Artnet::Device::iterateInPatch(selectedPatch,
                         [&](flecs::entity d, const Artnet::Device::Settings&){
                             bool b = (d == selectedDev);
-                            if(ImGui::Selectable(d.name(), b)) Artnet::Device::select(selectedPatch, d);
+                            const char* dName = d.name().c_str();
+                            std::string label = std::string(dName && dName[0] != '\0' ? dName : "<unnamed>") + "##" + std::to_string(d.id());
+                            if(ImGui::Selectable(label.c_str(), b)) Artnet::Device::select(selectedPatch, d);
                     });
                     ImGui::EndListBox();
                 }
@@ -1417,9 +1434,9 @@ void import(flecs::world& w){
                         bool e = false;
                         ImGui::SeparatorText("Device Settings");
                         char devName[64] = {};
-                        std::strncpy(devName, selectedDev.name().c_str(), sizeof(devName)-1);
+                        std::strncpy(devName, selectedDev.name().c_str() ? selectedDev.name().c_str() : "", sizeof(devName)-1);
                         if(ImGui::InputText("Name", devName, sizeof(devName))){
-                            selectedDev.set_name(devName);
+                            Patch::safe_set_name(selectedDev, devName);
                         }
                         uint8_t* ip = reinterpret_cast<uint8_t*>(&s->ipAddress);
                         int ipb[4] = {ip[0],ip[1],ip[2],ip[3]};
@@ -1550,10 +1567,10 @@ void import(flecs::world& w){
                 if (fxEnt.is_valid()) {
                     ImGui::Text("Editing Effect:"); ImGui::SameLine();
                     char fxName[64];
-                    std::strncpy(fxName, fxEnt.name().c_str(), sizeof(fxName)-1);
+                    std::strncpy(fxName, fxEnt.name().c_str() ? fxEnt.name().c_str() : "", sizeof(fxName)-1);
                     ImGui::SetNextItemWidth(150);
                     if (ImGui::InputText("Name##fx", fxName, sizeof(fxName))) {
-                        fxEnt.set_name(fxName);
+                        Patch::safe_set_name(fxEnt, fxName);
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Add to Cue List")) {
@@ -1565,7 +1582,7 @@ void import(flecs::world& w){
                                 }
                             }
                         });
-                        std::string cueName = fxEnt.name().c_str();
+                        std::string cueName = fxEnt.name().c_str() ? fxEnt.name().c_str() : "Cue";
                         auto newCue = it.world().entity()
                             .child_of(cueFolder)
                             .add<CueList::Cue::Is>()
@@ -1573,7 +1590,7 @@ void import(flecs::world& w){
                             .set<CueList::Cue::FadeDuration>({2.0f})
                             .set<CueList::Cue::IndexOrder>({nextOrder})
                             .add<CueList::Cue::TargetEffect>(fxEnt);
-                        newCue.set_name(cueName.c_str());
+                        Patch::safe_set_name(newCue, cueName);
                         selectedPatch.add<Patch::ProgramDirty>();
                     }
                     ImGui::SameLine();
@@ -1976,9 +1993,9 @@ void import(flecs::world& w){
                         .add<EffectBank::Effect::Is>()
                         .set<EffectBank::Effect::GlslSource>({glsl})
                         .set<Patch::GPUProgram>({});
-                    targetFx.set_name("Effect 1");
+                    Patch::safe_set_name(targetFx, "Effect 1");
                 }
-
+ 
                 auto newCue = it.world().entity()
                     .child_of(cueFolder)
                     .add<CueList::Cue::Is>()
@@ -1986,7 +2003,7 @@ void import(flecs::world& w){
                     .set<CueList::Cue::FadeDuration>({2.f})
                     .set<CueList::Cue::IndexOrder>({nextOrder})
                     .add<CueList::Cue::TargetEffect>(targetFx);
-                newCue.set_name(cueName.c_str());
+                Patch::safe_set_name(newCue, cueName);
 
                 if (session->activeIndex < 0) session->activeIndex = 0;
                 selectedPatch.add<Patch::ProgramDirty>();
@@ -2064,15 +2081,21 @@ void import(flecs::world& w){
                         int targetFxIdx = -1;
                         if (targetEffect.is_valid()) {
                             // Find the index of targetEffect in the bank folder children
-                            int idxCounter = 0;
+                            std::vector<flecs::entity> fxList;
                             bankFolder.children([&](flecs::entity child) {
                                 if (child.has<EffectBank::Effect::Is>()) {
-                                    if (child == targetEffect) {
-                                        targetFxIdx = idxCounter;
-                                    }
-                                    idxCounter++;
+                                    fxList.push_back(child);
                                 }
                             });
+                            std::sort(fxList.begin(), fxList.end(), [](const flecs::entity& a, const flecs::entity& b) {
+                                return a.id() < b.id();
+                            });
+                            for (int idx = 0; idx < (int)fxList.size(); ++idx) {
+                                if (fxList[idx] == targetEffect) {
+                                    targetFxIdx = idx;
+                                    break;
+                                }
+                            }
                             isEditingThis = (ui->editingCueIndex == -2 && ui->editingBankIndex == targetFxIdx);
                         }
 
@@ -2124,7 +2147,11 @@ void import(flecs::world& w){
                         }
 
                         ImGui::TableNextColumn();
-                        std::string comboLabel = targetEffect.is_valid() ? targetEffect.name().c_str() : "None";
+                        std::string comboLabel = "None";
+                        if (targetEffect.is_valid()) {
+                            const char* fxName = targetEffect.name().c_str();
+                            if (fxName) comboLabel = fxName;
+                        }
                         ImGui::SetNextItemWidth(-1);
                         if (ImGui::BeginCombo("##EffectCombo", comboLabel.c_str())) {
                             std::vector<flecs::entity> fxList;
@@ -2133,9 +2160,14 @@ void import(flecs::world& w){
                                     fxList.push_back(child);
                                 }
                             });
+                            std::sort(fxList.begin(), fxList.end(), [](const flecs::entity& a, const flecs::entity& b) {
+                                return a.id() < b.id();
+                            });
                             for (auto& fx : fxList) {
                                 bool isSel = (fx == targetEffect);
-                                if (ImGui::Selectable(fx.name().c_str(), isSel)) {
+                                const char* fxName = fx.name().c_str();
+                                std::string label = std::string(fxName && fxName[0] != '\0' ? fxName : "<unnamed>") + "##" + std::to_string(fx.id());
+                                if (ImGui::Selectable(label.c_str(), isSel)) {
                                     cueEntry.entity.remove<CueList::Cue::TargetEffect>(flecs::Wildcard);
                                     cueEntry.entity.add<CueList::Cue::TargetEffect>(fx);
                                     selectedPatch.add<Patch::ProgramDirty>();
@@ -2238,12 +2270,12 @@ void import(flecs::world& w){
                     .add<EffectBank::Effect::Is>()
                     .set<EffectBank::Effect::GlslSource>({glsl})
                     .set<Patch::GPUProgram>({});
-                newFx.set_name(fxName.c_str());
+                Patch::safe_set_name(newFx, fxName);
                 
                 // Immediately select for editing and open editor window
                 setEditingBankIndex(app, (int)fxList.size());
                 ui->showScriptEditor = true;
-
+ 
                 selectedPatch.add<Patch::ProgramDirty>();
             }
 
@@ -2270,7 +2302,7 @@ void import(flecs::world& w){
                     bankFolder.children([&](flecs::entity child) {
                         if (child.has<EffectBank::Effect::Is>()) {
                             if (!filterStr.empty()) {
-                                std::string name = child.name().c_str();
+                                std::string name = child.name().c_str() ? child.name().c_str() : "";
                                 std::transform(name.begin(), name.end(), name.begin(), ::tolower);
                                 if (name.find(filterStr) == std::string::npos) {
                                     return;
@@ -2280,21 +2312,27 @@ void import(flecs::world& w){
                         }
                     });
 
+                    std::sort(fxList.begin(), fxList.end(), [](const flecs::entity& a, const flecs::entity& b) {
+                        return a.id() < b.id();
+                    });
+ 
                     for (int i = 0; i < (int)fxList.size(); i++) {
                         flecs::entity fx = fxList[i];
                         bool isEditing = (ui->editingCueIndex == -2 && ui->editingBankIndex == i);
-
+ 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-
+ 
                         ImGui::PushID(fx.id());
-
+ 
+                        const char* fxName = fx.name().c_str();
+                        bool hasName = (fxName && fxName[0] != '\0');
                         if (isEditing) {
-                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "* %s", fx.name().c_str());
+                            ImGui::TextColored({1.0f, 0.7f, 0.2f, 1.0f}, "* %s", hasName ? fxName : "<unnamed>");
                         } else {
-                            ImGui::Text("%s", fx.name().c_str());
+                            ImGui::Text("%s", hasName ? fxName : "<unnamed>");
                         }
-
+ 
                         ImGui::TableNextColumn();
                         if (ImGui::Button("Add to Cue List")) {
                             int nextOrder = 0;
@@ -2313,23 +2351,23 @@ void import(flecs::world& w){
                                 .set<CueList::Cue::FadeDuration>({2.0f})
                                 .set<CueList::Cue::IndexOrder>({nextOrder})
                                 .add<CueList::Cue::TargetEffect>(fx);
-                            newCue.set_name(fx.name().c_str());
+                            Patch::safe_set_name(newCue, fxName ? fxName : "Cue");
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
-
+ 
                         ImGui::TableNextColumn();
                         if (ImGui::Button("Duplicate")) {
                             std::string glsl = "";
                             if (const auto* src = fx.try_get<EffectBank::Effect::GlslSource>()) {
-                                glsl = src->value;
+                                  glsl = src->value;
                             }
-                            std::string newName = std::string(fx.name().c_str()) + " Copy";
+                            std::string newName = std::string(fxName ? fxName : "") + " Copy";
                             auto newFx = it.world().entity()
                                 .child_of(bankFolder)
                                 .add<EffectBank::Effect::Is>()
                                 .set<EffectBank::Effect::GlslSource>({glsl})
                                 .set<Patch::GPUProgram>({});
-                            newFx.set_name(newName.c_str());
+                            Patch::safe_set_name(newFx, newName);
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
 
@@ -3217,7 +3255,7 @@ public:
                         .add<Generative::Palette::Is>()
                         .set<Generative::Palette::Stops>({stops})
                         .set<Generative::Palette::IsModeB>({false});
-                    p.set_name(newName.c_str());
+                    Patch::safe_set_name(p, newName.c_str());
                     
                     it.world().entity("PixelMapperApp").get_mut<App::UIConfig>().editingCueIndex = -3; // select flag
                     currentPatchId = p.id();
@@ -3245,7 +3283,8 @@ public:
  
                 if (!hasSel) ImGui::BeginDisabled();
                 if (ImGui::Button("Remove")) {
-                    std::string nameToRemove = selectedPal.name().c_str();
+                    const char* pName = selectedPal.name().c_str();
+                    std::string nameToRemove = pName ? pName : "";
                     selectedPal.destruct();
                     selectedPalId = 0;
                     hasSel = false;
@@ -3268,7 +3307,9 @@ public:
                     palFolder.children([&](flecs::entity child) {
                         if (child.has<Generative::Palette::Is>()) {
                             bool isSel = (child.id() == selectedPalId);
-                            if (ImGui::Selectable(child.name().c_str(), isSel)) {
+                            const char* pName = child.name().c_str();
+                            std::string label = std::string(pName && pName[0] != '\0' ? pName : "<unnamed>") + "##" + std::to_string(child.id());
+                            if (ImGui::Selectable(label.c_str(), isSel)) {
                                 selectedPalId = child.id();
                             }
                         }
@@ -3279,20 +3320,24 @@ public:
                 ImGui::TableSetColumnIndex(1);
                 selectedPal = it.world().entity(selectedPalId);
                 if (selectedPal.is_valid() && selectedPal.is_alive() && selectedPal.parent() == palFolder) {
-                    ImGui::Text("Editing Palette: %s", selectedPal.name().c_str());
+                    const char* pName = selectedPal.name().c_str();
+                    ImGui::Text("Editing Palette: %s", pName ? pName : "");
                     ImGui::Separator();
  
                     char nameBuf[128] = {};
-                    std::strncpy(nameBuf, selectedPal.name().c_str(), sizeof(nameBuf) - 1);
+                    std::strncpy(nameBuf, pName ? pName : "", sizeof(nameBuf) - 1);
                     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-                        std::string oldName = selectedPal.name().c_str();
-                        selectedPal.set_name(nameBuf);
+                        const char* pNameOld = selectedPal.name().c_str();
+                        std::string oldName = pNameOld ? pNameOld : "";
+                        Patch::safe_set_name(selectedPal, nameBuf);
+                        const char* resolvedName = selectedPal.name().c_str();
+                        std::string uniqueName = resolvedName ? resolvedName : nameBuf;
                         auto prog = std::atomic_load(&App::currentPatchProgram);
                         if (prog) {
                             std::lock_guard<std::mutex> lock(prog->generativeMutex);
                             for (auto& cp : prog->palettePool) {
                                 if (cp.name == oldName) {
-                                    cp.name = nameBuf;
+                                    cp.name = uniqueName;
                                     break;
                                 }
                             }
@@ -3306,7 +3351,8 @@ public:
                             if (prog) {
                                 std::lock_guard<std::mutex> lock(prog->generativeMutex);
                                 for (auto& cp : prog->palettePool) {
-                                    if (cp.name == selectedPal.name().c_str()) {
+                                    const char* spName = selectedPal.name().c_str();
+                                    if (cp.name == (spName ? spName : "")) {
                                         cp.isModeB = modeBComp->value;
                                         break;
                                     }
@@ -3600,7 +3646,7 @@ public:
                             if (prog) {
                                 std::lock_guard<std::mutex> lock(prog->generativeMutex);
                                 for (auto& cp : prog->palettePool) {
-                                    if (cp.name == selectedPal.name().c_str()) {
+                                    if (cp.name == (selectedPal.name().c_str() ? selectedPal.name().c_str() : "")) {
                                         cp.stops = stops;
                                         break;
                                     }
@@ -3672,7 +3718,7 @@ public:
             if (palFolder.is_valid()) {
                 palFolder.children([&](flecs::entity child) {
                     if (child.has<Generative::Palette::Is>()) {
-                        paletteNames.push_back(child.name().c_str());
+                        paletteNames.push_back(child.name().c_str() ? child.name().c_str() : "");
                     }
                 });
             }
@@ -3682,7 +3728,7 @@ public:
             if (motiveFolder.is_valid()) {
                 motiveFolder.children([&](flecs::entity child) {
                     if (child.has<Generative::Motive::Is>()) {
-                        motiveNames.push_back(child.name().c_str());
+                        motiveNames.push_back(child.name().c_str() ? child.name().c_str() : "");
                     }
                 });
             }
@@ -3707,7 +3753,7 @@ public:
                     return a.order < b.order;
                 });
                 for (const auto& c : cues) {
-                    shaderNames.push_back(c.entity.name().c_str());
+                    shaderNames.push_back(c.entity.name().c_str() ? c.entity.name().c_str() : "");
                 }
             }
 
@@ -4212,13 +4258,14 @@ public:
                     auto p = it.world().entity().child_of(motiveFolder)
                         .add<Generative::Motive::Is>()
                         .set<Generative::Motive::Params>(params);
-                    p.set_name(newName.c_str());
+                    Patch::safe_set_name(p, newName);
+                    std::string actualName = p.name().c_str() ? p.name().c_str() : "";
                     
                     auto prog = std::atomic_load(&App::currentPatchProgram);
                     if (prog) {
                         std::lock_guard<std::mutex> lock(prog->generativeMutex);
                         Generative::CompiledMotive cm;
-                        cm.name = newName;
+                        cm.name = actualName;
                         cm.velocity = params.velocity;
                         cm.complexity = params.complexity;
                         cm.scale = params.scale;
@@ -4243,7 +4290,7 @@ public:
 
                 if (!hasSel) ImGui::BeginDisabled();
                 if (ImGui::Button("Remove")) {
-                    std::string nameToRemove = selectedMotive.name().c_str();
+                    std::string nameToRemove = selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "";
                     selectedMotive.destruct();
                     selectedMotiveId = 0;
                     hasSel = false;
@@ -4266,7 +4313,9 @@ public:
                     motiveFolder.children([&](flecs::entity child) {
                         if (child.has<Generative::Motive::Is>()) {
                             bool isSel = (child.id() == selectedMotiveId);
-                            if (ImGui::Selectable(child.name().c_str(), isSel)) {
+                            const char* mName = child.name().c_str();
+                            std::string label = std::string(mName && mName[0] != '\0' ? mName : "<unnamed>") + "##" + std::to_string(child.id());
+                            if (ImGui::Selectable(label.c_str(), isSel)) {
                                 selectedMotiveId = child.id();
                             }
                         }
@@ -4277,20 +4326,21 @@ public:
                 ImGui::TableSetColumnIndex(1);
                 selectedMotive = it.world().entity(selectedMotiveId);
                 if (selectedMotive.is_valid() && selectedMotive.is_alive() && selectedMotive.parent() == motiveFolder) {
-                    ImGui::Text("Editing Preset: %s", selectedMotive.name().c_str());
+                    ImGui::Text("Editing Preset: %s", selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "");
                     ImGui::Separator();
 
                     char nameBuf[128] = {};
-                    std::strncpy(nameBuf, selectedMotive.name().c_str(), sizeof(nameBuf) - 1);
+                    std::strncpy(nameBuf, selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "", sizeof(nameBuf) - 1);
                     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-                        std::string oldName = selectedMotive.name().c_str();
-                        selectedMotive.set_name(nameBuf);
+                        std::string oldName = selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "";
+                        Patch::safe_set_name(selectedMotive, nameBuf);
+                        std::string actualNewName = selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "";
                         auto prog = std::atomic_load(&App::currentPatchProgram);
                         if (prog) {
                             std::lock_guard<std::mutex> lock(prog->generativeMutex);
                             for (auto& cm : prog->motivePool) {
                                 if (cm.name == oldName) {
-                                    cm.name = nameBuf;
+                                    cm.name = actualNewName;
                                     break;
                                 }
                             }
@@ -4349,7 +4399,7 @@ public:
                             if (prog) {
                                 std::lock_guard<std::mutex> lock(prog->generativeMutex);
                                 for (auto& cm : prog->motivePool) {
-                                    if (cm.name == selectedMotive.name().c_str()) {
+                                    if (cm.name == (selectedMotive.name().c_str() ? selectedMotive.name().c_str() : "")) {
                                         cm.velocity = params->velocity;
                                         cm.complexity = params->complexity;
                                         cm.scale = params->scale;

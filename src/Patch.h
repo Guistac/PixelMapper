@@ -137,6 +137,46 @@ namespace Patch {
     int getCount(flecs::entity pixelMapper);
     void iterate(flecs::entity pixelMapper, std::function<void(flecs::entity patch)> fn);
     void import(flecs::world& w);
+
+    inline std::string makeUniqueChildName(flecs::entity parent, const std::string& baseName, flecs::entity entityToRename = flecs::entity::null()) {
+        if (!parent.is_valid()) return baseName;
+        std::string candidate = baseName;
+        int counter = 1;
+        while (true) {
+            flecs::entity existing = parent.lookup(candidate.c_str());
+            if (!existing.is_valid() || (entityToRename.is_valid() && existing == entityToRename)) {
+                break;
+            }
+            counter++;
+            candidate = baseName + " (" + std::to_string(counter) + ")";
+        }
+        return candidate;
+    }
+
+    inline void safe_set_name(flecs::entity entity, const std::string& baseName) {
+        if (!entity.is_valid()) return;
+        if (baseName.empty()) {
+            entity.set_name(nullptr);
+        } else {
+            flecs::entity parent = entity.parent();
+            if (parent.is_valid()) {
+                std::string uniqueName = makeUniqueChildName(parent, baseName, entity);
+                entity.set_name(uniqueName.c_str());
+            } else {
+                std::string candidate = baseName;
+                int counter = 1;
+                while (true) {
+                    flecs::entity existing = entity.world().lookup(candidate.c_str());
+                    if (!existing.is_valid() || existing == entity) {
+                        break;
+                    }
+                    counter++;
+                    candidate = baseName + " (" + std::to_string(counter) + ")";
+                }
+                entity.set_name(candidate.c_str());
+            }
+        }
+    }
 }
 
 struct PatchProgram {

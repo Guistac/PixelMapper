@@ -37,10 +37,10 @@ namespace Artnet::Universe {
         std::string univName = "Universe " + std::to_string(universeId);
         flecs::entity newUniv = patch.world().entity()
             .child_of(dmxUniverseFolder)
-            .set_name(univName.c_str())
             .add<Is>()
             .add<Channels>()
             .set<Properties>({universeId, 0});
+        Patch::safe_set_name(newUniv, univName);
         select(patch, newUniv);
         return newUniv;
     }

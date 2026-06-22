@@ -69,7 +69,7 @@ namespace Patch {
             .set<Patch::GPUProgram>({})
             .child_of(patchFolder);
 
-        newPatch.set_name(patchName.c_str());
+        Patch::safe_set_name(newPatch, patchName);
 
         auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
         auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
@@ -111,10 +111,10 @@ namespace Patch {
                 { {1.0f, 0.0f, 1.0f, 1.0f}, 0.83f, 0.5f, {0.0f, 0.0f} },
                 { {1.0f, 0.0f, 0.0f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
             };
-            world.entity().child_of(paletteFolder)
-                .add<Generative::Palette::Is>()
-                .set_name("Rainbow")
-                .set<Generative::Palette::Stops>({stops1})
+            auto pal1 = world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>();
+            Patch::safe_set_name(pal1, "Rainbow");
+            pal1.set<Generative::Palette::Stops>({stops1})
                 .set<Generative::Palette::IsModeB>({false});
 
             // 2. Sunset
@@ -124,10 +124,10 @@ namespace Patch {
                 { {0.35f, 0.02f, 0.55f, 1.0f}, 0.70f, 0.5f, {0.0f, 0.0f} },
                 { {0.95f, 0.20f, 0.08f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
             };
-            world.entity().child_of(paletteFolder)
-                .add<Generative::Palette::Is>()
-                .set_name("Sunset")
-                .set<Generative::Palette::Stops>({stops2})
+            auto pal2 = world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>();
+            Patch::safe_set_name(pal2, "Sunset");
+            pal2.set<Generative::Palette::Stops>({stops2})
                 .set<Generative::Palette::IsModeB>({false});
 
             // 3. Cyberpunk Neon
@@ -136,10 +136,10 @@ namespace Patch {
                 { {0.95f, 0.0f, 0.85f, 1.0f}, 0.50f, 0.5f, {0.0f, 0.0f} },
                 { {0.0f, 0.95f, 0.95f, 1.0f}, 1.00f, 0.5f, {0.0f, 0.0f} }
             };
-            world.entity().child_of(paletteFolder)
-                .add<Generative::Palette::Is>()
-                .set_name("Cyberpunk")
-                .set<Generative::Palette::Stops>({stops3})
+            auto pal3 = world.entity().child_of(paletteFolder)
+                .add<Generative::Palette::Is>();
+            Patch::safe_set_name(pal3, "Cyberpunk");
+            pal3.set<Generative::Palette::Stops>({stops3})
                 .set<Generative::Palette::IsModeB>({false});
         }
 
@@ -150,30 +150,30 @@ namespace Patch {
             calm.velocity = 0.15f; calm.complexity = 0.20f; calm.scale = 0.35f;
             calm.distortion = 0.10f; calm.asymmetry = 0.05f; calm.intensity = 0.40f;
             for (int k = 0; k < 6; ++k) { calm.wanderAmp[k] = 0.08f; calm.wanderFreq[k] = 0.25f; }
-            world.entity().child_of(motiveFolder)
-                .add<Generative::Motive::Is>()
-                .set_name("Calm Ambient")
-                .set<Generative::Motive::Params>(calm);
+            auto mot1 = world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>();
+            Patch::safe_set_name(mot1, "Calm Ambient");
+            mot1.set<Generative::Motive::Params>(calm);
 
             // 2. Organic Wandering
             Generative::Motive::Params wander;
             wander.velocity = 0.40f; wander.complexity = 0.50f; wander.scale = 0.55f;
             wander.distortion = 0.35f; wander.asymmetry = 0.25f; wander.intensity = 0.65f;
             for (int k = 0; k < 6; ++k) { wander.wanderAmp[k] = 0.15f; wander.wanderFreq[k] = 0.50f; }
-            world.entity().child_of(motiveFolder)
-                .add<Generative::Motive::Is>()
-                .set_name("Organic Wandering")
-                .set<Generative::Motive::Params>(wander);
+            auto mot2 = world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>();
+            Patch::safe_set_name(mot2, "Organic Wandering");
+            mot2.set<Generative::Motive::Params>(wander);
 
             // 3. Kinetic Storm
             Generative::Motive::Params storm;
             storm.velocity = 0.85f; storm.complexity = 0.80f; storm.scale = 0.75f;
             storm.distortion = 0.65f; storm.asymmetry = 0.50f; storm.intensity = 0.90f;
             for (int k = 0; k < 6; ++k) { storm.wanderAmp[k] = 0.18f; storm.wanderFreq[k] = 1.20f; }
-            world.entity().child_of(motiveFolder)
-                .add<Generative::Motive::Is>()
-                .set_name("Kinetic Storm")
-                .set<Generative::Motive::Params>(storm);
+            auto mot3 = world.entity().child_of(motiveFolder)
+                .add<Generative::Motive::Is>();
+            Patch::safe_set_name(mot3, "Kinetic Storm");
+            mot3.set<Generative::Motive::Params>(storm);
         }
 
         select(pixelMapper, newPatch);
@@ -1431,6 +1431,10 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                     if (child.has<EffectBank::Effect::Is>()) {
                         fxList.push_back(child);
                     }
+                });
+
+                std::sort(fxList.begin(), fxList.end(), [](const flecs::entity& a, const flecs::entity& b) {
+                    return a.id() < b.id();
                 });
 
                 for (const auto& fx : fxList) {

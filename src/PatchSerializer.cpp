@@ -112,7 +112,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
 
     Patch::iterate(pixelMapper, [&](flecs::entity patch) {
         XMLElement* patchEl = doc.NewElement("Patch");
-        patchEl->SetAttribute("name", patch.name().c_str());
+        patchEl->SetAttribute("name", patch.name().c_str() ? patch.name().c_str() : "");
         root->InsertEndChild(patchEl);
 
         // ── Settings ──
@@ -159,7 +159,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
                 const Fixture::DmxAddress& dmx)
         {
             XMLElement* fEl = doc.NewElement("Fixture");
-            fEl->SetAttribute("name",             fixture.name().c_str());
+            fEl->SetAttribute("name",             fixture.name().c_str() ? fixture.name().c_str() : "");
             fEl->SetAttribute("pixelCount",        layout.pixelCount);
             fEl->SetAttribute("channelsPerPixel",  layout.channelsPerPixel);
             fEl->SetAttribute("dmxUniverse",       (int)dmx.universe);
@@ -195,7 +195,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             [&](flecs::entity device, const Artnet::Device::Settings& ds)
         {
             XMLElement* dEl = doc.NewElement("Device");
-            dEl->SetAttribute("name",           device.name().c_str());
+            dEl->SetAttribute("name",           device.name().c_str() ? device.name().c_str() : "");
             dEl->SetAttribute("ip",             ipToString(ds.ipAddress).c_str());
             dEl->SetAttribute("startUniverse",  (int)ds.startUniverse);
             dEl->SetAttribute("universeCount",  (int)ds.universeCount);
@@ -244,7 +244,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
 
                 for (const auto& entry : cues) {
                     XMLElement* cueEl = doc.NewElement("Cue");
-                    cueEl->SetAttribute("name", entry.entity.name().c_str());
+                    cueEl->SetAttribute("name", entry.entity.name().c_str() ? entry.entity.name().c_str() : "");
                     float hold = 5.0f;
                     if (const auto* h = entry.entity.try_get<CueList::Cue::HoldDuration>()) hold = h->value;
                     float fade = 0.0f;
@@ -273,7 +273,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             for (size_t i = 0; i < effects.size(); ++i) {
                 flecs::entity fx = effects[i];
                 XMLElement* fxEl = doc.NewElement("Effect");
-                fxEl->SetAttribute("name", fx.name().c_str());
+                fxEl->SetAttribute("name", fx.name().c_str() ? fx.name().c_str() : "");
                 fxEl->SetAttribute("id", (int)i);
 
                 std::string glsl = "";
@@ -324,7 +324,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             palFolder.children([&](flecs::entity child) {
                 if (child.has<Generative::Palette::Is>()) {
                     XMLElement* palEl = doc.NewElement("Palette");
-                    palEl->SetAttribute("name", child.name().c_str());
+                    palEl->SetAttribute("name", child.name().c_str() ? child.name().c_str() : "");
                     
                     bool modeB = false;
                     if (const auto* mb = child.try_get<Generative::Palette::IsModeB>()) {
@@ -358,7 +358,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             motFolder.children([&](flecs::entity child) {
                 if (child.has<Generative::Motive::Is>()) {
                     XMLElement* motEl = doc.NewElement("Motive");
-                    motEl->SetAttribute("name", child.name().c_str());
+                    motEl->SetAttribute("name", child.name().c_str() ? child.name().c_str() : "");
                     
                     if (const auto* p = child.try_get<Generative::Motive::Params>()) {
                         motEl->SetAttribute("velocity", p->velocity);
@@ -483,7 +483,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
         const char* patchName = patchEl->Attribute("name");
 
         flecs::entity patch = Patch::create(pixelMapper);
-        if (patchName) patch.set_name(patchName);
+        Patch::safe_set_name(patch, patchName ? patchName : "");
 
         // ── Settings ──
         if (XMLElement* sEl = patchEl->FirstChildElement("Settings")) {
@@ -574,7 +574,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                 }
 
                 if (fixture.is_valid()) {
-                    if (name) fixture.set_name(name);
+                    Patch::safe_set_name(fixture, name ? name : "");
                     fixture.set<Fixture::Order>({orderIdx++});
                     Fixture::setDmxProperties(fixture,
                         (uint16_t)dmxUniverse, (uint16_t)dmxAddress);
@@ -596,8 +596,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                 dEl->QueryIntAttribute("universeCount",  &uCount);
 
                 flecs::entity dev = Artnet::Device::create(patch);
-                if (name) dev.set_name(name);
-                else      dev.set_name(("Device " + std::to_string(devCounter++)).c_str());
+                Patch::safe_set_name(dev, name ? name : ("Device " + std::to_string(devCounter++)));
 
                 if (auto* s = dev.try_get_mut<Artnet::Device::Settings>()) {
                     s->ipAddress    = ipFromString(ip);
@@ -629,7 +628,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                         .add<EffectBank::Effect::Is>()
                         .set<EffectBank::Effect::GlslSource>({getElementText(fxEl)})
                         .set<Patch::GPUProgram>({});
-                    if (fxName) newEffect.set_name(fxName);
+                    Patch::safe_set_name(newEffect, fxName ? fxName : "");
 
                     if (fxId != -1) {
                         idToEffect[fxId] = newEffect;
@@ -668,7 +667,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                         .set<CueList::Cue::HoldDuration>({hold})
                         .set<CueList::Cue::FadeDuration>({fade})
                         .set<CueList::Cue::IndexOrder>({cueOrderIdx++});
-                    if (cueName) newCue.set_name(cueName);
+                    Patch::safe_set_name(newCue, cueName ? cueName : "");
 
                     if (targetFxId != -1 && idToEffect.count(targetFxId)) {
                         newCue.add<CueList::Cue::TargetEffect>(idToEffect[targetFxId]);
@@ -681,7 +680,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                             .set<EffectBank::Effect::GlslSource>({glsl})
                             .set<Patch::GPUProgram>({});
                         std::string fxName = (cueName ? std::string(cueName) : "Cue Effect");
-                        fallbackEffect.set_name(fxName.c_str());
+                        Patch::safe_set_name(fallbackEffect, fxName);
                         newCue.add<CueList::Cue::TargetEffect>(fallbackEffect);
                     }
                 }
@@ -766,7 +765,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                     .add<Generative::Palette::Is>()
                     .set<Generative::Palette::Stops>({stops})
                     .set<Generative::Palette::IsModeB>({isModeB != 0});
-                if (palName) pal.set_name(palName);
+                Patch::safe_set_name(pal, palName ? palName : "");
             }
         }
 
@@ -811,7 +810,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                     .child_of(motiveFolder)
                     .add<Generative::Motive::Is>()
                     .set<Generative::Motive::Params>(params);
-                if (motName) mot.set_name(motName);
+                Patch::safe_set_name(mot, motName ? motName : "");
             }
         }
 
