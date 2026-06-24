@@ -2881,7 +2881,7 @@ static const SetupScriptPreset kSetupPresets[] = {
       "    dmxAddress = dmxAddress + (pixelsPerFixture * channelsPerPixel)\n"
       "    if dmxAddress >= 512 then\n"
       "        dmxUniverse = dmxUniverse + 1\n"
-      "        dmxAddress = 0\n"
+      "        dmxAddress = dmxAddress - 512\n"
       "    end\n"
       "end\n"
       "\n"
@@ -2892,6 +2892,13 @@ static const SetupScriptPreset kSetupPresets[] = {
       "    local offset = offsets[c] * math.pi / 180\n"
       "    \n"
       "    for b = 1, branchesPerCircle do\n"
+      "        if b == 1 then\n"
+      "            dmxUniverse = (c - 1) * 4\n"
+      "            dmxAddress = 0\n"
+      "        elseif b == 4 then\n"
+      "            dmxUniverse = (c - 1) * 4 + 2\n"
+      "            dmxAddress = 0\n"
+      "        end\n"
       "        local theta = (b - 1) * (2 * math.pi / branchesPerCircle) + offset\n"
       "        local dx = math.cos(theta)\n"
       "        local dz = math.sin(theta)\n"
@@ -3021,7 +3028,9 @@ public:
         return sol::lua_nil;
     }
     void set_dmx(int universe, int address) {
-        if (!entity.is_valid() || !entity.is_alive()) return;
+        if (!entity.is_valid() || !entity.is_alive()) {
+            return;
+        }
         Fixture::setDmxProperties(entity, universe, address);
     }
 };
@@ -3055,10 +3064,14 @@ public:
     }
 
     LuaFixture create_line(const std::string& name, float sx, float sy, float sz, float ex, float ey, float ez, int numPixels, int channels) {
-        if (!patch.is_valid() || !patch.is_alive()) return LuaFixture(flecs::entity::null());
+        if (!patch.is_valid() || !patch.is_alive()) {
+            return LuaFixture(flecs::entity::null());
+        }
         flecs::entity f = Fixture::createLine(patch, {sx, sy, sz}, {ex, ey, ez}, numPixels, channels);
-        if (f.is_valid() && !name.empty()) {
-            f.set_name(name.c_str());
+        if (f.is_valid()) {
+            if (!name.empty()) {
+                f.set_name(name.c_str());
+            }
         }
         return LuaFixture(f);
     }
@@ -3073,7 +3086,7 @@ public:
     }
 };
 
-    w.system<>("WindowFixtureSetupScript").kind(flecs::OnStore)
+    w.system<>("WindowFixtureSetupScript").kind(flecs::OnStore).immediate()
     .run([&](flecs::iter& it){
         auto app          = App::get(it.world());
         auto* ui          = &app.get_mut<App::UIConfig>();
@@ -3159,7 +3172,10 @@ public:
                 std::string sourceCode = setupScriptEditor->GetText();
                 setupScript->source = sourceCode;
 
+                it.world().defer_suspend();
                 sol::protected_function_result result = runLua.safe_script(sourceCode, sol::script_pass_on_error);
+                it.world().defer_resume();
+
                 if (!result.valid()) {
                     sol::error err = result;
                     setupScript->compilerLog = "Runtime Error: " + std::string(err.what());
