@@ -16,7 +16,7 @@ PixelMapper utilizes a high-performance **1D Framebuffer & Point-Mapping** GPU r
 
 ## 2. Vertex Inputs (Coordinates)
 
-Each point has two spatial variables exported from the vertex shader to the fragment shader:
+Each point has two spatial variables exported from the vertex shader to the fragment shader. **Note:** These are automatically injected at compile-time and do not need to be declared in your code.
 
 ### `vPixelPos2D` (or `#define iPixelPos2D`)
 - **Type**: `vec2`
@@ -39,20 +39,46 @@ Each point has two spatial variables exported from the vertex shader to the frag
 
 ## 3. Available Uniforms
 
-Your shaders can declare and reference the following standard uniforms:
+Your shaders can reference the following standard uniforms. **Note:** Except for custom textures, these are automatically declared and injected at compile-time by the compiler header wrapper.
 
 | Uniform | Type | Description |
 | :--- | :--- | :--- |
-| `time` / `iTime` | `float` | Elapsed playback time in seconds since the shader compilation. |
+| `time` / `iTime` | `float` | Constant absolute wall-clock playback time in seconds (continues advancing linearly even if velocity is stopped). |
+| `vTime` | `float` | Integrated velocity-scaled timeline. Speed is controlled by the velocity slider and metadata limits. It is phase-jump free. |
 | `resolution` / `iResolution` | `vec2` / `vec3` | Dimensions of the render target. In point-rendering mode, this is `(pixelCount, 1.0)`. In 2D preview mode, this is `(256.0, 256.0)`. |
 | `pixelCount` | `float` | The total number of output physical pixels in the active patch. |
 | `pixelPosMin` | `vec3` | The minimum X, Y, and Z physical bounds of all mapped fixtures in the patch. |
 | `pixelPosMax` | `vec3` | The maximum X, Y, and Z physical bounds of all mapped fixtures in the patch. |
 | `zSlice` | `float` | Depth slider position `[0.0, 1.0]` (only bound during 2D offline preview rendering). |
+| `iChannel0`–`iChannel3` | `sampler2D` | Optional noise or pattern textures. |
 
 ---
 
-## 4. 2D vs Volumetric 3D Rendering
+## 4. Custom Velocity Range Metadata
+
+You can define custom velocity ranges in your shader's comment block. The engine parses the `@velocity_range` tag to map the normalized velocity slider value (`[0.0 - 1.0]`) to custom speed multipliers for `vTime`:
+
+```glsl
+/*
+--- Custom Metadata ---
+@velocity_range min max     // Maps velocity [0.0 - 1.0] to speed [min - max]
+*/
+```
+
+### Examples:
+- **Bi-directional modulation** (supports forward, reverse, and stopped states):
+  `@velocity_range -2.0 2.0`
+  - Slider = `0.5` (center): Sweep stops.
+  - Slider > `0.5`: Sweep moves forward.
+  - Slider < `0.5`: Sweep moves backward.
+- **Single-direction double speed range**:
+  `@velocity_range 0.0 2.0`
+- **Fallback Behavior**:
+  If no `@velocity_range` tag is defined, it defaults to `0.0 1.0` (where `0.0` is stopped and `1.0` is normal 1:1 speed).
+
+---
+
+## 5. 2D vs Volumetric 3D Rendering
 
 ### Standard 2D Rendering
 Shaders that only use `iPixelPos2D` map their calculations to the normalized grid viewport:
@@ -67,7 +93,7 @@ Shaders that use `iPixelPos3D` utilize physical 3D measurements:
 
 ---
 
-## 5. Shadertoy Compatibility
+## 6. Shadertoy Compatibility
 
 PixelMapper compiles Shadertoy shaders directly without modification by wrapping them:
 - **Detection**: The compiler checks if `mainImage` is defined in your shader source.
@@ -81,22 +107,20 @@ PixelMapper compiles Shadertoy shaders directly without modification by wrapping
 
 ---
 
-## 6. Code Examples
+## 7. Code Examples
 
-### A. Simple 2D Sweep
+Since inputs and uniforms are injected automatically, your shaders are extremely compact and clean.
+
+### A. Simple 2D Sweep (Velocity-Scaled)
 ```glsl
-#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
+/*
+--- Custom Metadata ---
+@velocity_range 0.0 1.5
+*/
 
 void main() {
-    float speed = 1.0;
-    // Normalized 2D sweep from left to right
-    float sweep = mod(time * speed, 1.0);
+    // Normalized 2D sweep from left to right using vTime
+    float sweep = mod(vTime, 1.0);
     float edge = smoothstep(sweep - 0.05, sweep, iPixelPos2D.x) 
                - smoothstep(sweep, sweep + 0.05, iPixelPos2D.x);
     fragColor = vec4(edge * 0.2, edge * 1.0, edge * 0.5, 1.0);
@@ -105,16 +129,6 @@ void main() {
 
 ### B. Volumetric 3D Sphere Wave
 ```glsl
-#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec3 pixelPosMin;
-uniform vec3 pixelPosMax;
-
 void main() {
     vec3 pMin = pixelPosMin;
     vec3 pMax = pixelPosMax;
@@ -123,7 +137,7 @@ void main() {
         pMin = vec3(-200.0, -100.0, -100.0);
         pMax = vec3(200.0, 100.0, 100.0);
     }
-    // Center point moves dynamically in physical space
+    // Center point moves dynamically in physical space (advances with wall-clock time)
     vec3 center = mix(pMin, pMax, vec3(
         0.5 + 0.3 * sin(time * 1.5),
         0.5 + 0.3 * cos(time * 1.0),
@@ -131,9 +145,9 @@ void main() {
     ));
     float dist = distance(iPixelPos3D, center);
     
-    // Wave shell propagation
+    // Wave shell propagation (speed scaled by vTime)
     float maxRadius = 0.5 * distance(pMin, pMax);
-    float radius = mod(time * 150.0, maxRadius);
+    float radius = mod(vTime * 150.0, maxRadius);
     float thickness = 30.0;
     float wave = smoothstep(thickness, 0.0, abs(dist - radius));
     

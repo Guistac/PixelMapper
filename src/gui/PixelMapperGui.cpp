@@ -341,8 +341,13 @@ void import(flecs::world& w){
         if(ImGui::BeginMainMenuBar()){
 
             if(ImGui::BeginMenu("File")){
-                if(ImGui::MenuItem("Save Patch", "Cmd+S"))
-                    PatchSerializer::save(app, "patches/default.xml");
+                if(ImGui::MenuItem("Save Patch", "Cmd+S")) {
+                    bool ok = PatchSerializer::save(app, "patches/default.xml");
+                    if (auto* config = &app.get_mut<App::UIConfig>()) {
+                        config->saveIndicatorTime = (float)ImGui::GetTime();
+                        config->saveSuccess = ok;
+                    }
+                }
                 if(ImGui::MenuItem("Load Patch"))
                     PatchSerializer::load(app, "patches/default.xml");
                 ImGui::EndMenu();
@@ -392,6 +397,69 @@ void import(flecs::world& w){
                 ImGui::EndMenu();
             }
 
+            // ── Save Indicator Badge ──
+            if (ui->saveIndicatorTime > 0.0f) {
+                float elapsed = (float)ImGui::GetTime() - ui->saveIndicatorTime;
+                if (elapsed < 3.0f) {
+                    float alpha = 1.0f;
+                    if (elapsed > 1.0f) {
+                        alpha = 1.0f - (elapsed - 1.0f) / 2.0f;
+                    }
+                    alpha = std::clamp(alpha, 0.0f, 1.0f);
+
+                    float scale = 1.0f;
+                    if (elapsed < 0.15f) {
+                        // Elastic bounce entrance over 150ms
+                        float t = elapsed / 0.15f;
+                        float ts = t - 1.0f;
+                        float ease = 1.0f + 2.70158f * ts * ts * ts + 1.70158f * ts * ts;
+                        scale = 0.8f + 0.2f * ease;
+                    }
+
+                    const char* text = ui->saveSuccess ? "Project Saved" : "Save Failed";
+                    ImVec2 baseSize = ImGui::CalcTextSize(text);
+                    float padding_x = 10.0f;
+                    float padding_y = 3.0f;
+                    float menuHeight = ImGui::GetFrameHeight();
+                    float basePillWidth = baseSize.x + padding_x * 2.0f;
+                    float basePillHeight = baseSize.y + padding_y * 2.0f;
+
+                    ImVec2 p = ImGui::GetCursorScreenPos();
+                    ImVec2 center = ImVec2(p.x + 8.0f + basePillWidth * 0.5f, p.y + menuHeight * 0.5f);
+
+                    float pillWidth = basePillWidth * scale;
+                    float pillHeight = basePillHeight * scale;
+
+                    ImVec2 min_p = ImVec2(center.x - pillWidth * 0.5f, center.y - pillHeight * 0.5f);
+                    ImVec2 max_p = ImVec2(center.x + pillWidth * 0.5f, center.y + pillHeight * 0.5f);
+
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    ImU32 bg_color, border_color, text_color;
+                    if (ui->saveSuccess) {
+                        bg_color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.06f, 0.62f, 0.43f, alpha * 0.15f));
+                        border_color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.10f, 0.73f, 0.51f, alpha * 0.8f));
+                        text_color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.20f, 0.80f, 0.55f, alpha));
+                    } else {
+                        bg_color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.80f, 0.15f, 0.15f, alpha * 0.15f));
+                        border_color = ImGui::ColorConvertFloat4ToU32(ImVec4(0.90f, 0.20f, 0.20f, alpha * 0.8f));
+                        text_color = ImGui::ColorConvertFloat4ToU32(ImVec4(1.00f, 0.30f, 0.30f, alpha));
+                    }
+
+                    drawList->AddRectFilled(min_p, max_p, bg_color, 4.0f);
+                    drawList->AddRect(min_p, max_p, border_color, 4.0f, 0, 1.0f);
+
+                    ImFont* font = ImGui::GetFont();
+                    float fontSize = ImGui::GetFontSize() * scale;
+                    ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text);
+                    ImVec2 textPos = ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f);
+                    drawList->AddText(font, fontSize, textPos, text_color, text);
+
+                    ImGui::Dummy(ImVec2(basePillWidth + 16.0f, menuHeight));
+                } else {
+                    ui->saveIndicatorTime = -1.0f;
+                }
+            }
+
             // ── RT stats (right-aligned) ──
             float rtFps    = App::rtFps.load();
             float rtMbps   = App::rtBitrateMbps.load();
@@ -411,7 +479,13 @@ void import(flecs::world& w){
     .run([&](flecs::iter& it){
         auto app = App::get(it.world());
         if(ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_LeftSuper)){
-            if(ImGui::IsKeyPressed(ImGuiKey_S, false)) PatchSerializer::save(app, "patches/default.xml");
+            if(ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+                bool ok = PatchSerializer::save(app, "patches/default.xml");
+                if (auto* config = &app.get_mut<App::UIConfig>()) {
+                    config->saveIndicatorTime = (float)ImGui::GetTime();
+                    config->saveSuccess = ok;
+                }
+            }
         }
     });
 
@@ -1530,12 +1604,6 @@ void import(flecs::world& w){
                 std::string newSource = glslEditor->GetText();
                 if (ui->editingCueIndex == -1) {
                     scriptData->glslSource = newSource;
-                    if (settings) {
-                        try {
-                            std::ofstream f(settings->shaderPath);
-                            if (f) f << newSource;
-                        } catch (...) {}
-                    }
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                     flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                     if (fxEnt.is_valid()) {
@@ -1609,12 +1677,6 @@ void import(flecs::world& w){
                 glslEditor->SetText(presetGlsl);
                 if (ui->editingCueIndex == -1) {
                     scriptData->glslSource = presetGlsl;
-                    if (settings) {
-                        try {
-                            std::ofstream f(settings->shaderPath);
-                            if (f) f << presetGlsl;
-                        } catch (...) {}
-                    }
                 } else if (ui->editingCueIndex == -2 && ui->editingBankIndex >= 0) {
                     flecs::entity fxEnt = getEffectEntityByIndex(bankFolder, ui->editingBankIndex);
                     if (fxEnt.is_valid()) {
@@ -1979,15 +2041,7 @@ void import(flecs::world& w){
                 // If no effects in bank, create a default one
                 if (!targetFx.is_valid()) {
                     auto* scriptData = selectedPatch.try_get<Patch::ScriptData>();
-                    std::string glsl = scriptData ? scriptData->glslSource : 
-                        "#version 150\n"
-                        "in vec2 uv;\n"
-                        "out vec4 fragColor;\n"
-                        "uniform float time;\n"
-                        "uniform vec2 resolution;\n"
-                        "void main() {\n"
-                        "    fragColor = vec4(uv.x, uv.y, sin(time)*0.5+0.5, 1.0);\n"
-                        "}\n";
+                    std::string glsl = scriptData ? scriptData->glslSource : Patch::defaultGLSL;
                     targetFx = it.world().entity()
                         .child_of(bankFolder)
                         .add<EffectBank::Effect::Is>()
@@ -2256,15 +2310,7 @@ void import(flecs::world& w){
                     }
                 });
                 std::string fxName = "Effect " + std::to_string(fxList.size() + 1);
-                std::string glsl = 
-                    "#version 150\n"
-                    "in vec2 uv;\n"
-                    "out vec4 fragColor;\n"
-                    "uniform float time;\n"
-                    "uniform vec2 resolution;\n"
-                    "void main() {\n"
-                    "    fragColor = vec4(uv.x, uv.y, sin(time)*0.5+0.5, 1.0);\n"
-                    "}\n";
+                std::string glsl = Patch::defaultGLSL;
                 auto newFx = it.world().entity()
                     .child_of(bankFolder)
                     .add<EffectBank::Effect::Is>()

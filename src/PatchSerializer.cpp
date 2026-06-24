@@ -137,10 +137,6 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             XMLElement* luaEl = doc.NewElement("LuaSource");
             setElementText(doc, luaEl, sd->luaSource);
             patchEl->InsertEndChild(luaEl);
-
-            XMLElement* glslEl = doc.NewElement("GlslSource");
-            setElementText(doc, glslEl, sd->glslSource);
-            patchEl->InsertEndChild(glslEl);
         }
 
         // ── Fixture Setup Script ──
@@ -523,7 +519,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
             auto* sd = patch.try_get_mut<Patch::ScriptData>();
             if (sd) {
                 sd->luaSource  = getElementText(patchEl->FirstChildElement("LuaSource"));
-                sd->glslSource = getElementText(patchEl->FirstChildElement("GlslSource"));
+                sd->glslSource = "";
             }
         }
 

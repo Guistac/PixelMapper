@@ -262,6 +262,87 @@ namespace Patch {
         });
     }
 
+    const std::string defaultGLSL = R"(/*
+--- Inputs & Outputs ---
+in vec3 vPixelPos3D;        // Raw 3D position of the pixel in space
+in vec2 vPixelPos2D;        // Normalized 2D canvas coordinates [0.0 - 1.0]
+out vec4 fragColor;         // Output color of the fragment
+
+--- Standard Uniforms ---
+uniform float time;         // Running time of the pattern (seconds)
+uniform float vTime;        // Integrated velocity-scaled time
+uniform vec2 resolution;    // Viewport resolution (usually 256 x 256)
+uniform float pixelCount;   // Total number of mapped pixels
+uniform vec3 pixelPosMin;   // Min coordinate of the RenderArea bounding box
+uniform vec3 pixelPosMax;   // Max coordinate of the RenderArea bounding box
+uniform float zSlice;       // Active Z-Slice cross section preview [0.0 - 1.0]
+uniform sampler2D iChannel0;// Optional 2D noise / texture channels
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+
+--- Generative Engine Palettes ---
+struct ColorStop {
+   vec4 color;
+    float position;
+    float smoothness;
+};
+uniform int activeStops;       // Number of stops in the active palette
+uniform ColorStop palette[16]; // Active color palette stops
+vec4 samplePalette(float pos);        // Clamped gradient lookup [0.0 - 1.0]
+vec4 samplePaletteWrapped(float pos); // Repeating (fract) gradient lookup
+
+--- Generative Engine Motive uniforms ---
+uniform float velocity;        // Physics parameter from LFO wandering
+uniform float complexity;      // Physics parameter from LFO wandering
+uniform float scale;           // Physics parameter from LFO wandering
+uniform float distortion;      // Physics parameter from LFO wandering
+uniform float asymmetry;       // Physics parameter from LFO wandering
+uniform float intensity;       // Physics parameter from LFO wandering
+*/
+
+//@velocity_range -2.0 2.0     // Maps velocity slider [0.0 - 1.0] to speed multiplier [0.0 - 2.0]
+
+void main() {
+    // 1. Warp coordinates with 2D noise based on 'distortion'
+    // We zoom into the noise using 'scale' so scale and distortion are independent.
+    // 'vTime' is integrated by velocity on CPU, so texture drift updates smoothly.
+    vec2 noiseUV = iPixelPos2D * (1.0 + scale * 3.0) + vec2(vTime * 0.1);
+    vec2 noiseOffset = texture(iChannel0, noiseUV).rg - 0.5;
+    vec2 warpedUV = iPixelPos2D + noiseOffset * distortion * 0.25;
+
+    // 2. Skew the coordinates diagonally using the 'asymmetry' parameter
+    warpedUV.x += (warpedUV.y - 0.5) * asymmetry * 0.6;
+
+    // 3. Calculate a sweeping bar along the Y axis
+    // 'vTime' is integrated by velocity on CPU, so sweep speed updates smoothly without time jumps.
+    float sweep = mod(vTime, 1.0);
+    
+    // We adjust the bar width slightly based on complexity
+    float barWidth = 0.04 + complexity * 0.04;
+    float bar = smoothstep(sweep - barWidth, sweep, warpedUV.y)
+              - smoothstep(sweep, sweep + barWidth, warpedUV.y);
+
+    // 4. Generate complex secondary patterns (ripples) using 'complexity'
+    float rippleFreq = 5.0 + complexity * 15.0;
+    float ripple = sin(warpedUV.x * rippleFreq + vTime * 3.0) * 0.5 + 0.5;
+
+    // 5. Sample the dynamic color palette gradient
+    // Scale directly repeats the gradient mapping across the canvas
+    float paletteCoord = warpedUV.x * (1.0 + scale * 3.0) + bar * 0.3 + ripple * complexity * 0.4;
+    vec4 baseColor = samplePaletteWrapped(paletteCoord);
+
+    // 6. Calculate base brightness signal (ambient background + sweeping bar + ripples)
+    float ambient = 0.15;
+    float signal = ambient + bar * 0.85 + (ripple * complexity * 0.3);
+    
+    // 7. Additive intensity glow (creates a bright white hot core on the bar)
+    float glow = pow(bar, 3.0) * intensity * 2.5;
+
+    fragColor = vec4((baseColor * signal).rgb + vec3(glow), 1.0);
+}
+)";
+
 } // namespace Patch
 
 
@@ -351,8 +432,54 @@ namespace {
         return false;
     }
 
+    std::string stripComments(const std::string& source) {
+        std::string result;
+        result.reserve(source.size());
+        bool inLineComment = false;
+        bool inBlockComment = false;
+        for (size_t i = 0; i < source.size(); ++i) {
+            if (inLineComment) {
+                if (source[i] == '\n') {
+                    inLineComment = false;
+                    result += '\n';
+                }
+            } else if (inBlockComment) {
+                if (i + 1 < source.size() && source[i] == '*' && source[i+1] == '/') {
+                    inBlockComment = false;
+                    i++;
+                }
+            } else {
+                if (i + 1 < source.size() && source[i] == '/' && source[i+1] == '/') {
+                    inLineComment = true;
+                    i++;
+                } else if (i + 1 < source.size() && source[i] == '/' && source[i+1] == '*') {
+                    inBlockComment = true;
+                    i++;
+                } else {
+                    result += source[i];
+                }
+            }
+        }
+        return result;
+    }
+
+    void parseVelocityMetadata(const std::string& glslSource, float& minSpeed, float& maxSpeed) {
+        minSpeed = 0.0f;
+        maxSpeed = 1.0f; // Standard default fallback (0.0 is stopped, 1.0 is normal speed)
+        size_t pos = glslSource.find("@velocity_range");
+        if (pos != std::string::npos) {
+            std::stringstream ss(glslSource.substr(pos + 15));
+            float tempMin, tempMax;
+            if (ss >> tempMin >> tempMax) {
+                minSpeed = tempMin;
+                maxSpeed = tempMax;
+            }
+        }
+    }
+
     std::string buildFsSource(const std::string& userSource, bool isShadertoy) {
-        std::string stripped = userSource;
+        std::string commentStripped = stripComments(userSource);
+        std::string stripped = commentStripped;
         size_t pos = 0;
         while ((pos = stripped.find("#version")) != std::string::npos) {
             size_t endLine = stripped.find("\n", pos);
@@ -382,6 +509,9 @@ namespace {
         }
         if (!hasShaderDeclaration(stripped, "float", "time")) {
             header += "uniform float time;\n";
+        }
+        if (!hasShaderDeclaration(stripped, "float", "vTime")) {
+            header += "uniform float vTime;\n";
         }
         if (!hasShaderDeclaration(stripped, "vec2", "resolution")) {
             header += "uniform vec2 resolution;\n";
@@ -498,7 +628,8 @@ namespace {
         return header;
     }
 
-    bool compileShaderIfNeeded(const std::string& fsSourceStr, Patch::GPUProgram& gp) {
+    bool compileShaderIfNeeded(const std::string& fsSourceStr, Patch::GPUProgram& gp, float& outMinSpeed, float& outMaxSpeed) {
+        parseVelocityMetadata(fsSourceStr, outMinSpeed, outMaxSpeed);
         if (gp.program != 0 && gp.previewProgram != 0 && gp.glslSource == fsSourceStr) {
             return true;
         }
@@ -650,49 +781,18 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         "        canvas:set_pixel(nx, ny, 255, 255, 255, 255)\n"
         "    end\n"
         "end\n";
-
-    static const std::string defaultGLSL = 
-        "#version 150\n"
-        "in vec2 uv;\n"
-        "out vec4 fragColor;\n"
-        "\n"
-        "uniform float time;\n"
-        "uniform vec2 resolution;\n"
-        "\n"
-        "void main() {\n"
-        "    float x = uv.x * 10.0;\n"
-        "    float y = uv.y * 10.0;\n"
-        "    \n"
-        "    float v1 = sin(x + time);\n"
-        "    float v2 = sin(10.0 * (x * sin(time / 2.0) + y * cos(time / 3.0)) + time);\n"
-        "    \n"
-        "    float cx = x + 5.0 * sin(time / 5.0);\n"
-        "    float cy = y + 5.0 * cos(time / 3.0);\n"
-        "    float v3 = sin(sqrt(cx*cx + cy*cy + 1.0) - time);\n"
-        "    \n"
-        "    float v = (v1 + v2 + v3) / 3.0;\n"
-        "    \n"
-        "    float r = sin(v * 3.1415) * 0.5 + 0.5;\n"
-        "    float g = sin(v * 3.1415 + 2.094) * 0.5 + 0.5;\n"
-        "    float b = sin(v * 3.1415 + 4.188) * 0.5 + 0.5;\n"
-        "    \n"
-        "    fragColor = vec4(r, g, b, 1.0);\n"
-        "}\n";
-
     // Populate memory sources from files if empty
     auto* sData = patch.try_get_mut<Patch::ScriptData>();
     if (sData) {
         std::string luaPath = "scripts/default_patch.lua";
-        std::string glslPath = "shaders/default_patch.frag";
         if (const auto* settings = patch.try_get<Patch::Settings>()) {
             luaPath = settings->luaScriptPath;
-            glslPath = settings->shaderPath;
         }
         if (sData->luaSource.empty()) {
             sData->luaSource = get_file_content(luaPath, defaultLua);
         }
         if (sData->glslSource.empty()) {
-            sData->glslSource = get_file_content(glslPath, defaultGLSL);
+            sData->glslSource = Patch::defaultGLSL;
         }
     }
 
@@ -1326,7 +1426,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
             res->vaoReady = false; // Trigger lazy VAO creation/setup on RT thread
 
             // Compile default patch shader
-            compileShaderIfNeeded(scriptData->glslSource, *patchGp);
+            compileShaderIfNeeded(scriptData->glslSource, *patchGp, program->defaultMinSpeed, program->defaultMaxSpeed);
             program->compilerLog = patchGp->compilerLog;
             program->glslProgram = patchGp->program;
             program->glslPreviewProgram = patchGp->previewProgram;
@@ -1409,7 +1509,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                         if (const auto* glsl = targetEffect.try_get<EffectBank::Effect::GlslSource>()) {
                             if (!targetEffect.has<Patch::GPUProgram>()) targetEffect.set<Patch::GPUProgram>({});
                             auto* fxGp = &targetEffect.get_mut<Patch::GPUProgram>();
-                            compileShaderIfNeeded(glsl->value, *fxGp);
+                            compileShaderIfNeeded(glsl->value, *fxGp, cc.minSpeed, cc.maxSpeed);
                             cc.program = fxGp->program;
                             cc.previewProgram = fxGp->previewProgram;
                             cc.compilerLog = fxGp->compilerLog;
@@ -1445,7 +1545,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
                     if (const auto* glsl = fx.try_get<EffectBank::Effect::GlslSource>()) {
                         if (!fx.has<Patch::GPUProgram>()) fx.set<Patch::GPUProgram>({});
                         auto* fxGp = &fx.get_mut<Patch::GPUProgram>();
-                        compileShaderIfNeeded(glsl->value, *fxGp);
+                        compileShaderIfNeeded(glsl->value, *fxGp, cc.minSpeed, cc.maxSpeed);
                         cc.program = fxGp->program;
                         cc.previewProgram = fxGp->previewProgram;
                         cc.compilerLog = fxGp->compilerLog;
@@ -1529,6 +1629,48 @@ PatchProgram::~PatchProgram(){
     }
 }
 
+float& PatchProgram::getVTimeRef(unsigned int prog) {
+    if (prog == glslProgram || prog == glslPreviewProgram) {
+        return defaultVTime;
+    }
+    for (auto& cc : compiledCues) {
+        if (cc.program == prog || cc.previewProgram == prog) {
+            return cc.vTime;
+        }
+    }
+    for (auto& cc : compiledBankEffects) {
+        if (cc.program == prog || cc.previewProgram == prog) {
+            return cc.vTime;
+        }
+    }
+    return defaultVTime;
+}
+
+void PatchProgram::getSpeedRange(unsigned int prog, float& minS, float& maxS) {
+    if (prog == glslProgram || prog == glslPreviewProgram) {
+        minS = defaultMinSpeed;
+        maxS = defaultMaxSpeed;
+        return;
+    }
+    for (const auto& cc : compiledCues) {
+        if (cc.program == prog || cc.previewProgram == prog) {
+            minS = cc.minSpeed;
+            maxS = cc.maxSpeed;
+            return;
+        }
+    }
+    for (const auto& cc : compiledBankEffects) {
+        if (cc.program == prog || cc.previewProgram == prog) {
+            minS = cc.minSpeed;
+            maxS = cc.maxSpeed;
+            return;
+        }
+    }
+    minS = 0.0f;
+    maxS = 1.0f;
+}
+
+
 void randomizeTransitionDirections(PatchProgram* program) {
     if (!program) return;
     static thread_local std::mt19937 rng(std::random_device{}());
@@ -1570,9 +1712,39 @@ void randomizeTransitionDirections(PatchProgram* program) {
 
 void render(PatchProgram* program){
     float curTime = (float)glfwGetTime();
-    float dt = (program->timeElapsed > 0.0f) ? (curTime - program->timeElapsed) : (1.0f / program->refreshRate);
+    float dt = (program->lastFrameTime > 0.0f) ? (curTime - program->lastFrameTime) : (1.0f / program->refreshRate);
     dt = std::min(dt, 0.1f);
-    program->timeElapsed = curTime;
+    program->lastFrameTime = curTime;
+
+    program->timeElapsed += dt;
+
+    float velocity = 1.0f;
+    if (program->generativeRuntime && program->generativeSettings.masterEnabled) {
+        std::lock_guard<std::mutex> lock(program->generativeMutex);
+        if (program->editorPreviewOverrideActive) {
+            velocity = program->editorPreviewOverrideUbo.velocity;
+        } else {
+            velocity = program->generativeRuntime->getUboState().velocity;
+        }
+    }
+
+    // Accumulate velocity-scaled integrated timelines (vTime)
+    // 1. Default patch shader program
+    float defaultSpeed = program->defaultMinSpeed + velocity * (program->defaultMaxSpeed - program->defaultMinSpeed);
+    program->defaultVTime += dt * defaultSpeed;
+
+    // 2. Compiled cues
+    for (auto& cc : program->compiledCues) {
+        float speed = cc.minSpeed + velocity * (cc.maxSpeed - cc.minSpeed);
+        cc.vTime += dt * speed;
+    }
+
+    // 3. Compiled bank effects
+    for (auto& cc : program->compiledBankEffects) {
+        float speed = cc.minSpeed + velocity * (cc.maxSpeed - cc.minSpeed);
+        cc.vTime += dt * speed;
+    }
+
 
     if (program->generativeRuntime) {
         program->generativeRuntime->update(dt, program);
@@ -1661,6 +1833,9 @@ void render(PatchProgram* program){
                 if (timeLoc >= 0) glUniform1f(timeLoc, program->timeElapsed);
                 GLint timeLocLegacy = glGetUniformLocation(prog, "time");
                 if (timeLocLegacy >= 0) glUniform1f(timeLocLegacy, program->timeElapsed);
+                GLint vTimeLoc = glGetUniformLocation(prog, "vTime");
+                if (vTimeLoc >= 0) glUniform1f(vTimeLoc, program->getVTimeRef(prog));
+
 
                 GLint resLoc = glGetUniformLocation(prog, "iResolution");
                 if (resLoc >= 0) glUniform3f(resLoc, 256.0f, 256.0f, 1.0f);

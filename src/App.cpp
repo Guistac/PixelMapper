@@ -70,6 +70,12 @@ namespace App {
             newProgShared->editingCueIndex.store(oldProgram->editingCueIndex.load());
             newProgShared->editingBankIndex.store(oldProgram->editingBankIndex.load());
             newProgShared->generativeRuntime = oldProgram->generativeRuntime;
+            newProgShared->zSlice.store(oldProgram->zSlice.load());
+
+            std::lock_guard<std::mutex> lockOld(oldProgram->generativeMutex);
+            std::lock_guard<std::mutex> lockNew(newProgShared->generativeMutex);
+            newProgShared->editorPreviewOverrideActive = oldProgram->editorPreviewOverrideActive;
+            newProgShared->editorPreviewOverrideUbo = oldProgram->editorPreviewOverrideUbo;
         } else if (newProgShared) {
             newProgShared->generativeRuntime = std::make_shared<GenerativeEngineRuntime>();
             newProgShared->generativeRuntime->init(newProgShared.get());

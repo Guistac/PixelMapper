@@ -54,6 +54,8 @@ namespace App {
         float canvasRotationY = 0.0f;
         bool editorPreviewOverrideActive = false;
         int editorPreviewOverridePaletteIdx = -1;
+        float saveIndicatorTime = -1.0f;
+        bool saveSuccess = false;
     };
 
     struct Queries {

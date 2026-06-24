@@ -33,23 +33,85 @@ function update(canvas, time)
     end
 end
 ]]></LuaSource>
-        <GlslSource><![CDATA[#version 150
-in vec3 vPixelPos3D;
-in vec2 vPixelPos2D;
-out vec4 fragColor;
-#define iPixelPos3D vPixelPos3D
-#define iPixelPos2D vPixelPos2D
-uniform float time;
-uniform vec2 resolution;
+        <GlslSource><![CDATA[/*
+--- Custom Metadata ---
+@velocity_range 0.0 2.0     // Maps velocity slider [0.0 - 1.0] to speed multiplier [0.0 - 2.0]
+
+--- Inputs & Outputs ---
+in vec3 vPixelPos3D;        // Raw 3D position of the pixel in space
+in vec2 vPixelPos2D;        // Normalized 2D canvas coordinates [0.0 - 1.0]
+out vec4 fragColor;         // Output color of the fragment
+
+--- Standard Uniforms ---
+uniform float time;         // Running time of the pattern (seconds)
+uniform float vTime;        // Integrated velocity-scaled time
+uniform vec2 resolution;    // Viewport resolution (usually 256 x 256)
+uniform float pixelCount;   // Total number of mapped pixels
+uniform vec3 pixelPosMin;   // Min coordinate of the RenderArea bounding box
+uniform vec3 pixelPosMax;   // Max coordinate of the RenderArea bounding box
+uniform float zSlice;       // Active Z-Slice cross section preview [0.0 - 1.0]
+uniform sampler2D iChannel0;// Optional 2D noise / texture channels
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+
+--- Generative Engine Palettes ---
+struct ColorStop {
+   vec4 color;
+    float position;
+    float smoothness;
+};
+uniform int activeStops;       // Number of stops in the active palette
+uniform ColorStop palette[16]; // Active color palette stops
+vec4 samplePalette(float pos);        // Clamped gradient lookup [0.0 - 1.0]
+vec4 samplePaletteWrapped(float pos); // Repeating (fract) gradient lookup
+
+--- Generative Engine Motive uniforms ---
+uniform float velocity;        // Physics parameter from LFO wandering, use vTime for velocity scaled time
+uniform float complexity;      // Physics parameter from LFO wandering
+uniform float scale;           // Physics parameter from LFO wandering
+uniform float distortion;      // Physics parameter from LFO wandering
+uniform float asymmetry;       // Physics parameter from LFO wandering
+uniform float intensity;       // Physics parameter from LFO wandering
+*/
 
 void main() {
-    float speed = 0.5;
-    float sweep = mod(time * speed, 1.0);
-    float bar   = smoothstep(sweep - 0.04, sweep, iPixelPos2D.x)
-                - smoothstep(sweep, sweep + 0.04, iPixelPos2D.x);
-    float bg = 0.05;
-    float brightness = bg + bar * (1.0 - bg);
-    fragColor = vec4(brightness, brightness, brightness * 0.8, 1.0);
+    // 1. Warp coordinates with 2D noise based on 'distortion'
+    // We zoom into the noise using 'scale' so scale and distortion are independent.
+    // 'vTime' is integrated by velocity on CPU, so texture drift updates smoothly.
+    vec2 noiseUV = iPixelPos2D * (1.0 + scale * 3.0) + vec2(vTime * 0.1);
+    vec2 noiseOffset = texture(iChannel0, noiseUV).rg - 0.5;
+    vec2 warpedUV = iPixelPos2D + noiseOffset * distortion * 0.25;
+
+    // 2. Skew the coordinates diagonally using the 'asymmetry' parameter
+    warpedUV.x += (warpedUV.y - 0.5) * asymmetry * 0.6;
+
+    // 3. Calculate a sweeping bar along the Y axis
+    // 'vTime' is integrated by velocity on CPU, so sweep speed updates smoothly without time jumps.
+    float sweep = mod(vTime, 1.0);
+    
+    // We adjust the bar width slightly based on complexity
+    float barWidth = 0.04 + complexity * 0.04;
+    float bar = smoothstep(sweep - barWidth, sweep, warpedUV.y)
+              - smoothstep(sweep, sweep + barWidth, warpedUV.y);
+
+    // 4. Generate complex secondary patterns (ripples) using 'complexity'
+    float rippleFreq = 5.0 + complexity * 15.0;
+    float ripple = sin(warpedUV.x * rippleFreq + vTime * 3.0) * 0.5 + 0.5;
+
+    // 5. Sample the dynamic color palette gradient
+    // Scale directly repeats the gradient mapping across the canvas
+    float paletteCoord = warpedUV.x * (1.0 + scale * 3.0) + bar * 0.3 + ripple * complexity * 0.4;
+    vec4 baseColor = samplePaletteWrapped(paletteCoord);
+
+    // 6. Calculate base brightness signal (ambient background + sweeping bar + ripples)
+    float ambient = 0.15;
+    float signal = ambient + bar * 0.85 + (ripple * complexity * 0.3);
+    
+    // 7. Additive intensity glow (creates a bright white hot core on the bar)
+    float glow = pow(bar, 3.0) * intensity * 2.5;
+
+    fragColor = vec4((baseColor * signal).rgb + vec3(glow), 1.0);
 }
 ]]></GlslSource>
         <Fixtures>

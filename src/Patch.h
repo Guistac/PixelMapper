@@ -177,6 +177,7 @@ namespace Patch {
             }
         }
     }
+    extern const std::string defaultGLSL;
 }
 
 struct PatchProgram {
@@ -256,6 +257,10 @@ struct PatchProgram {
     std::string shaderSource;
     std::string compilerLog;
     float timeElapsed = 0.0f;
+    float lastFrameTime = 0.0f;
+    float defaultVTime = 0.0f;
+    float defaultMinSpeed = 0.0f;
+    float defaultMaxSpeed = 1.0f;
 
     // ── Crossfade ──
     ColorRGBW* vfbPixelsOld = nullptr; ///< Snapshot of outgoing cue's last VFB frame
@@ -267,6 +272,9 @@ struct PatchProgram {
         unsigned int program = 0;
         unsigned int previewProgram = 0;
         std::string compilerLog;
+        float vTime = 0.0f;
+        float minSpeed = 0.0f;
+        float maxSpeed = 1.0f;
     };
     std::vector<CompiledCue> compiledCues;
     std::string defaultCompilerLog;
@@ -320,6 +328,8 @@ struct PatchProgram {
     Generative::EngineStateUBO editorPreviewOverrideUbo;
     mutable std::mutex generativeMutex;
     float getShaderCrossfadeProgress() const;
+    float& getVTimeRef(unsigned int prog);
+    void getSpeedRange(unsigned int prog, float& minS, float& maxS);
 };
 
 void randomizeTransitionDirections(PatchProgram* program);
