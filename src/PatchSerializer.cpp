@@ -129,6 +129,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             sEl->SetAttribute("shaderPath",     settings->shaderPath);
             sEl->SetAttribute("highlightSelected", settings->highlightSelected ? 1 : 0);
             sEl->SetAttribute("highlightFrequency", settings->highlightFrequency);
+            sEl->SetAttribute("masterBrightness", settings->masterBrightness);
             patchEl->InsertEndChild(sEl);
         }
 
@@ -503,6 +504,9 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                 settings->vfbResolution  = vfbRes;
                 settings->highlightSelected = (hlSel != 0);
                 settings->highlightFrequency = hlFreq;
+
+                settings->masterBrightness = 1.0f;
+                sEl->QueryFloatAttribute("masterBrightness", &settings->masterBrightness);
 
                 int srcPort = 6454;
                 sEl->QueryIntAttribute("sourcePort", &srcPort);

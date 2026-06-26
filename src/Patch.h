@@ -63,6 +63,7 @@ namespace Patch {
         char shaderPath[256] = "shaders/default_patch.frag";
         bool highlightSelected = true;
         float highlightFrequency = 1.0f;
+        float masterBrightness = 1.0f;
     };
 
     struct ScriptData {
@@ -209,6 +210,7 @@ struct PatchProgram {
     uint32_t fixtureCount = 0;
     std::atomic<bool>* pixelSelected = nullptr;
     float highlightFrequency = 1.0f;
+    std::atomic<float> masterBrightness{1.0f};
 
     Artnet::Device::Settings* devices = nullptr;
     uint32_t deviceCount = 0;

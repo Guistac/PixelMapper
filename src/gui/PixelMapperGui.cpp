@@ -1397,6 +1397,16 @@ void import(flecs::world& w){
                     ImGui::SeparatorText("Timing");
                     e |= ImGui::SliderFloat("Refresh Rate (Hz)", &s->refreshRate, 1.f, 120.f, "%.1f Hz");
                     
+                    ImGui::SeparatorText("Output Level");
+                    float mb = s->masterBrightness * 100.f;
+                    if (ImGui::SliderFloat("Master Brightness", &mb, 0.f, 100.f, "%.0f%%")) {
+                        s->masterBrightness = mb / 100.f;
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if (prog) {
+                            prog->masterBrightness.store(s->masterBrightness);
+                        }
+                    }
+                    
                     ImGui::SeparatorText("Identify / Find");
                     e |= ImGui::Checkbox("Highlight Selected Fixtures (Find)", &s->highlightSelected);
                     e |= ImGui::SliderFloat("Highlight Frequency", &s->highlightFrequency, 0.1f, 10.f, "%.1f Hz");

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="0" showPalettesWindow="0" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="-33" canvasRotationY="221.5" editingCueIndex="-2" editingBankIndex="5"/>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="1" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="0" showPalettesWindow="0" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="-33" canvasRotationY="221.5" editingCueIndex="-2" editingBankIndex="5"/>
     <Patch name="Patch 1">
-        <Settings refreshRate="30.5" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="1" highlightFrequency="4"/>
+        <Settings refreshRate="30.5" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="1" highlightFrequency="4" masterBrightness="0.52999997"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -270,7 +270,7 @@ end
             <Device name="Device 1" ip="2.0.0.10" startUniverse="0" universeCount="8"/>
             <Device name="Device 2" ip="2.0.0.11" startUniverse="8" universeCount="8"/>
         </ArtNetDevices>
-        <CueList autoAdvance="0" loop="1" activeIndex="-1">
+        <CueList autoAdvance="0" loop="1" activeIndex="5">
             <Cue name="Cue 9" holdSeconds="5" fadeSeconds="1" targetEffectId="6"/>
             <Cue name="Cue 10" holdSeconds="5" fadeSeconds="1" targetEffectId="5"/>
             <Cue name="Cue 11" holdSeconds="5" fadeSeconds="2" targetEffectId="0"/>

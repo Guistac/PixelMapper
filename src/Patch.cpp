@@ -895,6 +895,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->renderMode = settings->renderMode;
         program->whiteMode = settings->whiteMode;
         program->highlightFrequency = settings->highlightFrequency;
+        program->masterBrightness.store(settings->masterBrightness);
         previewRes = settings->vfbResolution;
     }
 
@@ -2345,6 +2346,17 @@ void render(PatchProgram* program){
     // 2. Direct mapping: copy vfbPixels to pixelColorsTemp (no interpolation needed!)
     if (program->pixelCount > 0 && program->vfbPixels && program->pixelColorsTemp) {
         std::memcpy(program->pixelColorsTemp, program->vfbPixels, program->pixelCount * sizeof(ColorRGBW));
+
+        float mb = program->masterBrightness.load();
+        if (mb < 0.999f) {
+            for (uint32_t i = 0; i < program->pixelCount; ++i) {
+                ColorRGBW& c = program->pixelColorsTemp[i];
+                c.r = (uint8_t)(c.r * mb + 0.5f);
+                c.g = (uint8_t)(c.g * mb + 0.5f);
+                c.b = (uint8_t)(c.b * mb + 0.5f);
+                c.w = (uint8_t)(c.w * mb + 0.5f);
+            }
+        }
 
         // 3. Highlight/Flash selected pixels for "Find" feature
         if (program->pixelSelected) {
