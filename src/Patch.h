@@ -64,6 +64,7 @@ namespace Patch {
         bool highlightSelected = true;
         float highlightFrequency = 1.0f;
         float masterBrightness = 1.0f;
+        bool previewBrightnessEnabled = true;
     };
 
     struct ScriptData {
@@ -211,6 +212,7 @@ struct PatchProgram {
     std::atomic<bool>* pixelSelected = nullptr;
     float highlightFrequency = 1.0f;
     std::atomic<float> masterBrightness{1.0f};
+    std::atomic<bool> previewBrightnessEnabled{true};
 
     Artnet::Device::Settings* devices = nullptr;
     uint32_t deviceCount = 0;

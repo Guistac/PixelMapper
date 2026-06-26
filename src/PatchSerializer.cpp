@@ -130,6 +130,7 @@ bool save(flecs::entity pixelMapper, const std::string& path) {
             sEl->SetAttribute("highlightSelected", settings->highlightSelected ? 1 : 0);
             sEl->SetAttribute("highlightFrequency", settings->highlightFrequency);
             sEl->SetAttribute("masterBrightness", settings->masterBrightness);
+            sEl->SetAttribute("previewBrightnessEnabled", settings->previewBrightnessEnabled ? 1 : 0);
             patchEl->InsertEndChild(sEl);
         }
 
@@ -507,6 +508,10 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
 
                 settings->masterBrightness = 1.0f;
                 sEl->QueryFloatAttribute("masterBrightness", &settings->masterBrightness);
+
+                int pbEn = 1;
+                sEl->QueryIntAttribute("previewBrightnessEnabled", &pbEn);
+                settings->previewBrightnessEnabled = (pbEn != 0);
 
                 int srcPort = 6454;
                 sEl->QueryIntAttribute("sourcePort", &srcPort);

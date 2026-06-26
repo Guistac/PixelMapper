@@ -1406,6 +1406,12 @@ void import(flecs::world& w){
                             prog->masterBrightness.store(s->masterBrightness);
                         }
                     }
+                    if (ImGui::Checkbox("Scale Preview Pixels", &s->previewBrightnessEnabled)) {
+                        auto prog = std::atomic_load(&App::currentPatchProgram);
+                        if (prog) {
+                            prog->previewBrightnessEnabled.store(s->previewBrightnessEnabled);
+                        }
+                    }
                     
                     ImGui::SeparatorText("Identify / Find");
                     e |= ImGui::Checkbox("Highlight Selected Fixtures (Find)", &s->highlightSelected);

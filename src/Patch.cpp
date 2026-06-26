@@ -896,6 +896,7 @@ PatchProgram* PatchProgram::compile(flecs::entity patch){
         program->whiteMode = settings->whiteMode;
         program->highlightFrequency = settings->highlightFrequency;
         program->masterBrightness.store(settings->masterBrightness);
+        program->previewBrightnessEnabled.store(settings->previewBrightnessEnabled);
         previewRes = settings->vfbResolution;
     }
 
@@ -2348,7 +2349,8 @@ void render(PatchProgram* program){
         std::memcpy(program->pixelColorsTemp, program->vfbPixels, program->pixelCount * sizeof(ColorRGBW));
 
         float mb = program->masterBrightness.load();
-        if (mb < 0.999f) {
+        bool previewScaled = program->previewBrightnessEnabled.load();
+        if (mb < 0.999f && previewScaled) {
             for (uint32_t i = 0; i < program->pixelCount; ++i) {
                 ColorRGBW& c = program->pixelColorsTemp[i];
                 c.r = (uint8_t)(c.r * mb + 0.5f);
@@ -2394,6 +2396,10 @@ void render(PatchProgram* program){
 }
 
 void encode(PatchProgram* program) {
+    float mb = program->masterBrightness.load();
+    bool previewScaled = program->previewBrightnessEnabled.load();
+    float encodeScale = previewScaled ? 1.0f : mb;
+
     for (int i = 0; i < program->p2uCount; i++) {
         const PatchProgram::Pix2UniCopyInstr& map = program->p2us[i];
         uint8_t* dest = program->universes[map.universeIndex].buffer + map.universeOffset;
@@ -2408,7 +2414,13 @@ void encode(PatchProgram* program) {
             int remainingInMap = map.byteCount - bytesWritten;
             int toCopy = std::min(availableInPixel, remainingInMap);
             
-            std::memcpy(dest + bytesWritten, src + pByte, toCopy);
+            if (encodeScale < 0.999f) {
+                for (int b = 0; b < toCopy; ++b) {
+                    dest[bytesWritten + b] = (uint8_t)(src[pByte + b] * encodeScale + 0.5f);
+                }
+            } else {
+                std::memcpy(dest + bytesWritten, src + pByte, toCopy);
+            }
             
             bytesWritten += toCopy;
             p++;
