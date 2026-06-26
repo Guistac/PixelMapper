@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="1" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="0" showPalettesWindow="0" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="-33" canvasRotationY="221.5" editingCueIndex="-2" editingBankIndex="5"/>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="1" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="0" showPalettesWindow="1" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="-33" canvasRotationY="221.5" editingCueIndex="-2" editingBankIndex="5"/>
     <Patch name="Patch 1">
         <Settings refreshRate="30.5" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="1" highlightFrequency="4" masterBrightness="0.52999997"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
@@ -1312,14 +1312,142 @@ void main() {
                 <Stop r="0.97333336" g="0" b="0" a="1" position="0.65734267" smoothness="0.5"/>
                 <Stop r="0.036750238" g="0.42666668" b="0.0028444419" a="1" position="1" smoothness="0.5"/>
             </Palette>
+            <Palette name="Tungsten_Void" isModeB="0">
+                <Stop r="1" g="0.60000002" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="1" g="0.60000002" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Laser_Pulse" isModeB="0">
+                <Stop r="0" g="1" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.25" smoothness="0.5"/>
+                <Stop r="0" g="1" b="1" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.75" smoothness="0.5"/>
+                <Stop r="0" g="1" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Warning_Tape" isModeB="0">
+                <Stop r="1" g="0.80000001" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="1" g="0.80000001" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Police_Strobe" isModeB="0">
+                <Stop r="1" g="0" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0" g="0" b="1" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Ice_Breaker" isModeB="0">
+                <Stop r="1" g="1" b="1" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0.80000001" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="1" g="1" b="1" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Electric_Violet" isModeB="0">
+                <Stop r="0.60000002" g="0" b="1" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="1" b="1" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0.60000002" g="0" b="1" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Blood_Moon" isModeB="0">
+                <Stop r="1" g="1" b="1" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0" a="1" position="0.2" smoothness="0.5"/>
+                <Stop r="0.2" g="0" b="0" a="1" position="0.60000002" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="0.80000001" smoothness="0.5"/>
+                <Stop r="1" g="1" b="1" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Deep_Water_Wash" isModeB="0">
+                <Stop r="0" g="0.1" b="0.40000001" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0.40000001" b="0.40000001" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0" g="0.1" b="0.40000001" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Ember_Dust" isModeB="0">
+                <Stop r="0.2" g="0" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.40000001" g="0.1" b="0" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0.2" g="0" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Abyss" isModeB="0">
+                <Stop r="0" g="0" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.18666682" g="0" b="0.56" a="1" position="0.52173913" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Matrix" isModeB="0">
+                <Stop r="0" g="1" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0.1" b="0" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0" g="1" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Miami_Night" isModeB="0">
+                <Stop r="1" g="0" b="0.5" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.30000001" g="0" b="0.5" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0" g="0.80000001" b="1" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0.5" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Toxic" isModeB="0">
+                <Stop r="0.5" g="1" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.40000001" g="0" b="0.80000001" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0.5" g="1" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Magma" isModeB="0">
+                <Stop r="1" g="0.40000001" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="0.89999998" b="0" a="1" position="0.25" smoothness="0.5"/>
+                <Stop r="0.80000001" g="0" b="0" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="0.1" g="0" b="0" a="1" position="0.75" smoothness="0.5"/>
+                <Stop r="1" g="0.40000001" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Neon_Jungle" isModeB="0">
+                <Stop r="0" g="1" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="0" b="0.60000002" a="1" position="0.2" smoothness="0.5"/>
+                <Stop r="1" g="1" b="0" a="1" position="0.40000001" smoothness="0.5"/>
+                <Stop r="0" g="0" b="1" a="1" position="0.60000002" smoothness="0.5"/>
+                <Stop r="1" g="0.30000001" b="0" a="1" position="0.80000001" smoothness="0.5"/>
+                <Stop r="0" g="1" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Aurora" isModeB="0">
+                <Stop r="0" g="0.80000001" b="0.30000001" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0" g="0.89999998" b="0.80000001" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0.30000001" g="0" b="0.80000001" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="0" g="0.80000001" b="0.30000001" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Vaporwave" isModeB="0">
+                <Stop r="0.80000001" g="0" b="1" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="0.60000002" b="0.5" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="0.2" g="1" b="0.80000001" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="0.80000001" g="0" b="1" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Gold_Rush" isModeB="0">
+                <Stop r="0" g="0" b="0" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.40000001" g="0.2" b="0" a="1" position="0.33000001" smoothness="0.5"/>
+                <Stop r="1" g="0.69999999" b="0" a="1" position="0.66000003" smoothness="0.5"/>
+                <Stop r="0" g="0" b="0" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Cotton_Candy" isModeB="0">
+                <Stop r="1" g="0.40000001" b="0.69999999" a="1" position="0" smoothness="0.5"/>
+                <Stop r="0.40000001" g="0.80000001" b="1" a="1" position="0.5" smoothness="0.5"/>
+                <Stop r="1" g="0.40000001" b="0.69999999" a="1" position="1" smoothness="0.5"/>
+            </Palette>
+            <Palette name="Monochrome_Accent" isModeB="0">
+                <Stop r="0.1" g="0.1" b="0.1" a="1" position="0" smoothness="0.5"/>
+                <Stop r="1" g="1" b="1" a="1" position="0.40000001" smoothness="0.5"/>
+                <Stop r="0" g="0" b="1" a="1" position="0.60000002" smoothness="0.5"/>
+                <Stop r="0.1" g="0.1" b="0.1" a="1" position="1" smoothness="0.5"/>
+            </Palette>
         </Palettes>
         <MotivePresets>
             <Motive name="Calm Ambient" velocity="0.15000001" complexity="0.2" scale="0.34999999" distortion="0.1" asymmetry="0.050000001" intensity="0.40000001" wanderAmp0="0.079999998" wanderFreq0="0.25" wanderAmp1="0.079999998" wanderFreq1="0.25" wanderAmp2="0.079999998" wanderFreq2="0.25" wanderAmp3="0.079999998" wanderFreq3="0.25" wanderAmp4="0.079999998" wanderFreq4="0.25" wanderAmp5="0.079999998" wanderFreq5="0.25"/>
             <Motive name="Organic Wandering" velocity="0.40000001" complexity="0.5" scale="0.55000001" distortion="0.34999999" asymmetry="0.25" intensity="0.64999998" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
             <Motive name="Kinetic Storm" velocity="0.85000002" complexity="0.80000001" scale="0.75" distortion="0.64999998" asymmetry="0.5" intensity="0.89999998" wanderAmp0="0.18000001" wanderFreq0="1.2" wanderAmp1="0.18000001" wanderFreq1="1.2" wanderAmp2="0.18000001" wanderFreq2="1.2" wanderAmp3="0.18000001" wanderFreq3="1.2" wanderAmp4="0.18000001" wanderFreq4="1.2" wanderAmp5="0.18000001" wanderFreq5="1.2"/>
-            <Motive name="Motive 1" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
-            <Motive name="Motive 2" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
             <Motive name="BASE" velocity="0" complexity="0" scale="0" distortion="0" asymmetry="0.059999999" intensity="1" wanderAmp0="0" wanderFreq0="0" wanderAmp1="0" wanderFreq1="0" wanderAmp2="0" wanderFreq2="0" wanderAmp3="0" wanderFreq3="0" wanderAmp4="0" wanderFreq4="0" wanderAmp5="0" wanderFreq5="0"/>
+            <Motive name="Deep Sleep" velocity="0.050000001" complexity="0.1" scale="0.80000001" distortion="0.1" asymmetry="0.050000001" intensity="0.30000001" wanderAmp0="0.050000001" wanderFreq0="0.050000001" wanderAmp1="0.039999999" wanderFreq1="0.059999999" wanderAmp2="0.029999999" wanderFreq2="0.039999999" wanderAmp3="0.050000001" wanderFreq3="0.050000001" wanderAmp4="0.059999999" wanderFreq4="0.029999999" wanderAmp5="0.02" wanderFreq5="0.07"/>
+            <Motive name="Zen Garden" velocity="0.1" complexity="0.2" scale="0.60000002" distortion="0" asymmetry="0.1" intensity="0.5" wanderAmp0="0.02" wanderFreq0="0.1" wanderAmp1="0.02" wanderFreq1="0.1" wanderAmp2="0.02" wanderFreq2="0.1" wanderAmp3="0.02" wanderFreq3="0.1" wanderAmp4="0.02" wanderFreq4="0.1" wanderAmp5="0.02" wanderFreq5="0.1"/>
+            <Motive name="Breathing" velocity="0" complexity="0.2" scale="0.5" distortion="0.1" asymmetry="0" intensity="0.60000002" wanderAmp0="0.30000001" wanderFreq0="0.15000001" wanderAmp1="0.30000001" wanderFreq1="0.15000001" wanderAmp2="0.30000001" wanderFreq2="0.15000001" wanderAmp3="0.30000001" wanderFreq3="0.15000001" wanderAmp4="0.30000001" wanderFreq4="0.15000001" wanderAmp5="0.30000001" wanderFreq5="0.15000001"/>
+            <Motive name="Sludge" velocity="0.079999998" complexity="0.5" scale="0.69999999" distortion="0.89999998" asymmetry="0.60000002" intensity="0.40000001" wanderAmp0="0.2" wanderFreq0="0.079999998" wanderAmp1="0.25" wanderFreq1="0.1" wanderAmp2="0.15000001" wanderFreq2="0.050000001" wanderAmp3="0.30000001" wanderFreq3="0.12" wanderAmp4="0.1" wanderFreq4="0.090000004" wanderAmp5="0.2" wanderFreq5="0.11"/>
+            <Motive name="Nervous Twitch" velocity="0.89999998" complexity="0.80000001" scale="0.2" distortion="0.89999998" asymmetry="0.80000001" intensity="0.89999998" wanderAmp0="0.40000001" wanderFreq0="2.5" wanderAmp1="0.30000001" wanderFreq1="3.2" wanderAmp2="0.5" wanderFreq2="2.0999999" wanderAmp3="0.2" wanderFreq3="4" wanderAmp4="0.60000002" wanderFreq4="1.8" wanderAmp5="0.40000001" wanderFreq5="2.9000001"/>
+            <Motive name="Jitter Bug" velocity="0" complexity="0.60000002" scale="0.40000001" distortion="0.30000001" asymmetry="0.5" intensity="0.80000001" wanderAmp0="0.5" wanderFreq0="4" wanderAmp1="0.40000001" wanderFreq1="4.5" wanderAmp2="0.60000002" wanderFreq2="3.8" wanderAmp3="0.5" wanderFreq3="5" wanderAmp4="0.30000001" wanderFreq4="4.1999998" wanderAmp5="0.69999999" wanderFreq5="3.5"/>
+            <Motive name="Microscopic" velocity="0.15000001" complexity="0.94999999" scale="0.050000001" distortion="0.5" asymmetry="0.40000001" intensity="0.5" wanderAmp0="0.050000001" wanderFreq0="1.5" wanderAmp1="0.079999998" wanderFreq1="2" wanderAmp2="0.039999999" wanderFreq2="1.2" wanderAmp3="0.059999999" wanderFreq3="1.8" wanderAmp4="0.029999999" wanderFreq4="2.2" wanderAmp5="0.07" wanderFreq5="1.4"/>
+            <Motive name="Laser Scanner" velocity="0.94999999" complexity="0.1" scale="0.89999998" distortion="0" asymmetry="0.1" intensity="1" wanderAmp0="0.02" wanderFreq0="0.80000001" wanderAmp1="0.0099999998" wanderFreq1="0.89999998" wanderAmp2="0.029999999" wanderFreq2="0.69999999" wanderAmp3="0.02" wanderFreq3="0.85000002" wanderAmp4="0.0099999998" wanderFreq4="0.94999999" wanderAmp5="0.039999999" wanderFreq5="0.60000002"/>
+            <Motive name="Overdrive" velocity="1" complexity="1" scale="1" distortion="1" asymmetry="1" intensity="1" wanderAmp0="0.30000001" wanderFreq0="3" wanderAmp1="0.30000001" wanderFreq1="3" wanderAmp2="0.30000001" wanderFreq2="3" wanderAmp3="0.30000001" wanderFreq3="3" wanderAmp4="0.30000001" wanderFreq4="3" wanderAmp5="0.30000001" wanderFreq5="3"/>
+            <Motive name="Wind Tunnel" velocity="0.80000001" complexity="0.2" scale="0.30000001" distortion="0.5" asymmetry="0.80000001" intensity="0.69999999" wanderAmp0="0.1" wanderFreq0="0.89999998" wanderAmp1="0.15000001" wanderFreq1="0.80000001" wanderAmp2="0.050000001" wanderFreq2="1" wanderAmp3="0.12" wanderFreq3="0.94999999" wanderAmp4="0.079999998" wanderFreq4="0.85000002" wanderAmp5="0.18000001" wanderFreq5="0.75"/>
+            <Motive name="Liquid Mercury" velocity="0.30000001" complexity="0.40000001" scale="0.60000002" distortion="0.80000001" asymmetry="0.30000001" intensity="0.69999999" wanderAmp0="0.15000001" wanderFreq0="0.40000001" wanderAmp1="0.2" wanderFreq1="0.30000001" wanderAmp2="0.1" wanderFreq2="0.5" wanderAmp3="0.25" wanderFreq3="0.2" wanderAmp4="0.12" wanderFreq4="0.44999999" wanderAmp5="0.18000001" wanderFreq5="0.34999999"/>
+            <Motive name="Hypnotic Symmetry" velocity="0.40000001" complexity="0.30000001" scale="0.5" distortion="0" asymmetry="0" intensity="0.80000001" wanderAmp0="0.1" wanderFreq0="0.5" wanderAmp1="0.1" wanderFreq1="0.5" wanderAmp2="0.1" wanderFreq2="0.5" wanderAmp3="0.1" wanderFreq3="0.5" wanderAmp4="0.1" wanderFreq4="0.5" wanderAmp5="0.1" wanderFreq5="0.5"/>
+            <Motive name="Drunk Walk" velocity="0.2" complexity="0.30000001" scale="0.5" distortion="0.69999999" asymmetry="0.89999998" intensity="0.5" wanderAmp0="0.40000001" wanderFreq0="0.2" wanderAmp1="0.5" wanderFreq1="0.15000001" wanderAmp2="0.30000001" wanderFreq2="0.25" wanderAmp3="0.60000002" wanderFreq3="0.1" wanderAmp4="0.44999999" wanderFreq4="0.18000001" wanderAmp5="0.34999999" wanderFreq5="0.22"/>
+            <Motive name="Cosmic Dust" velocity="0.2" complexity="0.80000001" scale="0.89999998" distortion="0.2" asymmetry="0.2" intensity="0.40000001" wanderAmp0="0.079999998" wanderFreq0="0.15000001" wanderAmp1="0.1" wanderFreq1="0.12" wanderAmp2="0.059999999" wanderFreq2="0.18000001" wanderAmp3="0.12" wanderFreq3="0.1" wanderAmp4="0.050000001" wanderFreq4="0.2" wanderAmp5="0.090000004" wanderFreq5="0.14"/>
         </MotivePresets>
     </Patch>
 </PixelMapper>
