@@ -68,7 +68,8 @@ namespace Fixture {
         auto newFixture = create(patch, numPixels, channels, [&](flecs::entity e) {
             e.set<WithShape, Shape::Line>({start, end});
         });
-        Patch::safe_set_name(newFixture, fixtureName);
+        auto fixtureList = patch.target<Patch::FixtureFolder>();
+        Patch::safe_set_name(newFixture, fixtureName, fixtureList);
         return newFixture;
     }
 
@@ -81,7 +82,8 @@ namespace Fixture {
         auto newFixture = create(patch, numPixels, channels, [&](flecs::entity e) {
             e.set<WithShape, Shape::Circle>({center, radius});
         });
-        Patch::safe_set_name(newFixture, fixtureName);
+        auto fixtureList = patch.target<Patch::FixtureFolder>();
+        Patch::safe_set_name(newFixture, fixtureName, fixtureList);
         return newFixture;
     }
 

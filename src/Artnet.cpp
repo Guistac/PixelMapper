@@ -40,7 +40,7 @@ namespace Artnet::Universe {
             .add<Is>()
             .add<Channels>()
             .set<Properties>({universeId, 0});
-        Patch::safe_set_name(newUniv, univName);
+        Patch::safe_set_name(newUniv, univName, dmxUniverseFolder);
         select(patch, newUniv);
         return newUniv;
     }

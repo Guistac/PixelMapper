@@ -69,7 +69,7 @@ namespace Patch {
             .set<Patch::GPUProgram>({})
             .child_of(patchFolder);
 
-        Patch::safe_set_name(newPatch, patchName);
+        Patch::safe_set_name(newPatch, patchName, patchFolder);
 
         auto fixtureFolder = world.entity("FixtureFolder").child_of(newPatch);
         auto dmxOutputFolder = world.entity("DmxOutputFolder").child_of(newPatch);
@@ -113,7 +113,7 @@ namespace Patch {
             };
             auto pal1 = world.entity().child_of(paletteFolder)
                 .add<Generative::Palette::Is>();
-            Patch::safe_set_name(pal1, "Rainbow");
+            Patch::safe_set_name(pal1, "Rainbow", paletteFolder);
             pal1.set<Generative::Palette::Stops>({stops1})
                 .set<Generative::Palette::IsModeB>({false});
 
@@ -126,7 +126,7 @@ namespace Patch {
             };
             auto pal2 = world.entity().child_of(paletteFolder)
                 .add<Generative::Palette::Is>();
-            Patch::safe_set_name(pal2, "Sunset");
+            Patch::safe_set_name(pal2, "Sunset", paletteFolder);
             pal2.set<Generative::Palette::Stops>({stops2})
                 .set<Generative::Palette::IsModeB>({false});
 
@@ -138,7 +138,7 @@ namespace Patch {
             };
             auto pal3 = world.entity().child_of(paletteFolder)
                 .add<Generative::Palette::Is>();
-            Patch::safe_set_name(pal3, "Cyberpunk");
+            Patch::safe_set_name(pal3, "Cyberpunk", paletteFolder);
             pal3.set<Generative::Palette::Stops>({stops3})
                 .set<Generative::Palette::IsModeB>({false});
         }
@@ -152,7 +152,7 @@ namespace Patch {
             for (int k = 0; k < 6; ++k) { calm.wanderAmp[k] = 0.08f; calm.wanderFreq[k] = 0.25f; }
             auto mot1 = world.entity().child_of(motiveFolder)
                 .add<Generative::Motive::Is>();
-            Patch::safe_set_name(mot1, "Calm Ambient");
+            Patch::safe_set_name(mot1, "Calm Ambient", motiveFolder);
             mot1.set<Generative::Motive::Params>(calm);
 
             // 2. Organic Wandering
@@ -162,7 +162,7 @@ namespace Patch {
             for (int k = 0; k < 6; ++k) { wander.wanderAmp[k] = 0.15f; wander.wanderFreq[k] = 0.50f; }
             auto mot2 = world.entity().child_of(motiveFolder)
                 .add<Generative::Motive::Is>();
-            Patch::safe_set_name(mot2, "Organic Wandering");
+            Patch::safe_set_name(mot2, "Organic Wandering", motiveFolder);
             mot2.set<Generative::Motive::Params>(wander);
 
             // 3. Kinetic Storm
@@ -172,7 +172,7 @@ namespace Patch {
             for (int k = 0; k < 6; ++k) { storm.wanderAmp[k] = 0.18f; storm.wanderFreq[k] = 1.20f; }
             auto mot3 = world.entity().child_of(motiveFolder)
                 .add<Generative::Motive::Is>();
-            Patch::safe_set_name(mot3, "Kinetic Storm");
+            Patch::safe_set_name(mot3, "Kinetic Storm", motiveFolder);
             mot3.set<Generative::Motive::Params>(storm);
         }
 

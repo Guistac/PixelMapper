@@ -153,15 +153,17 @@ namespace Patch {
         return candidate;
     }
 
-    inline void safe_set_name(flecs::entity entity, const std::string& baseName) {
-        if (!entity.is_valid()) return;
+    inline std::string safe_set_name(flecs::entity entity, const std::string& baseName, flecs::entity parentOverride = flecs::entity::null()) {
+        if (!entity.is_valid()) return "";
         if (baseName.empty()) {
             entity.set_name(nullptr);
+            return "";
         } else {
-            flecs::entity parent = entity.parent();
+            flecs::entity parent = parentOverride.is_valid() ? parentOverride : entity.parent();
             if (parent.is_valid()) {
                 std::string uniqueName = makeUniqueChildName(parent, baseName, entity);
                 entity.set_name(uniqueName.c_str());
+                return uniqueName;
             } else {
                 std::string candidate = baseName;
                 int counter = 1;
@@ -174,6 +176,7 @@ namespace Patch {
                     candidate = baseName + " (" + std::to_string(counter) + ")";
                 }
                 entity.set_name(candidate.c_str());
+                return candidate;
             }
         }
     }

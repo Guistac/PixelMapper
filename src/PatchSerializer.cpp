@@ -479,7 +479,8 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
         const char* patchName = patchEl->Attribute("name");
 
         flecs::entity patch = Patch::create(pixelMapper);
-        Patch::safe_set_name(patch, patchName ? patchName : "");
+        auto patchFolder = pixelMapper.target<App::PatchFolder>();
+        Patch::safe_set_name(patch, patchName ? patchName : "", patchFolder);
 
         // ── Settings ──
         if (XMLElement* sEl = patchEl->FirstChildElement("Settings")) {
@@ -570,7 +571,8 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                 }
 
                 if (fixture.is_valid()) {
-                    Patch::safe_set_name(fixture, name ? name : "");
+                    auto fixtureFolder = patch.target<Patch::FixtureFolder>();
+                    Patch::safe_set_name(fixture, name ? name : "", fixtureFolder);
                     fixture.set<Fixture::Order>({orderIdx++});
                     Fixture::setDmxProperties(fixture,
                         (uint16_t)dmxUniverse, (uint16_t)dmxAddress);
@@ -592,7 +594,8 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                 dEl->QueryIntAttribute("universeCount",  &uCount);
 
                 flecs::entity dev = Artnet::Device::create(patch);
-                Patch::safe_set_name(dev, name ? name : ("Device " + std::to_string(devCounter++)));
+                auto deviceFolder = patch.target<Patch::ArtnetDeviceFolder>();
+                Patch::safe_set_name(dev, name ? name : ("Device " + std::to_string(devCounter++)), deviceFolder);
 
                 if (auto* s = dev.try_get_mut<Artnet::Device::Settings>()) {
                     s->ipAddress    = ipFromString(ip);
@@ -624,7 +627,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                         .add<EffectBank::Effect::Is>()
                         .set<EffectBank::Effect::GlslSource>({getElementText(fxEl)})
                         .set<Patch::GPUProgram>({});
-                    Patch::safe_set_name(newEffect, fxName ? fxName : "");
+                    Patch::safe_set_name(newEffect, fxName ? fxName : "", bankFolder);
 
                     if (fxId != -1) {
                         idToEffect[fxId] = newEffect;
@@ -663,7 +666,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                         .set<CueList::Cue::HoldDuration>({hold})
                         .set<CueList::Cue::FadeDuration>({fade})
                         .set<CueList::Cue::IndexOrder>({cueOrderIdx++});
-                    Patch::safe_set_name(newCue, cueName ? cueName : "");
+                    Patch::safe_set_name(newCue, cueName ? cueName : "", cueFolder);
 
                     if (targetFxId != -1 && idToEffect.count(targetFxId)) {
                         newCue.add<CueList::Cue::TargetEffect>(idToEffect[targetFxId]);
@@ -676,7 +679,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                             .set<EffectBank::Effect::GlslSource>({glsl})
                             .set<Patch::GPUProgram>({});
                         std::string fxName = (cueName ? std::string(cueName) : "Cue Effect");
-                        Patch::safe_set_name(fallbackEffect, fxName);
+                        Patch::safe_set_name(fallbackEffect, fxName, bankFolder);
                         newCue.add<CueList::Cue::TargetEffect>(fallbackEffect);
                     }
                 }
@@ -761,7 +764,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                     .add<Generative::Palette::Is>()
                     .set<Generative::Palette::Stops>({stops})
                     .set<Generative::Palette::IsModeB>({isModeB != 0});
-                Patch::safe_set_name(pal, palName ? palName : "");
+                Patch::safe_set_name(pal, palName ? palName : "", paletteFolder);
             }
         }
 
@@ -806,7 +809,7 @@ bool load(flecs::entity pixelMapper, const std::string& path) {
                     .child_of(motiveFolder)
                     .add<Generative::Motive::Is>()
                     .set<Generative::Motive::Params>(params);
-                Patch::safe_set_name(mot, motName ? motName : "");
+                Patch::safe_set_name(mot, motName ? motName : "", motiveFolder);
             }
         }
 

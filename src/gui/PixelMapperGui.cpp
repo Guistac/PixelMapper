@@ -1466,7 +1466,8 @@ void import(flecs::world& w){
                 Artnet::Device::iterateInPatch(selectedPatch, [&](flecs::entity d, const Artnet::Device::Settings&){ devs.push_back(d); });
                 std::string devName = "Device " + std::to_string(devs.size() + 1);
                 auto dev = Artnet::Device::create(selectedPatch);
-                Patch::safe_set_name(dev, devName);
+                auto deviceFolder = selectedPatch.target<Patch::ArtnetDeviceFolder>();
+                Patch::safe_set_name(dev, devName, deviceFolder);
                 Artnet::Device::select(selectedPatch, dev);
                 if(auto* s = dev.try_get_mut<Artnet::Device::Settings>()){
                     s->ipAddress = 0xFFFFFFFF; s->startUniverse = 0; s->universeCount = 1;
@@ -1658,7 +1659,7 @@ void import(flecs::world& w){
                             .set<CueList::Cue::FadeDuration>({2.0f})
                             .set<CueList::Cue::IndexOrder>({nextOrder})
                             .add<CueList::Cue::TargetEffect>(fxEnt);
-                        Patch::safe_set_name(newCue, cueName);
+                        Patch::safe_set_name(newCue, cueName, cueFolder);
                         selectedPatch.add<Patch::ProgramDirty>();
                     }
                     ImGui::SameLine();
@@ -2047,7 +2048,7 @@ void import(flecs::world& w){
                         .add<EffectBank::Effect::Is>()
                         .set<EffectBank::Effect::GlslSource>({glsl})
                         .set<Patch::GPUProgram>({});
-                    Patch::safe_set_name(targetFx, "Effect 1");
+                    Patch::safe_set_name(targetFx, "Effect 1", bankFolder);
                 }
  
                 auto newCue = it.world().entity()
@@ -2057,7 +2058,7 @@ void import(flecs::world& w){
                     .set<CueList::Cue::FadeDuration>({2.f})
                     .set<CueList::Cue::IndexOrder>({nextOrder})
                     .add<CueList::Cue::TargetEffect>(targetFx);
-                Patch::safe_set_name(newCue, cueName);
+                Patch::safe_set_name(newCue, cueName, cueFolder);
 
                 if (session->activeIndex < 0) session->activeIndex = 0;
                 selectedPatch.add<Patch::ProgramDirty>();
@@ -2316,7 +2317,7 @@ void import(flecs::world& w){
                     .add<EffectBank::Effect::Is>()
                     .set<EffectBank::Effect::GlslSource>({glsl})
                     .set<Patch::GPUProgram>({});
-                Patch::safe_set_name(newFx, fxName);
+                Patch::safe_set_name(newFx, fxName, bankFolder);
                 
                 // Immediately select for editing and open editor window
                 setEditingBankIndex(app, (int)fxList.size());
@@ -2397,7 +2398,7 @@ void import(flecs::world& w){
                                 .set<CueList::Cue::FadeDuration>({2.0f})
                                 .set<CueList::Cue::IndexOrder>({nextOrder})
                                 .add<CueList::Cue::TargetEffect>(fx);
-                            Patch::safe_set_name(newCue, fxName ? fxName : "Cue");
+                            Patch::safe_set_name(newCue, fxName ? fxName : "Cue", cueFolder);
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
  
@@ -2413,7 +2414,7 @@ void import(flecs::world& w){
                                 .add<EffectBank::Effect::Is>()
                                 .set<EffectBank::Effect::GlslSource>({glsl})
                                 .set<Patch::GPUProgram>({});
-                            Patch::safe_set_name(newFx, newName);
+                            Patch::safe_set_name(newFx, newName, bankFolder);
                             selectedPatch.add<Patch::ProgramDirty>();
                         }
 
@@ -3329,7 +3330,7 @@ public:
                         .add<Generative::Palette::Is>()
                         .set<Generative::Palette::Stops>({stops})
                         .set<Generative::Palette::IsModeB>({false});
-                    Patch::safe_set_name(p, newName.c_str());
+                    std::string actualName = Patch::safe_set_name(p, newName.c_str(), palFolder);
                     
                     it.world().entity("PixelMapperApp").get_mut<App::UIConfig>().editingCueIndex = -3; // select flag
                     currentPatchId = p.id();
@@ -3338,7 +3339,7 @@ public:
                     if (prog) {
                         std::lock_guard<std::mutex> lock(prog->generativeMutex);
                         Generative::CompiledPalette cp;
-                        cp.name = newName;
+                        cp.name = actualName;
                         cp.stops = stops;
                         cp.isModeB = false;
                         prog->palettePool.push_back(cp);
@@ -4332,8 +4333,7 @@ public:
                     auto p = it.world().entity().child_of(motiveFolder)
                         .add<Generative::Motive::Is>()
                         .set<Generative::Motive::Params>(params);
-                    Patch::safe_set_name(p, newName);
-                    std::string actualName = p.name().c_str() ? p.name().c_str() : "";
+                    std::string actualName = Patch::safe_set_name(p, newName, motiveFolder);
                     
                     auto prog = std::atomic_load(&App::currentPatchProgram);
                     if (prog) {
