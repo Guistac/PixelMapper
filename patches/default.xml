@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PixelMapper>
-    <UIConfig currentLayout="1" showFixturesWindow="1" showPatchEditor="1" showArtnetData="0" showNetworkSettings="1" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="1" showPalettesWindow="0" showMotivesWindow="0" showGenerativeDashboardWindow="0" showGenerativeTelemetryWindow="0" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="39.5" canvasRotationY="175" editingCueIndex="-2" editingBankIndex="7"/>
+    <UIConfig currentLayout="1" showFixturesWindow="0" showPatchEditor="1" showArtnetData="0" showNetworkSettings="0" showArtnetDevices="0" showScriptEditor="1" showCuesWindow="1" showOfflinePreviewWindow="1" showEffectBankWindow="1" showFixtureSetupScriptWindow="0" showPalettesWindow="0" showMotivesWindow="1" showGenerativeDashboardWindow="1" showGenerativeTelemetryWindow="1" patchLocked="0" previewOpacity="0.88" showGrid="0" showFixtures="0" showPixels="1" showFrame="0" autoZoom="1" pixelSize="7" canvas3dMode="0" canvasRotationX="-33" canvasRotationY="221.5" editingCueIndex="-2" editingBankIndex="5"/>
     <Patch name="Patch 1">
-        <Settings refreshRate="30.5" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="0" highlightFrequency="4"/>
+        <Settings refreshRate="30.5" networkEnabled="1" sourcePort="6454" renderMode="2" whiteMode="1" projectionMode="0" vfbResolution="426" luaScriptPath="scripts/default_patch.lua" shaderPath="shaders/default_patch.frag" highlightSelected="1" highlightFrequency="4"/>
         <LuaSource><![CDATA[-- Default PixelMapper Lua Script
 -- update(canvas, time) is called once per frame
 
@@ -47,13 +47,14 @@ local distBaseToMid = 3000  -- 300cm from branch base to middle fixture
 local distMidToTip = 2000   -- 200cm from middle fixture to tip fixture
 local heights = { 20, 420, 820, 1420 } -- heights of each floor circle
 local radii = { 680, 550, 450, 400 }   -- radii of each floor circle
-local angles = { 30, 22, 15, 5 }         -- outward angle of branch (degrees)
+local angles = { 40, 35, 12, 5 }         -- outward angle of branch (degrees)
+local droops = { 40, 45, 40, 20 }          -- droop angle of branch (degrees)
 local offsets = { 0, -25, -50, -75 }         -- rotational start offset of circle (degrees)
 
 local dmxUniverse = 100
 local dmxAddress = 0
 
-local generateHelpers = false -- Set to false to disable helper structures (circles/branches)
+local generateHelpers = true -- Set to false to disable helper structures (circles/branches)
 
 local function patch_fixture(f)
     f:set_dmx(dmxUniverse, dmxAddress)
@@ -68,6 +69,8 @@ for c = 1, numCircles do
     local h = heights[c]
     local r = radii[c]
     local alpha = angles[c] * math.pi / 180
+    local droop = droops[c] * math.pi / 180
+    local alpha_tip = alpha + droop
     local offset = offsets[c] * math.pi / 180
     
     for b = 1, branchesPerCircle do
@@ -97,10 +100,15 @@ for c = 1, numCircles do
         local midY = plantY + distBaseToMid * by
         local midZ = plantZ + distBaseToMid * bz
         
-        -- Tip attachment point
-        local tipX = plantX + (distBaseToMid + distMidToTip) * bx
-        local tipY = plantY + (distBaseToMid + distMidToTip) * by
-        local tipZ = plantZ + (distBaseToMid + distMidToTip) * bz
+        -- Tip direction vector (with droop angle added)
+        local bx_tip = math.sin(alpha_tip) * dx
+        local by_tip = -math.cos(alpha_tip)
+        local bz_tip = math.sin(alpha_tip) * dz
+        
+        -- Tip attachment point (starts from mid, extends distMidToTip along bx_tip vector)
+        local tipX = midX + distMidToTip * bx_tip
+        local tipY = midY + distMidToTip * by_tip
+        local tipZ = midZ + distMidToTip * bz_tip
         
         -- Create middle fixture hanging vertically downwards along positive Y
         local midName = "Floor_"..c.."_Branch_"..b.."_Mid"
@@ -113,10 +121,14 @@ for c = 1, numCircles do
         patch_fixture(fTip)
         
         if generateHelpers then
-            -- DRAW DUMMY BRANCH STRUCTURE (Base to Tip)
-            local branchStructName = "Floor_"..c.."_Struct_Branch_"..b
-            local fStruct = patch:create_line(branchStructName, plantX, plantY, plantZ, tipX, tipY, tipZ, 0, 1)
-            fStruct:set_dmx(98, b)
+            -- DRAW DUMMY BRANCH STRUCTURE (Base to Mid and Mid to Tip)
+            local branchStructMidName = "Floor_"..c.."_Struct_Branch_"..b.."_BaseToMid"
+            local fStructMid = patch:create_line(branchStructMidName, plantX, plantY, plantZ, midX, midY, midZ, 0, 0)
+            fStructMid:set_dmx(98, b)
+            
+            local branchStructTipName = "Floor_"..c.."_Struct_Branch_"..b.."_MidToTip"
+            local fStructTip = patch:create_line(branchStructTipName, midX, midY, midZ, tipX, tipY, tipZ, 0, 0)
+            fStructTip:set_dmx(98, b)
             
             -- DRAW DUMMY BASE RING (Base to Next Base forming a hexagon)
             local nextB = (b % branchesPerCircle) + 1
@@ -126,19 +138,139 @@ for c = 1, numCircles do
             local nextZ = r * math.sin(nextTheta)
             
             local ringName = "Floor_"..c.."_Struct_Ring_"..b
-            local fRing = patch:create_line(ringName, plantX, plantY, plantZ, nextX, nextY, nextZ, 0, 1)
+            local fRing = patch:create_line(ringName, plantX, plantY, plantZ, nextX, nextY, nextZ, 0, 0)
             fRing:set_dmx(99, b)
         end
     end
 end
 ]]></FixtureSetupScript>
         <Fixtures>
+            <Fixture name="Floor_1_Branch_1_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="0" shape="Line" startX="2608.3628" startY="-2318.1333" startZ="0" endX="2608.3628" endY="-818.1333" endZ="0"/>
+            <Fixture name="Floor_1_Branch_1_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="144" shape="Line" startX="4577.9785" startY="-2665.4297" startZ="0" endX="4577.9785" endY="-1165.4297" endZ="0"/>
+            <Fixture name="Floor_1_Struct_Branch_1_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="680" startY="-20" startZ="0" endX="2608.3628" endY="-2318.1333" endZ="0"/>
+            <Fixture name="Floor_1_Struct_Branch_1_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="2608.3628" startY="-2318.1333" startZ="0" endX="4577.9785" endY="-2665.4297" endZ="0"/>
+            <Fixture name="Floor_1_Struct_Ring_1" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="1" shape="Line" startX="680" startY="-20" startZ="0" endX="340" endY="-20" endZ="588.89728"/>
+            <Fixture name="Floor_1_Branch_2_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="288" shape="Line" startX="1304.1814" startY="-2318.1333" startZ="2258.9084" endX="1304.1814" endY="-818.1333" endZ="2258.9084"/>
+            <Fixture name="Floor_1_Branch_2_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="0" dmxAddress="432" shape="Line" startX="2288.9893" startY="-2665.4297" startZ="3964.6455" endX="2288.9893" endY="-1165.4297" endZ="3964.6455"/>
+            <Fixture name="Floor_1_Struct_Branch_2_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="340" startY="-20" startZ="588.89728" endX="1304.1814" endY="-2318.1333" endZ="2258.9084"/>
+            <Fixture name="Floor_1_Struct_Branch_2_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="1304.1814" startY="-2318.1333" startZ="2258.9084" endX="2288.9893" endY="-2665.4297" endZ="3964.6455"/>
+            <Fixture name="Floor_1_Struct_Ring_2" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="2" shape="Line" startX="340" startY="-20" startZ="588.89728" endX="-340" endY="-20" endZ="588.89728"/>
+            <Fixture name="Floor_1_Branch_3_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="64" shape="Line" startX="-1304.1814" startY="-2318.1333" startZ="2258.9084" endX="-1304.1814" endY="-818.1333" endZ="2258.9084"/>
+            <Fixture name="Floor_1_Branch_3_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="1" dmxAddress="208" shape="Line" startX="-2288.9893" startY="-2665.4297" startZ="3964.6455" endX="-2288.9893" endY="-1165.4297" endZ="3964.6455"/>
+            <Fixture name="Floor_1_Struct_Branch_3_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="-340" startY="-20" startZ="588.89728" endX="-1304.1814" endY="-2318.1333" endZ="2258.9084"/>
+            <Fixture name="Floor_1_Struct_Branch_3_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="-1304.1814" startY="-2318.1333" startZ="2258.9084" endX="-2288.9893" endY="-2665.4297" endZ="3964.6455"/>
+            <Fixture name="Floor_1_Struct_Ring_3" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="3" shape="Line" startX="-340" startY="-20" startZ="588.89728" endX="-680" endY="-20" endZ="8.3275983e-14"/>
+            <Fixture name="Floor_1_Branch_4_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="0" shape="Line" startX="-2608.3628" startY="-2318.1333" startZ="3.1943231e-13" endX="-2608.3628" endY="-818.1333" endZ="3.1943231e-13"/>
+            <Fixture name="Floor_1_Branch_4_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="144" shape="Line" startX="-4577.9785" startY="-2665.4297" startZ="5.6064067e-13" endX="-4577.9785" endY="-1165.4297" endZ="5.6064067e-13"/>
+            <Fixture name="Floor_1_Struct_Branch_4_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-680" startY="-20" startZ="8.3275983e-14" endX="-2608.3628" endY="-2318.1333" endZ="3.1943231e-13"/>
+            <Fixture name="Floor_1_Struct_Branch_4_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-2608.3628" startY="-2318.1333" startZ="3.1943231e-13" endX="-4577.9785" endY="-2665.4297" endZ="5.6064067e-13"/>
+            <Fixture name="Floor_1_Struct_Ring_4" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="4" shape="Line" startX="-680" startY="-20" startZ="8.3275983e-14" endX="-340" endY="-20" endZ="-588.89728"/>
+            <Fixture name="Floor_1_Branch_5_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="288" shape="Line" startX="-1304.1814" startY="-2318.1333" startZ="-2258.9084" endX="-1304.1814" endY="-818.1333" endZ="-2258.9084"/>
+            <Fixture name="Floor_1_Branch_5_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="2" dmxAddress="432" shape="Line" startX="-2288.9893" startY="-2665.4297" startZ="-3964.6455" endX="-2288.9893" endY="-1165.4297" endZ="-3964.6455"/>
+            <Fixture name="Floor_1_Struct_Branch_5_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-340" startY="-20" startZ="-588.89728" endX="-1304.1814" endY="-2318.1333" endZ="-2258.9084"/>
+            <Fixture name="Floor_1_Struct_Branch_5_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-1304.1814" startY="-2318.1333" startZ="-2258.9084" endX="-2288.9893" endY="-2665.4297" endZ="-3964.6455"/>
+            <Fixture name="Floor_1_Struct_Ring_5" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="5" shape="Line" startX="-340" startY="-20" startZ="-588.89728" endX="340" endY="-20" endZ="-588.89728"/>
+            <Fixture name="Floor_1_Branch_6_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="3" dmxAddress="64" shape="Line" startX="1304.1814" startY="-2318.1333" startZ="-2258.9084" endX="1304.1814" endY="-818.1333" endZ="-2258.9084"/>
+            <Fixture name="Floor_1_Branch_6_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="3" dmxAddress="208" shape="Line" startX="2288.9893" startY="-2665.4297" startZ="-3964.6455" endX="2288.9893" endY="-1165.4297" endZ="-3964.6455"/>
+            <Fixture name="Floor_1_Struct_Branch_6_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="340" startY="-20" startZ="-588.89728" endX="1304.1814" endY="-2318.1333" endZ="-2258.9084"/>
+            <Fixture name="Floor_1_Struct_Branch_6_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="1304.1814" startY="-2318.1333" startZ="-2258.9084" endX="2288.9893" endY="-2665.4297" endZ="-3964.6455"/>
+            <Fixture name="Floor_1_Struct_Ring_6" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="6" shape="Line" startX="340" startY="-20" startZ="-588.89728" endX="680" endY="-20" endZ="0"/>
+            <Fixture name="Floor_2_Branch_1_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="0" shape="Line" startX="2057.9797" startY="-2877.4561" startZ="-959.65167" endX="2057.9797" endY="-1377.4562" endZ="-959.65167"/>
+            <Fixture name="Floor_2_Branch_1_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="144" shape="Line" startX="3843.0576" startY="-3224.7524" startZ="-1792.0471" endX="3843.0576" endY="-1724.7524" endZ="-1792.0471"/>
+            <Fixture name="Floor_2_Struct_Branch_1_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="498.46927" startY="-420" startZ="-232.44005" endX="2057.9797" endY="-2877.4561" endZ="-959.65167"/>
+            <Fixture name="Floor_2_Struct_Branch_1_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="2057.9797" startY="-2877.4561" startZ="-959.65167" endX="3843.0576" endY="-3224.7524" endZ="-1792.0471"/>
+            <Fixture name="Floor_2_Struct_Ring_1" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="1" shape="Line" startX="498.46927" startY="-420" startZ="-232.44005" endX="450.53363" endY="-420" endZ="315.46704"/>
+            <Fixture name="Floor_2_Branch_2_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="288" shape="Line" startX="1860.0725" startY="-2877.4561" startZ="1302.4368" endX="1860.0725" endY="-1377.4562" endZ="1302.4368"/>
+            <Fixture name="Floor_2_Branch_2_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="4" dmxAddress="432" shape="Line" startX="3473.4871" startY="-3224.7524" startZ="2432.1619" endX="3473.4871" endY="-1724.7524" endZ="2432.1619"/>
+            <Fixture name="Floor_2_Struct_Branch_2_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="450.53363" startY="-420" startZ="315.46704" endX="1860.0725" endY="-2877.4561" endZ="1302.4368"/>
+            <Fixture name="Floor_2_Struct_Branch_2_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="1860.0725" startY="-2877.4561" startZ="1302.4368" endX="3473.4871" endY="-3224.7524" endZ="2432.1619"/>
+            <Fixture name="Floor_2_Struct_Ring_2" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="2" shape="Line" startX="450.53363" startY="-420" startZ="315.46704" endX="-47.935658" endY="-420" endZ="547.9071"/>
+            <Fixture name="Floor_2_Branch_3_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="5" dmxAddress="64" shape="Line" startX="-197.9071" startY="-2877.4561" startZ="2262.0884" endX="-197.9071" endY="-1377.4562" endZ="2262.0884"/>
+            <Fixture name="Floor_2_Branch_3_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="5" dmxAddress="208" shape="Line" startX="-369.5704" startY="-3224.7524" startZ="4224.209" endX="-369.5704" endY="-1724.7524" endZ="4224.209"/>
+            <Fixture name="Floor_2_Struct_Branch_3_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="-47.935658" startY="-420" startZ="547.9071" endX="-197.9071" endY="-2877.4561" endZ="2262.0884"/>
+            <Fixture name="Floor_2_Struct_Branch_3_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="-197.9071" startY="-2877.4561" startZ="2262.0884" endX="-369.5704" endY="-3224.7524" endZ="4224.209"/>
+            <Fixture name="Floor_2_Struct_Ring_3" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="3" shape="Line" startX="-47.935658" startY="-420" startZ="547.9071" endX="-498.46927" endY="-420" endZ="232.44005"/>
+            <Fixture name="Floor_2_Branch_4_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="0" shape="Line" startX="-2057.9797" startY="-2877.4561" startZ="959.65167" endX="-2057.9797" endY="-1377.4562" endZ="959.65167"/>
+            <Fixture name="Floor_2_Branch_4_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="144" shape="Line" startX="-3843.0576" startY="-3224.7524" startZ="1792.0471" endX="-3843.0576" endY="-1724.7524" endZ="1792.0471"/>
+            <Fixture name="Floor_2_Struct_Branch_4_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-498.46927" startY="-420" startZ="232.44005" endX="-2057.9797" endY="-2877.4561" endZ="959.65167"/>
+            <Fixture name="Floor_2_Struct_Branch_4_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-2057.9797" startY="-2877.4561" startZ="959.65167" endX="-3843.0576" endY="-3224.7524" endZ="1792.0471"/>
+            <Fixture name="Floor_2_Struct_Ring_4" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="4" shape="Line" startX="-498.46927" startY="-420" startZ="232.44005" endX="-450.53363" endY="-420" endZ="-315.46704"/>
+            <Fixture name="Floor_2_Branch_5_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="288" shape="Line" startX="-1860.0725" startY="-2877.4561" startZ="-1302.4368" endX="-1860.0725" endY="-1377.4562" endZ="-1302.4368"/>
+            <Fixture name="Floor_2_Branch_5_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="6" dmxAddress="432" shape="Line" startX="-3473.4871" startY="-3224.7524" startZ="-2432.1619" endX="-3473.4871" endY="-1724.7524" endZ="-2432.1619"/>
+            <Fixture name="Floor_2_Struct_Branch_5_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-450.53363" startY="-420" startZ="-315.46704" endX="-1860.0725" endY="-2877.4561" endZ="-1302.4368"/>
+            <Fixture name="Floor_2_Struct_Branch_5_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-1860.0725" startY="-2877.4561" startZ="-1302.4368" endX="-3473.4871" endY="-3224.7524" endZ="-2432.1619"/>
+            <Fixture name="Floor_2_Struct_Ring_5" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="5" shape="Line" startX="-450.53363" startY="-420" startZ="-315.46704" endX="47.935658" endY="-420" endZ="-547.9071"/>
+            <Fixture name="Floor_2_Branch_6_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="7" dmxAddress="64" shape="Line" startX="197.9071" startY="-2877.4561" startZ="-2262.0884" endX="197.9071" endY="-1377.4562" endZ="-2262.0884"/>
+            <Fixture name="Floor_2_Branch_6_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="7" dmxAddress="208" shape="Line" startX="369.5704" startY="-3224.7524" startZ="-4224.209" endX="369.5704" endY="-1724.7524" endZ="-4224.209"/>
+            <Fixture name="Floor_2_Struct_Branch_6_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="47.935658" startY="-420" startZ="-547.9071" endX="197.9071" endY="-2877.4561" endZ="-2262.0884"/>
+            <Fixture name="Floor_2_Struct_Branch_6_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="197.9071" startY="-2877.4561" startZ="-2262.0884" endX="369.5704" endY="-3224.7524" endZ="-4224.209"/>
+            <Fixture name="Floor_2_Struct_Ring_6" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="6" shape="Line" startX="47.935658" startY="-420" startZ="-547.9071" endX="498.46927" endY="-420" endZ="-232.44005"/>
+            <Fixture name="Floor_3_Branch_1_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="0" shape="Line" startX="690.18359" startY="-3754.4429" startZ="-822.52881" endX="690.18359" endY="-2254.4429" endZ="-822.52881"/>
+            <Fixture name="Floor_3_Branch_1_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="144" shape="Line" startX="1703.2307" startY="-4985.7656" startZ="-2029.8313" endX="1703.2307" endY="-3485.7659" endZ="-2029.8313"/>
+            <Fixture name="Floor_3_Struct_Branch_1_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="289.25443" startY="-820" startZ="-344.72" endX="690.18359" endY="-3754.4429" endZ="-822.52881"/>
+            <Fixture name="Floor_3_Struct_Branch_1_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="690.18359" startY="-3754.4429" startZ="-822.52881" endX="1703.2307" endY="-4985.7656" endZ="-2029.8313"/>
+            <Fixture name="Floor_3_Struct_Ring_1" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="1" shape="Line" startX="289.25443" startY="-820" startZ="-344.72" endX="443.16348" endY="-820" endZ="78.141678"/>
+            <Fixture name="Floor_3_Branch_2_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="288" shape="Line" startX="1057.4226" startY="-3754.4429" startZ="186.45213" endX="1057.4226" endY="-2254.4429" endZ="186.45213"/>
+            <Fixture name="Floor_3_Branch_2_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="8" dmxAddress="432" shape="Line" startX="2609.5007" startY="-4985.7656" startZ="460.1254" endX="2609.5007" endY="-3485.7659" endZ="460.1254"/>
+            <Fixture name="Floor_3_Struct_Branch_2_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="443.16348" startY="-820" startZ="78.141678" endX="1057.4226" endY="-3754.4429" endZ="186.45213"/>
+            <Fixture name="Floor_3_Struct_Branch_2_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="1057.4226" startY="-3754.4429" startZ="186.45213" endX="2609.5007" endY="-4985.7656" endZ="460.1254"/>
+            <Fixture name="Floor_3_Struct_Ring_2" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="2" shape="Line" startX="443.16348" startY="-820" startZ="78.141678" endX="153.90906" endY="-820" endZ="422.86169"/>
+            <Fixture name="Floor_3_Branch_3_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="9" dmxAddress="64" shape="Line" startX="367.23901" startY="-3754.4429" startZ="1008.9809" endX="367.23901" endY="-2254.4429" endZ="1008.9809"/>
+            <Fixture name="Floor_3_Branch_3_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="9" dmxAddress="208" shape="Line" startX="906.27014" startY="-4985.7656" startZ="2489.9568" endX="906.27014" endY="-3485.7659" endZ="2489.9568"/>
+            <Fixture name="Floor_3_Struct_Branch_3_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="153.90906" startY="-820" startZ="422.86169" endX="367.23901" endY="-3754.4429" endZ="1008.9809"/>
+            <Fixture name="Floor_3_Struct_Branch_3_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="367.23901" startY="-3754.4429" startZ="1008.9809" endX="906.27014" endY="-4985.7656" endZ="2489.9568"/>
+            <Fixture name="Floor_3_Struct_Ring_3" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="3" shape="Line" startX="153.90906" startY="-820" startZ="422.86169" endX="-289.25443" endY="-820" endZ="344.72"/>
+            <Fixture name="Floor_3_Branch_4_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="0" shape="Line" startX="-690.18359" startY="-3754.4429" startZ="822.52881" endX="-690.18359" endY="-2254.4429" endZ="822.52881"/>
+            <Fixture name="Floor_3_Branch_4_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="144" shape="Line" startX="-1703.2307" startY="-4985.7656" startZ="2029.8313" endX="-1703.2307" endY="-3485.7659" endZ="2029.8313"/>
+            <Fixture name="Floor_3_Struct_Branch_4_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-289.25443" startY="-820" startZ="344.72" endX="-690.18359" endY="-3754.4429" endZ="822.52881"/>
+            <Fixture name="Floor_3_Struct_Branch_4_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-690.18359" startY="-3754.4429" startZ="822.52881" endX="-1703.2307" endY="-4985.7656" endZ="2029.8313"/>
+            <Fixture name="Floor_3_Struct_Ring_4" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="4" shape="Line" startX="-289.25443" startY="-820" startZ="344.72" endX="-443.16348" endY="-820" endZ="-78.141678"/>
+            <Fixture name="Floor_3_Branch_5_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="288" shape="Line" startX="-1057.4226" startY="-3754.4429" startZ="-186.45213" endX="-1057.4226" endY="-2254.4429" endZ="-186.45213"/>
+            <Fixture name="Floor_3_Branch_5_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="10" dmxAddress="432" shape="Line" startX="-2609.5007" startY="-4985.7656" startZ="-460.1254" endX="-2609.5007" endY="-3485.7659" endZ="-460.1254"/>
+            <Fixture name="Floor_3_Struct_Branch_5_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-443.16348" startY="-820" startZ="-78.141678" endX="-1057.4226" endY="-3754.4429" endZ="-186.45213"/>
+            <Fixture name="Floor_3_Struct_Branch_5_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-1057.4226" startY="-3754.4429" startZ="-186.45213" endX="-2609.5007" endY="-4985.7656" endZ="-460.1254"/>
+            <Fixture name="Floor_3_Struct_Ring_5" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="5" shape="Line" startX="-443.16348" startY="-820" startZ="-78.141678" endX="-153.90906" endY="-820" endZ="-422.86169"/>
+            <Fixture name="Floor_3_Branch_6_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="11" dmxAddress="64" shape="Line" startX="-367.23901" startY="-3754.4429" startZ="-1008.9809" endX="-367.23901" endY="-2254.4429" endZ="-1008.9809"/>
+            <Fixture name="Floor_3_Branch_6_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="11" dmxAddress="208" shape="Line" startX="-906.27014" startY="-4985.7656" startZ="-2489.9568" endX="-906.27014" endY="-3485.7659" endZ="-2489.9568"/>
+            <Fixture name="Floor_3_Struct_Branch_6_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="-153.90906" startY="-820" startZ="-422.86169" endX="-367.23901" endY="-3754.4429" endZ="-1008.9809"/>
+            <Fixture name="Floor_3_Struct_Branch_6_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="-367.23901" startY="-3754.4429" startZ="-1008.9809" endX="-906.27014" endY="-4985.7656" endZ="-2489.9568"/>
+            <Fixture name="Floor_3_Struct_Ring_6" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="6" shape="Line" startX="-153.90906" startY="-820" startZ="-422.86169" endX="289.25443" endY="-820" endZ="-344.72"/>
+            <Fixture name="Floor_4_Branch_1_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="0" shape="Line" startX="171.20032" startY="-4408.584" startZ="-638.92828" endX="171.20032" endY="-2908.584" endZ="-638.92828"/>
+            <Fixture name="Floor_4_Branch_1_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="144" shape="Line" startX="389.96362" startY="-6221.1997" startZ="-1455.364" endX="389.96362" endY="-4721.1997" endZ="-1455.364"/>
+            <Fixture name="Floor_4_Struct_Branch_1_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="103.52762" startY="-1420" startZ="-386.37033" endX="171.20032" endY="-4408.584" endZ="-638.92828"/>
+            <Fixture name="Floor_4_Struct_Branch_1_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="1" shape="Line" startX="171.20032" startY="-4408.584" startZ="-638.92828" endX="389.96362" endY="-6221.1997" endZ="-1455.364"/>
+            <Fixture name="Floor_4_Struct_Ring_1" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="1" shape="Line" startX="103.52762" startY="-1420" startZ="-386.37033" endX="386.37033" endY="-1420" endZ="-103.52762"/>
+            <Fixture name="Floor_4_Branch_2_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="288" shape="Line" startX="638.92828" startY="-4408.584" startZ="-171.20032" endX="638.92828" endY="-2908.584" endZ="-171.20032"/>
+            <Fixture name="Floor_4_Branch_2_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="12" dmxAddress="432" shape="Line" startX="1455.364" startY="-6221.1997" startZ="-389.96362" endX="1455.364" endY="-4721.1997" endZ="-389.96362"/>
+            <Fixture name="Floor_4_Struct_Branch_2_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="386.37033" startY="-1420" startZ="-103.52762" endX="638.92828" endY="-4408.584" endZ="-171.20032"/>
+            <Fixture name="Floor_4_Struct_Branch_2_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="2" shape="Line" startX="638.92828" startY="-4408.584" startZ="-171.20032" endX="1455.364" endY="-6221.1997" endZ="-389.96362"/>
+            <Fixture name="Floor_4_Struct_Ring_2" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="2" shape="Line" startX="386.37033" startY="-1420" startZ="-103.52762" endX="282.84271" endY="-1420" endZ="282.84271"/>
+            <Fixture name="Floor_4_Branch_3_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="13" dmxAddress="64" shape="Line" startX="467.72797" startY="-4408.584" startZ="467.72797" endX="467.72797" endY="-2908.584" endZ="467.72797"/>
+            <Fixture name="Floor_4_Branch_3_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="13" dmxAddress="208" shape="Line" startX="1065.4004" startY="-6221.1997" startZ="1065.4004" endX="1065.4004" endY="-4721.1997" endZ="1065.4004"/>
+            <Fixture name="Floor_4_Struct_Branch_3_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="282.84271" startY="-1420" startZ="282.84271" endX="467.72797" endY="-4408.584" endZ="467.72797"/>
+            <Fixture name="Floor_4_Struct_Branch_3_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="3" shape="Line" startX="467.72797" startY="-4408.584" startZ="467.72797" endX="1065.4004" endY="-6221.1997" endZ="1065.4004"/>
+            <Fixture name="Floor_4_Struct_Ring_3" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="3" shape="Line" startX="282.84271" startY="-1420" startZ="282.84271" endX="-103.52762" endY="-1420" endZ="386.37033"/>
+            <Fixture name="Floor_4_Branch_4_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="0" shape="Line" startX="-171.20032" startY="-4408.584" startZ="638.92828" endX="-171.20032" endY="-2908.584" endZ="638.92828"/>
+            <Fixture name="Floor_4_Branch_4_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="144" shape="Line" startX="-389.96362" startY="-6221.1997" startZ="1455.364" endX="-389.96362" endY="-4721.1997" endZ="1455.364"/>
+            <Fixture name="Floor_4_Struct_Branch_4_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-103.52762" startY="-1420" startZ="386.37033" endX="-171.20032" endY="-4408.584" endZ="638.92828"/>
+            <Fixture name="Floor_4_Struct_Branch_4_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="4" shape="Line" startX="-171.20032" startY="-4408.584" startZ="638.92828" endX="-389.96362" endY="-6221.1997" endZ="1455.364"/>
+            <Fixture name="Floor_4_Struct_Ring_4" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="4" shape="Line" startX="-103.52762" startY="-1420" startZ="386.37033" endX="-386.37033" endY="-1420" endZ="103.52762"/>
+            <Fixture name="Floor_4_Branch_5_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="288" shape="Line" startX="-638.92828" startY="-4408.584" startZ="171.20032" endX="-638.92828" endY="-2908.584" endZ="171.20032"/>
+            <Fixture name="Floor_4_Branch_5_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="14" dmxAddress="432" shape="Line" startX="-1455.364" startY="-6221.1997" startZ="389.96362" endX="-1455.364" endY="-4721.1997" endZ="389.96362"/>
+            <Fixture name="Floor_4_Struct_Branch_5_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-386.37033" startY="-1420" startZ="103.52762" endX="-638.92828" endY="-4408.584" endZ="171.20032"/>
+            <Fixture name="Floor_4_Struct_Branch_5_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="5" shape="Line" startX="-638.92828" startY="-4408.584" startZ="171.20032" endX="-1455.364" endY="-6221.1997" endZ="389.96362"/>
+            <Fixture name="Floor_4_Struct_Ring_5" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="5" shape="Line" startX="-386.37033" startY="-1420" startZ="103.52762" endX="-282.84271" endY="-1420" endZ="-282.84271"/>
+            <Fixture name="Floor_4_Branch_6_Mid" pixelCount="36" channelsPerPixel="4" dmxUniverse="15" dmxAddress="64" shape="Line" startX="-467.72797" startY="-4408.584" startZ="-467.72797" endX="-467.72797" endY="-2908.584" endZ="-467.72797"/>
+            <Fixture name="Floor_4_Branch_6_Tip" pixelCount="36" channelsPerPixel="4" dmxUniverse="15" dmxAddress="208" shape="Line" startX="-1065.4004" startY="-6221.1997" startZ="-1065.4004" endX="-1065.4004" endY="-4721.1997" endZ="-1065.4004"/>
+            <Fixture name="Floor_4_Struct_Branch_6_BaseToMid" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="-282.84271" startY="-1420" startZ="-282.84271" endX="-467.72797" endY="-4408.584" endZ="-467.72797"/>
+            <Fixture name="Floor_4_Struct_Branch_6_MidToTip" pixelCount="0" channelsPerPixel="1" dmxUniverse="98" dmxAddress="6" shape="Line" startX="-467.72797" startY="-4408.584" startZ="-467.72797" endX="-1065.4004" endY="-6221.1997" endZ="-1065.4004"/>
+            <Fixture name="Floor_4_Struct_Ring_6" pixelCount="0" channelsPerPixel="1" dmxUniverse="99" dmxAddress="6" shape="Line" startX="-282.84271" startY="-1420" startZ="-282.84271" endX="103.52762" endY="-1420" endZ="-386.37033"/>
         </Fixtures>
         <ArtNetDevices>
             <Device name="Device 1" ip="2.0.0.10" startUniverse="0" universeCount="8"/>
             <Device name="Device 2" ip="2.0.0.11" startUniverse="8" universeCount="8"/>
         </ArtNetDevices>
-        <CueList autoAdvance="0" loop="1" activeIndex="7">
+        <CueList autoAdvance="0" loop="1" activeIndex="-1">
             <Cue name="Cue 9" holdSeconds="5" fadeSeconds="1" targetEffectId="6"/>
             <Cue name="Cue 10" holdSeconds="5" fadeSeconds="1" targetEffectId="5"/>
             <Cue name="Cue 11" holdSeconds="5" fadeSeconds="2" targetEffectId="0"/>
@@ -377,8 +509,8 @@ float maxComp(vec3 p) {
 
 void main() {
 	vec3 p = (iPixelPos3D - pixelPosMin) / maxComp(pixelPosMax-pixelPosMin) - 0.5;
-    float dist = length(p);
-    float radius = mix(0.1, 0.45, 0.5 + 0.5 * sin(time * 1.5));
+    float dist = length(p+vec3(0.0, 0.2, 0.0));
+    float radius = mix(0.01, 0.45, 0.5 + 0.5 * sin(time * 2.5));
     float intensity = smoothstep(0.1, 0.0, dist-radius);//smoothstep(radius + 15.0, radius - 15.0, dist);
     vec3 color = vec3(0.5 + 0.5 * sin(time),
                       0.5 + 0.5 * sin(time + 2.09),
@@ -1137,11 +1269,11 @@ void main() {
     // 7. Additive intensity glow (creates a bright white hot core on the bar)
     float glow = pow(bar, 3.0) * intensity * 2.5;
 
-    fragColor = vec4((baseColor * signal).rgb + vec3(glow), 1.0);
+    fragColor = vec4((/*baseColor * */signal).rgb;// + vec3(glow), 1.0);
 }
 ]]></Effect>
         </EffectBank>
-        <GenerativeSettings masterEnabled="1" paletteEnabled="1" motiveEnabled="1" shaderEnabled="0" paletteInterval="15" paletteJitter="5" paletteCrossfade="4" motiveInterval="20" motiveJitter="5" motiveCrossfade="6" shaderInterval="30" shaderJitter="10" shaderCrossfade="5" enableLinear="1" enableLuma="1" enableSweep="1" enableCircle="1" enableLuminosity="1" transitionVolumetric="0" manualPaletteOverride="0" manualPaletteIndex="-1" manualMotiveOverride="0" manualMotiveIndex="-1" manualShaderOverride="1" manualShaderIndex="7" manualTransitionType="-1"/>
+        <GenerativeSettings masterEnabled="1" paletteEnabled="1" motiveEnabled="1" shaderEnabled="1" paletteInterval="15" paletteJitter="5" paletteCrossfade="4" motiveInterval="20" motiveJitter="5" motiveCrossfade="6" shaderInterval="30" shaderJitter="10" shaderCrossfade="5" enableLinear="1" enableLuma="1" enableSweep="1" enableCircle="1" enableLuminosity="1" transitionVolumetric="0" manualPaletteOverride="0" manualPaletteIndex="4" manualMotiveOverride="0" manualMotiveIndex="5" manualShaderOverride="0" manualShaderIndex="7" manualTransitionType="-1"/>
         <Palettes>
             <Palette name="Rainbow" isModeB="0">
                 <Stop r="1" g="0" b="0" a="1" position="0" smoothness="0.5"/>
@@ -1187,7 +1319,7 @@ void main() {
             <Motive name="Kinetic Storm" velocity="0.85000002" complexity="0.80000001" scale="0.75" distortion="0.64999998" asymmetry="0.5" intensity="0.89999998" wanderAmp0="0.18000001" wanderFreq0="1.2" wanderAmp1="0.18000001" wanderFreq1="1.2" wanderAmp2="0.18000001" wanderFreq2="1.2" wanderAmp3="0.18000001" wanderFreq3="1.2" wanderAmp4="0.18000001" wanderFreq4="1.2" wanderAmp5="0.18000001" wanderFreq5="1.2"/>
             <Motive name="Motive 1" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
             <Motive name="Motive 2" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
-            <Motive name="Motive 3" velocity="0.5" complexity="0.5" scale="0.5" distortion="0.5" asymmetry="0.5" intensity="0.5" wanderAmp0="0.15000001" wanderFreq0="0.5" wanderAmp1="0.15000001" wanderFreq1="0.5" wanderAmp2="0.15000001" wanderFreq2="0.5" wanderAmp3="0.15000001" wanderFreq3="0.5" wanderAmp4="0.15000001" wanderFreq4="0.5" wanderAmp5="0.15000001" wanderFreq5="0.5"/>
+            <Motive name="BASE" velocity="0" complexity="0" scale="0" distortion="0" asymmetry="0.059999999" intensity="1" wanderAmp0="0" wanderFreq0="0" wanderAmp1="0" wanderFreq1="0" wanderAmp2="0" wanderFreq2="0" wanderAmp3="0" wanderFreq3="0" wanderAmp4="0" wanderFreq4="0" wanderAmp5="0" wanderFreq5="0"/>
         </MotivePresets>
     </Patch>
 </PixelMapper>

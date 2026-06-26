@@ -48,6 +48,7 @@ local distMidToTip = 2000   -- 200cm from middle fixture to tip fixture
 local heights = { 20, 420, 820, 1420 } -- heights of each floor circle
 local radii = { 680, 550, 450, 400 }   -- radii of each floor circle
 local angles = { 30, 22, 15, 5 }         -- outward angle of branch (degrees)
+local droops = { 15, 12, 8, 4 }          -- droop angle of branch (degrees)
 local offsets = { 0, -25, -50, -75 }         -- rotational start offset of circle (degrees)
 
 local dmxUniverse = 0
@@ -68,6 +69,8 @@ for c = 1, numCircles do
     local h = heights[c]
     local r = radii[c]
     local alpha = angles[c] * math.pi / 180
+    local droop = droops[c] * math.pi / 180
+    local alpha_tip = alpha + droop
     local offset = offsets[c] * math.pi / 180
     
     for b = 1, branchesPerCircle do
@@ -97,10 +100,15 @@ for c = 1, numCircles do
         local midY = plantY + distBaseToMid * by
         local midZ = plantZ + distBaseToMid * bz
         
-        -- Tip attachment point
-        local tipX = plantX + (distBaseToMid + distMidToTip) * bx
-        local tipY = plantY + (distBaseToMid + distMidToTip) * by
-        local tipZ = plantZ + (distBaseToMid + distMidToTip) * bz
+        -- Tip direction vector (with droop angle added)
+        local bx_tip = math.sin(alpha_tip) * dx
+        local by_tip = -math.cos(alpha_tip)
+        local bz_tip = math.sin(alpha_tip) * dz
+        
+        -- Tip attachment point (starts from mid, extends distMidToTip along bx_tip vector)
+        local tipX = midX + distMidToTip * bx_tip
+        local tipY = midY + distMidToTip * by_tip
+        local tipZ = midZ + distMidToTip * bz_tip
         
         -- Create middle fixture hanging vertically downwards along positive Y
         local midName = "Floor_"..c.."_Branch_"..b.."_Mid"
@@ -113,10 +121,14 @@ for c = 1, numCircles do
         patch_fixture(fTip)
         
         if generateHelpers then
-            -- DRAW DUMMY BRANCH STRUCTURE (Base to Tip)
-            local branchStructName = "Floor_"..c.."_Struct_Branch_"..b
-            local fStruct = patch:create_line(branchStructName, plantX, plantY, plantZ, tipX, tipY, tipZ, 0, 1)
-            fStruct:set_dmx(98, b)
+            -- DRAW DUMMY BRANCH STRUCTURE (Base to Mid and Mid to Tip)
+            local branchStructMidName = "Floor_"..c.."_Struct_Branch_"..b.."_BaseToMid"
+            local fStructMid = patch:create_line(branchStructMidName, plantX, plantY, plantZ, midX, midY, midZ, 0, 1)
+            fStructMid:set_dmx(98, b)
+            
+            local branchStructTipName = "Floor_"..c.."_Struct_Branch_"..b.."_MidToTip"
+            local fStructTip = patch:create_line(branchStructTipName, midX, midY, midZ, tipX, tipY, tipZ, 0, 1)
+            fStructTip:set_dmx(98, b)
             
             -- DRAW DUMMY BASE RING (Base to Next Base forming a hexagon)
             local nextB = (b % branchesPerCircle) + 1

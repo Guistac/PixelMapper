@@ -32,20 +32,24 @@ namespace Fixture {
         g_fixtureNameSeq = maxSeq + 1;
     }
 
-    static flecs::entity create(flecs::entity patch, int numPixels, int channels){
+    static flecs::entity create(flecs::entity patch, int numPixels, int channels, std::function<void(flecs::entity)> shapeInit = nullptr){
         auto fixtureList = patch.target<Patch::FixtureFolder>();
         auto newFixture = patch.world().entity()
             .child_of(fixtureList)
             .add<Fixture::Is>()
             .add<Fixture::PixelData>();
 
+        int currentCount = Fixture::getCountWithDmx(patch);
+        newFixture.set<Fixture::Order>({currentCount});
+
+        if (shapeInit) {
+            shapeInit(newFixture);
+        }
+
         Fixture::Layout layout{
             .pixelCount = numPixels,
             .channelsPerPixel = channels
         };
-
-        int currentCount = Fixture::getCountWithDmx(patch);
-        newFixture.set<Fixture::Order>({currentCount});
 
         newFixture.set<Fixture::Layout>(layout)
         .set<Fixture::DmxAddress>({0,0});
@@ -61,9 +65,10 @@ namespace Fixture {
             updateFixtureNameCounter(patch.world());
         });
         std::string fixtureName = "Line Fixture " + std::to_string(g_fixtureNameSeq++);
-        auto newFixture = create(patch, numPixels, channels);
+        auto newFixture = create(patch, numPixels, channels, [&](flecs::entity e) {
+            e.set<WithShape, Shape::Line>({start, end});
+        });
         Patch::safe_set_name(newFixture, fixtureName);
-        newFixture.set<WithShape, Shape::Line>({start, end});
         return newFixture;
     }
 
@@ -73,9 +78,10 @@ namespace Fixture {
             updateFixtureNameCounter(patch.world());
         });
         std::string fixtureName = "Circle Fixture " + std::to_string(g_fixtureNameSeq++);
-        auto newFixture = create(patch, numPixels, channels);
+        auto newFixture = create(patch, numPixels, channels, [&](flecs::entity e) {
+            e.set<WithShape, Shape::Circle>({center, radius});
+        });
         Patch::safe_set_name(newFixture, fixtureName);
-        newFixture.set<WithShape, Shape::Circle>({center, radius});
         return newFixture;
     }
 
